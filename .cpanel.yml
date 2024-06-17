@@ -1,16 +1,14 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home/rodicomm/public_html/Api_talent_rodi/
-    - /bin/cp -R application $DEPLOYPATH
-    - /bin/cp -R css $DEPLOYPATH
-    - /bin/cp -R img $DEPLOYPATH
-    - /bin/cp -R js $DEPLOYPATH
-    - /bin/cp -R privacy_notice $DEPLOYPATH
-    - /bin/cp -R scss $DEPLOYPATH
-    - /bin/cp -R system $DEPLOYPATH
-    - /bin/cp -R vendor $DEPLOYPATH
-    - /bin/cp .htaccess $DEPLOYPATH
-    - /bin/cp index.php $DEPLOYPATH
+    - /bin/cp -R * $DEPLOYPATH
+    - cd $DEPLOYPATH
+    - /usr/bin/composer install --no-dev --optimize-autoloader
+    - /usr/bin/php $DEPLOYPATH/artisan config:cache
+    - /usr/bin/php $DEPLOYPATH/artisan route:cache
+    - /usr/bin/php $DEPLOYPATH/artisan migrate --force
+    - /bin/chmod -R 755 $DEPLOYPATH/storage
+    - /bin/chmod -R 755 $DEPLOYPATH/bootstrap/cache
 
 
 #deployment:
