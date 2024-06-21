@@ -26,7 +26,7 @@ use App\Http\Controllers\TestController;
 |
 */
 
-Route::post('/test', [TestController::class, 'testPost']);
+Route::get('/test', [TestController::class, 'testPost']);
 Route::get('file/{path}', [ImageController::class, 'getFile'])->where('path', '.*');
 
 Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
