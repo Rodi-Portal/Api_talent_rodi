@@ -1,6 +1,6 @@
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/rodicomm/public_html/Api_talent_rodi/
+    - export DEPLOYPATH=/home/rodicomm/public_html/apis/apicandidatos
     - /bin/cp -R * $DEPLOYPATH
     - cd $DEPLOYPATH
     - /usr/bin/composer install --no-dev --optimize-autoloader
