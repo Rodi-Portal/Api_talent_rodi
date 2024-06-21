@@ -24,7 +24,7 @@ class DopingDetalle extends Model
     ];
 
     // Relación con Usuario (muchos a uno)
-    public function usuarios()
+    public function usuario()
     {
         return $this->belongsTo(Usuario::class, 'id_usuario');
     }

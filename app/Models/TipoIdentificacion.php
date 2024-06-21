@@ -24,7 +24,7 @@ class TipoIdentificacion extends Model
     ];
 
     // Relación con Usuario si es necesaria
-    public function usuarios()
+    public function usuario()
     {
        return $this->belongsTo(Usuario::class, 'id_usuario');
      }
