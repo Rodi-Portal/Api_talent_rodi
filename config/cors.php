@@ -1,27 +1,24 @@
 <?php
 
 return [
-
     /*
-    |--------------------------------------------------------------------------
-    | Cross-Origin Resource Sharing (CORS) Configuration
-    |--------------------------------------------------------------------------
-    |
-    | Here you may configure your settings for cross-origin resource sharing
-    | or "CORS". This determines what cross-origin operations may execute
-    | in web browsers. You are free to adjust these settings as needed.
-    |
-    | To learn more: https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS
-    |
-    */
+     |--------------------------------------------------------------------------
+     | Laravel CORS Options
+     |--------------------------------------------------------------------------
+     |
+     | The allowed_origins and allowed_origins_patterns options allow you to
+     | configure what domains (or patterns) can send requests to your
+     | application. Allowed_methods and allowed_headers are self-explanatory.
+     |
+     */
 
     'paths' => ['api/*'],
 
     'allowed_methods' => ['*'],
 
-   'allowed_origins' => [ 'https://portal.talentsafecontrol.com'],
+    'allowed_origins' => ['*'],
 
-    'allowed_origins_patterns' => ['*'],
+    'allowed_origins_patterns' => [],
 
     'allowed_headers' => ['*'],
 
@@ -30,5 +27,4 @@ return [
     'max_age' => 0,
 
     'supports_credentials' => false,
-
 ];
