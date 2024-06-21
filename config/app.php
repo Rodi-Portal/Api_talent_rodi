@@ -159,7 +159,6 @@ return [
         /*
          * Laravel Framework Service Providers...
          */
-        FruitCake\Cors\CorsServiceProvider::class,
 
         Illuminate\Auth\AuthServiceProvider::class,
         Illuminate\Broadcasting\BroadcastServiceProvider::class,
