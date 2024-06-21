@@ -9,6 +9,7 @@ use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ImageController;
+use App\Http\Controllers\TestController;
 
 
 
@@ -24,6 +25,8 @@ use App\Http\Controllers\ImageController;
 | is assigned the "api" middleware group. Enjoy building your API!
 |
 */
+
+Route::post('/test', [TestController::class, 'testPost']);
 Route::get('file/{path}', [ImageController::class, 'getFile'])->where('path', '.*');
 
 Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
