@@ -66,7 +66,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 'psicometrico' => $request->psicometrico,
                 'id_usuario' => 1, // Ajusta este valor según sea necesario
                 'id_candidato' => $candidato->id,
-                'id_cliente' => $request->id_cliente,
+                'id_cliente' => 273,
                 'socioeconomico' => 1, // O el valor que estés recibiendo
             ]);
 
