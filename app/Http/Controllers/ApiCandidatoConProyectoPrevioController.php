@@ -32,7 +32,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 'materno' => $request->materno,
                 'correo' => $request->correo,
                 'token' => $request->token,
-                'id_cliente' => 269,
+                'id_cliente' => $request->id_cliente,
                 'celular' => $request->celular,
                 'subproyecto' => $request->subproyecto_previo,
                 'pais' => $request->pais_previo,
