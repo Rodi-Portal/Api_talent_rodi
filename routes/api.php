@@ -10,6 +10,7 @@ use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\TestController;
+use App\Http\Controllers\ApiGetMedicoDetalles;
 
 
 
@@ -25,7 +26,7 @@ use App\Http\Controllers\TestController;
 | is assigned the "api" middleware group. Enjoy building your API!
 |
 */
-
+Route::get('/medico/{id}', [ApiGetMedicoDetalles::class, 'getDatosMedico']);
 Route::get('/test', [TestController::class, 'testPost']);
 Route::get('file/{path}', [ImageController::class, 'getFile'])->where('path', '.*');
 
