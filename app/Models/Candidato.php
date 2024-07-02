@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class Candidato extends Model
 {
@@ -145,7 +146,11 @@ class Candidato extends Model
         'cancelado',
         'eliminado'
     ];
-
+    public function getDetalles($id_candidato)
+    {
+        // Definición de la consulta
+        return $this->where('id', $id_candidato)->first();
+    }
     // Relaciones
 
     public function aspirante()
@@ -193,4 +198,47 @@ class Candidato extends Model
     {
         return $this->hasMany(Doping::class, 'id_candidato');
     }
+
+       // Definir la relación con CandidatoBGC
+       public function bgc()
+       {
+           return $this->hasOne(CandidatoBGC::class, 'id_candidato');
+       }
+   
+       // Método para obtener BGC por id_candidato
+       public static function getBGCById($id)
+       {
+           return self::select('candidato.id', 'candidato.status_bgc', 'candidato_bgc.*')
+               ->join('candidato_bgc', 'candidato_bgc.id_candidato', '=', 'candidato.id')
+               ->where('candidato.id', $id)
+               ->first();
+       }
+       public static function getDetallesPDF($idCandidato)
+    {
+        return DB::table('candidato as c')
+            ->select(
+                'c.*',
+                DB::raw("CONCAT(c.nombre, ' ', c.paterno, ' ', c.materno) as candidato"),
+                'fin.creacion as fecha_fin',
+                'cl.nombre as cliente',
+                'cl.ingles as ingles',
+                'dop.id as idDoping',
+                'p.nombre as puestoSeleccionado',
+                'MUN.nombre as municipio',
+                'EST.nombre as estado',
+                'GR.nombre as grado_estudio',
+                'BGC.creacion as fecha_bgc'
+            )
+            ->leftJoin('candidato_finalizado as fin', 'fin.id_candidato', '=', 'c.id')
+            ->leftJoin('candidato_bgc as BGC', 'BGC.id_candidato', '=', 'c.id')
+            ->leftJoin('cliente as cl', 'cl.id', '=', 'c.id_cliente')
+            ->leftJoin('doping as dop', 'dop.id_candidato', '=', 'c.id')
+            ->leftJoin('puesto as p', 'p.id', '=', 'c.id_puesto')
+            ->leftJoin('municipio as MUN', 'MUN.id', '=', 'c.id_municipio')
+            ->leftJoin('estado as EST', 'EST.id', '=', 'c.id_estado')
+            ->leftJoin('grado_estudio as GR', 'GR.id', '=', 'c.id_grado_estudio')
+            ->where('c.id', $idCandidato)
+            ->first();
+    }
+
 }

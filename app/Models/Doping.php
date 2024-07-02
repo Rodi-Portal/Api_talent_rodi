@@ -80,4 +80,13 @@ class Doping extends Model
     {
         return $this->belongsTo(Area::class, 'id_area');
     }
+
+    public function getDoping($id_candidato)
+    {
+        return $this->select('doping.*', 'antidoping_paquete.nombre as drogas', 'antidoping_paquete.conjunto')
+                    ->join('antidoping_paquete', 'antidoping_paquete.id', '=', 'doping.id_antidoping_paquete')
+                    ->where('doping.status', 0)
+                    ->where('doping.id_candidato', $id_candidato)
+                    ->first();
+    }
 }

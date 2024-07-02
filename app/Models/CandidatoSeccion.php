@@ -80,5 +80,10 @@ class CandidatoSeccion extends Model
         'tipo_pdf'
     ];
 
+    public function getByCandidatoId($id_candidato)
+    {
+        return $this->where('id_candidato', $id_candidato)->first();
+    }
+
     // Aquí puedes agregar métodos y relaciones del modelo si es necesario
 }

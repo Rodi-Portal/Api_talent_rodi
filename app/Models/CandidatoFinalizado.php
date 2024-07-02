@@ -4,20 +4,17 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+
 class CandidatoFinalizado extends Model
 {
     use HasFactory;
 
-    // Definir la tabla asociada al modelo
-    protected $table = 'candidato_finalizado';
-
-    // Definir la clave primaria de la tabla
+    protected $connection = 'rodi_main';
+    protected $table = 'candidato_finalizado'; // Nombre de la tabla en la base de datos
     protected $primaryKey = 'id';
 
     // Deshabilitar marcas de tiempo automáticas si no están en la tabla
     public $timestamps = false;
-
-    // Definir los campos que pueden ser asignados masivamente
     protected $fillable = [
         'creacion',
         'id_usuario',
@@ -35,6 +32,20 @@ class CandidatoFinalizado extends Model
         'conclusion_investigacion',
         'recomendable',
         'tiempo',
-        'comentario'
+        'comentario',
     ];
+
+    protected $casts = [
+        'creacion' => 'datetime',
+    ];
+
+    public function usuario()
+    {
+        return $this->belongsTo(Usuario::class, 'id_usuario');
+    }
+
+    public static function getByCandidatoId($id_candidato)
+    {
+        return self::where('id_candidato', $id_candidato)->first();
+    }
 }
