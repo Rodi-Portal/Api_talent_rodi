@@ -64,4 +64,13 @@ class CandidatoPruebas extends Model
     {
         return $this->belongsTo(Antidoping::class, 'antidoping');
     }
+
+    public function getExamenes($id_candidato)
+    {
+        return $this->select('candidato_pruebas.*', 'medico.edicion as fecha_medico', 'medico.conclusion as conclusion_medico', 'psicometrico.edicion as fecha_psicometrico', 'psicometrico.archivo', 'medico.id as idMedico', 'psicometrico.id as idPsicometrico')
+                    ->leftJoin('medico', 'medico.id_candidato', '=', 'candidato_pruebas.id_candidato')
+                    ->leftJoin('psicometrico', 'psicometrico.id_candidato', '=', 'candidato_pruebas.id_candidato')
+                    ->where('candidato_pruebas.id_candidato', $id_candidato)
+                    ->first();
+    }
 }

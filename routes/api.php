@@ -12,6 +12,7 @@ use App\Http\Controllers\ImageController;
 use App\Http\Controllers\TestController;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\ReportController;
 
 
 
@@ -47,7 +48,9 @@ Route::get('doping-detalles/{id}', [ApiGetDopingDetalles::class, 'getDopingDetal
 
 Route::get('area/{nombre}', [ApiGetArea::class, 'getArea']);
 
+// reportes
 
+Route::get('/report/{id_candidato}', [ReportController::class, 'getReport']);
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
