@@ -24,7 +24,7 @@ class DocumentController extends Controller
   $destinationPath = 'https://portal.talentsafecontrol.com/_psicometria/';
          }else{
               // Preparar la ruta de destino
-        $destinationPath = 'https://portal.talentsafecontrol.com/_docs';
+        $destinationPath = 'https://portal.talentsafecontrol.com/_docs/';
          }
 
       
