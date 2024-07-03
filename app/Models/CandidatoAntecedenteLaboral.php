@@ -52,6 +52,6 @@ class CandidatoAntecedenteLaboral extends Model
      */
     public function getById($id)
     {
-        return $this->where('id_candidato', $id)->first();
+        return $this->where('id_candidato', $id)->get()->toArray();
     }
 }

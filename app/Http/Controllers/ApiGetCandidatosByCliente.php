@@ -23,7 +23,7 @@ class ApiGetCandidatosByCliente extends Controller
         }
 
         // Realizar la consulta combinada de Candidato y CandidatoSync
-        $results = Candidato::leftJoin('candidato_sync AS CS', 'candidato.id', '=', 'CS.id_candidato_rodi')
+        $results = Candidato::leftJoin('candidato_sync AS CSY', 'candidato.id', '=', 'CSY.id_candidato_rodi')
             ->leftJoin('usuario AS US', 'US.id', '=', 'candidato.id_usuario')
             ->leftJoin('candidato_seccion AS CAS', 'CAS.id_candidato', '=', 'candidato.id')
             ->leftJoin('candidato_bgc AS BGC', 'BGC.id_candidato', '=', 'candidato.id')
@@ -32,8 +32,9 @@ class ApiGetCandidatosByCliente extends Controller
             ->leftJoin('medico AS MED', 'MED.id_candidato', '=', 'candidato.id')
             ->leftJoin('psicometrico AS PSI', 'PSI.id_candidato', '=', 'candidato.id')
 
-            ->where('CS.id_cliente_talent', $id_cliente_talent)
+            ->where('CSY.id_cliente_talent', $id_cliente_talent)
             ->select(
+                'candidato.*',
                 'candidato.id AS id',
                 DB::raw("CONCAT(candidato.nombre, ' ', candidato.paterno, ' ', candidato.materno) as candidato"),
                 'candidato.nombre AS nombre',
@@ -47,9 +48,10 @@ class ApiGetCandidatosByCliente extends Controller
                 'candidato.tiempo_parcial AS tiempo_parcial',
                 'candidato.cancelado AS cancelado',
 
-                'CS.creacion AS creacion',
-                'CS.edicion AS edicion',
+                'CSY.creacion AS creacion',
+                'CSY.edicion AS edicion',
                 DB::raw("CONCAT(US.nombre, ' ', US.paterno, ' ', US.materno) as usuario"),
+                'CAS.tipo_conclusion',
                 'CAS.proyecto AS nombre_proyecto',
                 'BGC.creacion AS fecha_bgc',
 
@@ -58,7 +60,7 @@ class ApiGetCandidatosByCliente extends Controller
                 'CAP.medico',
                 'CAP.psicometrico',
                 'CAP.socioeconomico',
-
+                
                 'MED.id AS idMedico',
                 'MED.imagen_historia_clinica AS imagen',
                 'MED.conclusion',

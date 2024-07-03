@@ -44,6 +44,6 @@ class CandidatoRefPersonal extends Model
 
     public  function getByCandidatoId($id_candidato)
     {
-        return self::where('id_candidato', $id_candidato)->first();
+        return self::where('id_candidato', $id_candidato)->get()->toArray();
     }
 }
