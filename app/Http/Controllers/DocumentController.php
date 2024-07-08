@@ -21,8 +21,8 @@ class DocumentController extends Controller
         $carpeta = $request->input('carpeta');
         
   // Preparar la ruta de destino Produccion
-  //$destinationPath = '/home/rodicomm/public_html/portal.rodi.com.mx/$carpeta;
-  $destinationPath = 'https://portal.talentsafecontrol.com/' .$carpeta;
+  $destinationPath = '/home/rodicomm/public_html/portal.rodi.com.mx/'.$carpeta;
+  //$destinationPath = 'rodi_portal.test/'.$carpeta;
          
 
       
