@@ -11,7 +11,17 @@ class CorsMiddleware
     {
         $response = $next($request);
 
-        $response->headers->set('Access-Control-Allow-Origin', 'https://portal.talentsafecontrol.com');
+        $allowedOrigins = [
+            'https://portal.talentsafecontrol.com',
+            'https://rodicontrol.rodi.com.mx', // Agregamos este origen permitido
+        ];
+
+        $origin = $request->headers->get('Origin');
+
+        if (in_array($origin, $allowedOrigins)) {
+            $response->headers->set('Access-Control-Allow-Origin', $origin);
+        }
+
         $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
         $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
