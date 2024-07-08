@@ -19,13 +19,11 @@ class DocumentController extends Controller
         $file = $request->file('file');
         $fileName = $request->input('file_name');
         $carpeta = $request->input('carpeta');
-         if($carpeta != null){
-  // Preparar la ruta de destino
-  $destinationPath = '/home/rodicomm/public_html/portal.rodi.com.mx/_psicometria/';
-         }else{
-              // Preparar la ruta de destino
-    $destinationPath = '/home/rodicomm/public_html/portal.rodi.com.mx/_docs/';
-         }
+        
+  // Preparar la ruta de destino Produccion
+  //$destinationPath = '/home/rodicomm/public_html/portal.rodi.com.mx/$carpeta;
+  $destinationPath = 'rodi_portal.test/'.$carpeta;
+         
 
       
 
