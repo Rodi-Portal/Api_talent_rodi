@@ -22,7 +22,7 @@ class DocumentController extends Controller
         
   // Preparar la ruta de destino Produccion
   //$destinationPath = '/home/rodicomm/public_html/portal.rodi.com.mx/$carpeta;
-  $destinationPath = 'rodi_portal.test/'.$carpeta;
+  $destinationPath = 'https://portal.talentsafecontrol.com/' .$carpeta;
          
 
       
