@@ -36,7 +36,7 @@ class ApiGetCandidatosByCliente extends Controller
             ->select(
                 'candidato.*',
                 'candidato.id AS id',
-                DB::raw("CONCAT(candidato.nombre, ' ', candidato.paterno, ' ', candidato.materno) as candidato"),
+                DB::raw("CONCAT(candidato.nombre, ' ', candidato.paterno, ' ', COALESCE(candidato.materno, '')) as candidato"),
                 'candidato.nombre AS nombre',
                 'candidato.paterno AS paterno',
                 'candidato.materno AS materno',
@@ -50,7 +50,7 @@ class ApiGetCandidatosByCliente extends Controller
 
                 'CSY.creacion AS creacion',
                 'CSY.edicion AS edicion',
-                DB::raw("CONCAT(US.nombre, ' ', US.paterno, ' ', US.materno) as usuario"),
+                DB::raw("CONCAT(US.nombre, ' ', US.paterno, ' ', COALESCE(US.materno, '')) as usuario"),
                 'CAS.tipo_conclusion',
                 'CAS.proyecto AS nombre_proyecto',
                 'BGC.creacion AS fecha_bgc',
