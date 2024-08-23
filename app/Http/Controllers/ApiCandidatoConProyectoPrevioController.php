@@ -2,20 +2,25 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Candidato;
+use App\Models\CandidatoDocumentoRequerido;
+use App\Models\CandidatoPruebas;
+use App\Models\CandidatoSeccion;
+use App\Models\CandidatoSync;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use App\Models\Candidato;
-use App\Models\CandidatoPruebas;
-use App\Models\CandidatoSync;
-use App\Models\CandidatoSeccion;
-use App\Models\CandidatoDocumentoRequerido;
-
 
 class ApiCandidatoConProyectoPrevioController extends Controller
 {
     public function store(Request $request)
     {
-        $date = now(); // O la forma en que obtienes la fecha actual
+        // Obtener la fecha y hora actual en la zona horaria predeterminada del servidor
+        $date = Carbon::now()->setTimezone('America/Mexico_City'); 
+
+        // Frases de proyecto a comprobar
+   
+        $frases_permitidas = ['General Nacional', 'Laborales Nacional'];
 
         DB::beginTransaction();
 
@@ -36,7 +41,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 'celular' => $request->celular,
                 'subproyecto' => $request->subproyecto_previo,
                 'pais' => $request->pais_previo,
-                'privacidad'=> $request->privacidad_usuario ?? 0,
+                'privacidad' => $request->privacidad_usuario ?? 0,
             ]);
 
             $candidato->save();
@@ -71,7 +76,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
             ]);
 
             $candidatoPruebas->save();
-            
+
             $candidatoSeccion = new CandidatoSeccion([
                 'creacion' => $request->creacion,
                 'id_usuario' => 1,
@@ -133,6 +138,19 @@ class ApiCandidatoConProyectoPrevioController extends Controller
             ]);
 
             $candidatoSeccion->save();
+
+            $nombre_proyecto = $request->secciones['proyecto'];
+            if (in_array($nombre_proyecto, $frases_permitidas)) {
+                // Crear un registro en la tabla 'visita'
+                $visita = new Visita([
+                    'creacion' => $date,
+                    'edicion' => $date,
+                    'id_usuario' => 1, // Ajusta este valor según sea necesario
+                    'id_candidato' => $candidato->id,
+                    // Otros campos pueden quedar en null si no se reciben en el request
+                ]);
+                $visita->save();
+            }
             // Continuar con los siguientes pasos de inserción
 
             foreach ($request->documentos as $documentoData) {
