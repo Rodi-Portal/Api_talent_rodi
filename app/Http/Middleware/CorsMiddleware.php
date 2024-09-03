@@ -14,6 +14,7 @@ class CorsMiddleware
         $allowedOrigins = [
             'https://portal.talentsafecontrol.com',
             'https://rodicontrol.rodi.com.mx', // Agregamos este origen permitido
+            'http://localhost', 
         ];
 
         $origin = $request->headers->get('Origin');
