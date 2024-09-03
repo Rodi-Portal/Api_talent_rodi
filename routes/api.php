@@ -13,7 +13,7 @@ use App\Http\Controllers\TestController;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ReportController;
-
+use App\Http\Controllers\WhatsAppController;
 
 
 
@@ -29,7 +29,9 @@ use App\Http\Controllers\ReportController;
 |
 */
 
-
+Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
+Route::post('/send-message-movimiento', [WhatsAppController::class, 'sendMessage_movimiento_aspirante']);
+Route::post('/send-message-comentario-reclu', [WhatsAppController::class, 'sendMessage_comentario_reclu']);
 
 Route::get('/medico/{id}', [ApiGetMedicoDetalles::class, 'getDatosMedico']);
 Route::get('/test', [TestController::class, 'testPost']);

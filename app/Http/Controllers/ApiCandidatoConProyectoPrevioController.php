@@ -7,6 +7,7 @@ use App\Models\CandidatoDocumentoRequerido;
 use App\Models\CandidatoPruebas;
 use App\Models\CandidatoSeccion;
 use App\Models\CandidatoSync;
+use App\Models\Visita;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
