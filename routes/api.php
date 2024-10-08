@@ -14,7 +14,10 @@ use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\WhatsAppController;
-
+use App\Http\Controllers\Empleados\ApiEmpleadoController;
+use App\Http\Controllers\Empleados\DocumentOptionController;
+use App\Http\Controllers\Empleados\EmpleadoController;
+use App\Http\Controllers\Empleados\MedicalInfoController;
 
 
 
@@ -28,11 +31,15 @@ use App\Http\Controllers\WhatsAppController;
 | is assigned the "api" middleware group. Enjoy building your API!
 |
 */
-
+//  rutas  para  envio de  mensajes  de  whatsssApp
 Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
 Route::post('/send-message-movimiento', [WhatsAppController::class, 'sendMessage_movimiento_aspirante']);
 Route::post('/send-message-comentario-reclu', [WhatsAppController::class, 'sendMessage_comentario_reclu']);
+Route::post('/send-message-comentario-cliente', [WhatsAppController::class, 'sendMessage_comentario_cliente']);
+Route::post('/send-message-requisicion-cliente', [WhatsAppController::class, 'sendMessage_requisicion_cliente']);
 
+
+// ruta  de  examen  medico 
 Route::get('/medico/{id}', [ApiGetMedicoDetalles::class, 'getDatosMedico']);
 Route::get('/test', [TestController::class, 'testPost']);
 
@@ -40,7 +47,7 @@ Route::get('/test', [TestController::class, 'testPost']);
 Route::get('file/{path}', [ImageController::class, 'getFile'])->where('path', '.*');
 Route::post('/upload', [DocumentController::class, 'upload']);
 
-
+//  rutas    para  candidatos  socioeconomicos  y doping 
 Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
 Route::post('/candidatos', [ApiCandidatoSinEseController::class, 'store']);
 Route::post('/existe-cliente', [ApiClientesController::class, 'VerificarCliente']);
@@ -48,11 +55,38 @@ Route::get('candidato-sync/{id_cliente_talent}', [ApiGetCandidatosByCliente::cla
 Route::get('doping/{id}', [ApiGetDopingDetalles::class, 'getDatosDoping']);
 Route::get('doping-detalles/{id}', [ApiGetDopingDetalles::class, 'getDopingDetalles']);
 
+// ruta  para  cargar 
 Route::get('area/{nombre}', [ApiGetArea::class, 'getArea']);
 
-// reportes
-
+// EndPoints bgv  reportes
 Route::get('/report/{id_candidato}', [ReportController::class, 'getReport']);
+
+
+
+// Emdpoints Empleados 
+Route::get('empleados', [ApiEmpleadoController::class, 'index']);
+Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
+Route::get('/document-options', [DocumentOptionController::class, 'index']);
+Route::middleware(['api'])->group(function () {
+    Route::put('/empleados/update', [EmpleadoController::class, 'update']);
+    Route::get('/medical-info/{id_empleado}', [MedicalInfoController::class, 'show']);
+    Route::put('/medical-info/{id_empleado}', [MedicalInfoController::class, 'update']);
+    Route::post('/documents', [DocumentOptionController::class, 'store']);
+    Route::get('/documents/{id}', [DocumentOptionController::class, 'getDocumentsByEmployeeId']);
+
+     // Ruta para actualizar la expiración del documento
+     Route::put('/documents/{id}', [DocumentOptionController::class, 'updateExpiration']);
+     Route::get('/empleados/{id_empleado}/documentos', [EmpleadoController::class, 'getDocumentos']);
+     //eliminar Documentos  del empleado 
+     Route::delete('/documents', [DocumentOptionController::class, 'deleteDocument']);
+
+ // Asegúrate de tener un método para obtener datos.
+
+    
+});
+
+
+
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
