@@ -51,17 +51,17 @@ class WhatsAppController extends Controller
         if ($response->successful()) {
             return response()->json([
                 'status' => 'success',
-                'data' => $response->json()
+                'data' => $response->json(),
             ]);
         } else {
             return response()->json([
                 'status' => 'error',
-                'message' => $response->json('error', 'Error desconocido')
+                'message' => $response->json('error', 'Error desconocido'),
             ], $response->status());
         }
     }
 
-    // mensaje   hacia  el cliente  cuando   el reclutador   registra  un movimiento 
+    // mensaje   hacia  el cliente  cuando   el reclutador   registra  un movimiento
     public function sendMessage_movimiento_aspirante(Request $request)
     {
         // Valida los datos de entrada
@@ -96,20 +96,20 @@ class WhatsAppController extends Controller
             'template' => [
                 'name' => $template,
                 'language' => ['code' => 'es_MX'],
-                'components' =>  [
+                'components' => [
                     [
                         'type' => 'header',
                         'parameters' => [
-                            ['type' => 'text', 'text' => $nombre_cliente],  
+                            ['type' => 'text', 'text' => $nombre_cliente],
                         ],
                     ],
                     [
                         'type' => 'body',
                         'parameters' => [
-                            
+
                             ['type' => 'text', 'text' => $nombre_aspirante],
                             ['type' => 'text', 'text' => $vacante],
-                         
+
                         ],
                     ],
                 ],
@@ -126,19 +126,17 @@ class WhatsAppController extends Controller
         if ($response->successful()) {
             return response()->json([
                 'status' => 'success',
-                'data' => $response->json()
+                'data' => $response->json(),
             ]);
         } else {
             return response()->json([
                 'status' => 'error',
-                'message' => $response->json('error', 'Error desconocido')
+                'message' => $response->json('error', 'Error desconocido'),
             ], $response->status());
         }
     }
 
-
-
-    // mensaje  hacia  el cliente  cuando   el reclutador  sube  un comentario 
+    // mensaje  hacia  el cliente  cuando   el reclutador  sube  un comentario
     public function sendMessage_comentario_reclu(Request $request)
     {
         // Valida los datos de entrada
@@ -173,11 +171,11 @@ class WhatsAppController extends Controller
             'template' => [
                 'name' => $template,
                 'language' => ['code' => 'es_MX'],
-                'components' =>  [
+                'components' => [
                     [
                         'type' => 'header',
                         'parameters' => [
-                            ['type' => 'text', 'text' => $nombre_cliente],  
+                            ['type' => 'text', 'text' => $nombre_cliente],
                         ],
                     ],
                     [
@@ -186,8 +184,7 @@ class WhatsAppController extends Controller
 
                             ['type' => 'text', 'text' => $vacante],
                             ['type' => 'text', 'text' => $nombre_aspirante],
-                           
-                         
+
                         ],
                     ],
                 ],
@@ -204,12 +201,161 @@ class WhatsAppController extends Controller
         if ($response->successful()) {
             return response()->json([
                 'status' => 'success',
-                'data' => $response->json()
+                'data' => $response->json(),
             ]);
         } else {
             return response()->json([
                 'status' => 'error',
-                'message' => $response->json('error', 'Error desconocido')
+                'message' => $response->json('error', 'Error desconocido'),
+            ], $response->status());
+        }
+    }
+
+    public function sendMessage_comentario_cliente(Request $request)
+    {
+        // Valida los datos de entrada
+        $validated = $request->validate([
+            'phone' => 'required|string',
+            'template' => 'required|string',
+            'nombre_reclu' => 'nullable|string',
+            'nombre_cliente' => 'nullable|string',
+            'nombre_aspirante' => 'nullable|string',
+            'vacante' => 'nullable|string',
+            'telefono' => 'nullable|string',
+        ]);
+
+        // Obtén los datos de la solicitud
+        $phone = $validated['phone'];
+        $template = $validated['template'];
+        $nombre_reclutador = $validated['nombre_reclu'] ?? '';
+
+        $nombre_cliente = $validated['nombre_cliente'] ?? '';
+        $nombre_aspirante = $validated['nombre_aspirante'] ?? '';
+        $vacante = $validated['vacante'] ?? '';
+        $telefono = $validated['telefono'] ?? '';
+
+        // Define el URL del endpoint de la API de Facebook
+        $url = 'https://graph.facebook.com/v20.0/391916820677600/messages';
+
+        // Define el token de autorización (se recomienda almacenarlo en .env)
+        $token = env('FACEBOOK_ACCESS_TOKEN');
+
+        // Define el payload de la solicitud
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'to' => $phone,
+            'type' => 'template',
+            'template' => [
+                'name' => $template,
+                'language' => ['code' => 'es_MX'],
+                'components' => [
+                    [
+                        'type' => 'header',
+                        'parameters' => [
+                            ['type' => 'text', 'text' => $nombre_reclutador],
+                        ],
+                    ],
+                    [
+                        'type' => 'body',
+                        'parameters' => [
+                            ['type' => 'text', 'text' => $nombre_cliente],
+                            ['type' => 'text', 'text' => $nombre_aspirante],
+                            ['type' => 'text', 'text' => $vacante],
+                           
+
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        // Realiza la solicitud POST usando Http de Laravel
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $token,
+            'Content-Type' => 'application/json',
+        ])->post($url, $payload);
+
+        // Verifica la respuesta
+        if ($response->successful()) {
+            return response()->json([
+                'status' => 'success',
+                'data' => $response->json(),
+            ]);
+        } else {
+            return response()->json([
+                'status' => 'error',
+                'message' => $response->json('error', 'Error desconocido'),
+            ], $response->status());
+        }
+    }
+
+    public function sendMessage_requisicion_cliente(Request $request)
+    {
+        // Valida los datos de entrada
+        $validated = $request->validate([
+            'phone' => 'required|string',
+            'template' => 'required|string',
+            'nombre_gerente' => 'nullable|string',
+            'nombre_cliente' => 'nullable|string',
+            'vacante' => 'nullable|string',
+            'telefono' => 'nullable|string',
+        ]);
+
+        // Obtén los datos de la solicitud
+        $phone = $validated['phone'];
+        $template = $validated['template'];
+        $nombre_gerente = $validated['nombre_gerente'] ?? '';
+        $nombre_cliente = $validated['nombre_cliente'] ?? '';
+        $vacante = $validated['vacante'] ?? '';
+        $telefono = $validated['telefono'] ?? '';
+
+        // Define el URL del endpoint de la API de Facebook
+        $url = 'https://graph.facebook.com/v20.0/391916820677600/messages';
+
+        // Define el token de autorización (se recomienda almacenarlo en .env)
+        $token = env('FACEBOOK_ACCESS_TOKEN');
+
+        // Define el payload de la solicitud
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'to' => $phone,
+            'type' => 'template',
+            'template' => [
+                'name' => $template,
+                'language' => ['code' => 'es_MX'],
+                'components' => [
+                    [
+                        'type' => 'header',
+                        'parameters' => [
+                            ['type' => 'text', 'text' => $nombre_gerente],
+                        ],
+                    ],
+                    [
+                        'type' => 'body',
+                        'parameters' => [
+                            ['type' => 'text', 'text' => $nombre_cliente],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        // Realiza la solicitud POST usando Http de Laravel
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $token,
+            'Content-Type' => 'application/json',
+        ])->post($url, $payload);
+
+        // Verifica la respuesta
+        if ($response->successful()) {
+            return response()->json([
+                'status' => 'success',
+                'data' => $response->json(),
+            ]);
+        } else {
+            return response()->json([
+                'status' => 'error',
+                'message' => $response->json('error', 'Error desconocido'),
             ], $response->status());
         }
     }
