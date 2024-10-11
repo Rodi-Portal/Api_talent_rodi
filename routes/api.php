@@ -68,6 +68,9 @@ Route::get('empleados', [ApiEmpleadoController::class, 'index']);
 Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
 Route::get('/document-options', [DocumentOptionController::class, 'index']);
 Route::middleware(['api'])->group(function () {
+    Route::get('/empleados/check-email', [EmpleadoController::class, 'checkEmail']);
+
+    Route::post('/empleados/register', [EmpleadoController::class, 'store']);
     Route::put('/empleados/update', [EmpleadoController::class, 'update']);
     Route::get('/medical-info/{id_empleado}', [MedicalInfoController::class, 'show']);
     Route::put('/medical-info/{id_empleado}', [MedicalInfoController::class, 'update']);
