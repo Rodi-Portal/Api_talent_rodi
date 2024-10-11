@@ -63,7 +63,7 @@ class ApiEmpleadoController extends Controller
         // Determinar la ruta de destino según el entorno
         $destinationPath = app()->environment('local')
         ? env('LOCAL_IMAGE_PATH') . '/' . $carpeta
-        : 'public_html/portal.rodi.com.mx/' . $carpeta;
+        : '/home/rodicomm/public_html/portal.rodi.com.mx' . $carpeta;
 
         // Eliminar la imagen anterior si existe
         if ($request->input('currentImage')) {
