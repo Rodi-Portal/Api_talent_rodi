@@ -31,7 +31,7 @@ class DocumentController extends Controller
         $prodImagePath = '/home/rodicomm/public_html/portal.rodi.com.mx';
     
         // Obtener la ruta de destino
-        $destinationPath = app()->environment('production') 
+        $destinationPath = app()->environment('produccion') 
             ? $prodImagePath . '/' . $carpeta 
             : $localImagePath . '/' . $carpeta;  // Cambia el separador de directorios
     
