@@ -35,7 +35,7 @@ class DocumentController extends Controller
             ? $prodImagePath . '/' . $carpeta 
             : $localImagePath . '/' . $carpeta;  // Cambia el separador de directorios
     
-       // Log::info('Ruta de destino:', ['destination_path' => $destinationPath]);
+        Log::info('Ruta de destino:', ['destination_path' => $destinationPath]);
     
         // Asegúrate de que el directorio existe
         if (!file_exists($destinationPath)) {
@@ -75,9 +75,4 @@ class DocumentController extends Controller
         }
     }
     
-    
-    
-    
-    
-
 }
