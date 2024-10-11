@@ -59,11 +59,15 @@ class ApiEmpleadoController extends Controller
         $extension = $foto->getClientOriginalExtension(); // Obtener la extensión del archivo
         $fecha = now()->format('Ymd_His'); // Formato de fecha
         $nombreArchivo = "{$empleado->id}_{$fecha}.{$extension}"; // Formar el nombre del archivo
-
+        $localImagePath = 'C:/laragon/www/rodi_portal';
+        $prodImagePath = '/home/rodicomm/public_html/portal.rodi.com.mx';
+    
+        // Obtener la ruta de destino
+        $destinationPath = app()->environment('produccion') 
+            ? $prodImagePath . '/' . $carpeta 
+            : $localImagePath . '/' . $carpeta; 
         // Determinar la ruta de destino según el entorno
-        $destinationPath = app()->environment('local')
-        ? env('LOCAL_IMAGE_PATH') . '/' . $carpeta
-        : '/home/rodicomm/public_html/portal.rodi.com.mx' . $carpeta;
+       
 
         // Eliminar la imagen anterior si existe
         if ($request->input('currentImage')) {
