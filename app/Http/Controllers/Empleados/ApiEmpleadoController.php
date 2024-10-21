@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller; // Asegúrate de incluir esta línea
 use App\Models\Empleado;
+use App\Models\AntidopingPaquete;
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -22,8 +24,7 @@ class ApiEmpleadoController extends Controller
         $currentDatabase = DB::connection($currentConnection)->getDatabaseName();
 
         // Log para depuración
-        \Log::info("Conexión actual: $currentConnection");
-        \Log::info("Base de datos actual: $currentDatabase");
+       
 
         $id_portal = $request->input('id_portal');
 
@@ -84,5 +85,14 @@ class ApiEmpleadoController extends Controller
         $empleado->save();
 
         return response()->json(['success' => 'Imagen de perfil actualizada.', 'ruta' => $empleado->foto]);
+    }
+
+    public function getAntidopinPaquetes()
+    {
+        // Obtiene todos los paquetes de antidoping
+        $paquetes = AntidopingPaquete::where('eliminado', 0) // Filtra solo los no eliminados
+            ->get(['id', 'nombre', 'sustancias', 'conjunto']); // Especifica qué campos deseas obtener
+
+        return response()->json($paquetes); // Retorna los datos como JSON
     }
 }
