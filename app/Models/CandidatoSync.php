@@ -16,6 +16,7 @@ class CandidatoSync extends Model
         'edicion',
         'id_cliente_talent',
         'id_usuario_talent',
+        'id_empleado_talent',
         'id_aspirante_talent',
         'nombre_cliente_talent', 
         'id_portal', 

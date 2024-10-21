@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Candidato;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 // Añade esta línea
 
@@ -77,8 +78,10 @@ class ApiGetCandidatosByCliente extends Controller
 
             )
             ->get();
+           // Log::info('Datos del candidato: ' . print_r($results->toArray(), true));
 
         return response()->json($results);
 
     }
+
 }

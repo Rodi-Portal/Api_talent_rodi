@@ -18,6 +18,9 @@ use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\DocumentOptionController;
 use App\Http\Controllers\Empleados\EmpleadoController;
 use App\Http\Controllers\Empleados\MedicalInfoController;
+use App\Http\Controllers\Empleados\EviarEmpleadoRodi;
+
+use App\Http\Controllers\ProyectosHistorialController;
 
 
 
@@ -68,6 +71,10 @@ Route::get('empleados', [ApiEmpleadoController::class, 'index']);
 Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
 Route::get('/document-options', [DocumentOptionController::class, 'index']);
 Route::middleware(['api'])->group(function () {
+/* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
+Route::get('/empleados/documentos', [EmpleadoController::class, 'getEmpleadosConDocumentos']);
+
+
     Route::get('/empleados/check-email', [EmpleadoController::class, 'checkEmail']);
 
     Route::post('/empleados/register', [EmpleadoController::class, 'store']);
@@ -75,13 +82,21 @@ Route::middleware(['api'])->group(function () {
     Route::get('/medical-info/{id_empleado}', [MedicalInfoController::class, 'show']);
     Route::put('/medical-info/{id_empleado}', [MedicalInfoController::class, 'update']);
     Route::post('/documents', [DocumentOptionController::class, 'store']);
+    Route::post('/exams', [DocumentOptionController::class, 'storeExams']);
     Route::get('/documents/{id}', [DocumentOptionController::class, 'getDocumentsByEmployeeId']);
-
+    Route::get('/exam/{id}', [DocumentOptionController::class, 'getExamsByEmployeeId']);
      // Ruta para actualizar la expiración del documento
      Route::put('/documents/{id}', [DocumentOptionController::class, 'updateExpiration']);
      Route::get('/empleados/{id_empleado}/documentos', [EmpleadoController::class, 'getDocumentos']);
      //eliminar Documentos  del empleado 
      Route::delete('/documents', [DocumentOptionController::class, 'deleteDocument']);
+
+     //  traer  los  paquetes    antidoping 
+     Route::get('/antidoping-packages', [ApiEmpleadoController::class, 'getAntidopinPaquetes']);
+    // Traer los proyectos  disponibles  o los del cliente 
+    Route::get('/proyectos-historial', [ProyectosHistorialController::class, 'getproyectosPorCliente']);
+
+    Route::post('/registrar-candidato', [EviarEmpleadoRodi::class, 'registrarCandidato']);
 
  // Asegúrate de tener un método para obtener datos.
 

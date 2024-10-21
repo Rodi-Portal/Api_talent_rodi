@@ -7,16 +7,100 @@ use App\Models\DocumentEmpleado;
 use App\Models\DomicilioEmpleado;
 use App\Models\Empleado;
 use App\Models\MedicalInfo;
-
-use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class EmpleadoController extends Controller
 {
+// obtine empleado con sus  domicilios  y con  su estatus  de documentos
+    public function getEmpleadosConDocumentos(Request $request)
+    {
+        $request->validate([
+            'id_portal' => 'required|integer',
+        ]);
+
+        $id_portal = $request->input('id_portal');
+
+        // Obtener todos los empleados con sus domicilios
+        $empleados = Empleado::with('domicilioEmpleado')->where('id_portal', $id_portal)->get();
+
+        $resultados = [];
+
+        foreach ($empleados as $empleado) {
+            // Obtener documentos del empleado
+            $documentos = DocumentEmpleado::where('employee_id', $empleado->id)->get();
+
+            
+           
+
+            $status = $this->checkDocumentStatus($documentos);
+
+            // Convertir el empleado a un array y agregar el statusDocuments
+            $empleadoArray = $empleado->toArray();
+            $empleadoArray['statusDocuments'] = $status;
+
+            $resultados[] = $empleadoArray;
+        }
+
+        return response()->json($resultados);
+    }
+
+    private function checkDocumentStatus($documentos)
+    {
+        if ($documentos->isEmpty()) {
+            return 'verde'; // Sin documentos, consideramos como verde
+        }
+
+        $tieneRojo = false;
+        $tieneAmarillo = false;
+
+        foreach ($documentos as $documento) {
+            $diasDiferencia = $this->calcularDiferenciaDias($documento->creacion, $documento->expiry_date);
+
+            // Log para depurar
+           
+
+            // Comprobamos el estado del documento
+            if ($documento->expiry_reminder == 0) {
+                // No se requiere cálculo, se considera verde
+                continue;
+            } elseif ($diasDiferencia < 0 || $diasDiferencia == 0) {
+                // Vencido o exactamente al límite
+                $tieneRojo = true;
+                break; // Salimos del bucle porque rojo tiene mayor prioridad
+            } elseif ($diasDiferencia > 0 && $diasDiferencia <= 7) {
+                // Se requiere atención, se considera amarillo
+                $tieneAmarillo = true;
+            }
+        }
+
+        // Determinamos el estado basado en las prioridades
+        if ($tieneRojo) {
+            return 'rojo';
+        }
+
+        if ($tieneAmarillo) {
+            return 'amarillo';
+        }
+
+        return 'verde'; // Si no hay documentos en rojo o amarillo
+    }
+
+    private function calcularDiferenciaDias($fechaCreacion, $fechaExpiracion)
+    {
+        $fechaCreacion = \Carbon\Carbon::parse($fechaCreacion);
+        $fechaExpiracion = \Carbon\Carbon::parse($fechaExpiracion);
+
+        $diferenciaDias = $fechaExpiracion->diffInDays($fechaCreacion);
+
+        // Log para depurar
+       
+
+        return $diferenciaDias;
+    }
+
     public function update(Request $request)
     {
 
@@ -37,7 +121,7 @@ class EmpleadoController extends Controller
         ]);
 
         if ($validator->fails()) {
-            \Log::error('Validation errors:', $validator->errors()->toArray());
+            // \Log::error('Validation errors:', $validator->errors()->toArray());
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
@@ -66,7 +150,7 @@ class EmpleadoController extends Controller
             $domicilio->update($request->domicilio_empleado);
 
             // Log de éxito
-            \Log::info('Empleado y domicilio actualizados correctamente.', ['empleado_id' => $empleado->id, 'domicilio_id' => $domicilio->id]);
+            //\Log::info('Empleado y domicilio actualizados correctamente.', ['empleado_id' => $empleado->id, 'domicilio_id' => $domicilio->id]);
 
             return response()->json(['message' => 'Empleado y domicilio actualizados correctamente.'], 200);
 
@@ -106,53 +190,6 @@ class EmpleadoController extends Controller
     }
 
     // Método para verificar el estado de los documentos
-
-    private function checkDocumentStatus($documentos)
-    {
-        $currentDate = Carbon::now()->startOfDay(); // Ajusta a las 00:00:00
-        $status = 'verde'; // Inicializa como verde
-
-        foreach ($documentos as $documento) {
-            $expiryDate = Carbon::parse($documento->expiry_date)->startOfDay(); // También ajusta a las 00:00:00
-            $daysUntilExpiry = $expiryDate->diffInDays($currentDate);
-
-            // Registrar las variables relevantes
-            Log::info("Documento ID {$documento->id}: ", [
-                'current_date' => $currentDate,
-                'expiry_date' => $expiryDate,
-                'days_until_expiry' => $daysUntilExpiry,
-                'expiry_reminder' => $documento->expiry_reminder,
-            ]);
-
-            // Verificar si expiry_reminder es nulo
-            if (is_null($documento->expiry_reminder)) {
-                Log::info("Documento ID {$documento->id}: expiry_reminder es nulo, continuando.");
-                continue; // Si es nulo, no afecta el estado
-            }
-
-            // Verificar si la fecha de expiración ha pasado o es hoy
-            if ($expiryDate <= $currentDate) {
-                Log::info("Documento ID {$documento->id}: La fecha de expiración ha pasado o es hoy, estableciendo estado 'rojo'.");
-                return 'rojo'; // Vencido
-            }
-
-            // Verificar si la diferencia en días es igual a expiry_reminder
-            if ($daysUntilExpiry == intval($documento->expiry_reminder)) {
-                Log::info("Documento ID {$documento->id}: Días hasta la expiración es igual a expiry_reminder, estableciendo estado 'rojo'.");
-                return 'rojo'; // Igual a expiry_reminder
-            }
-
-            // Verificar si está dentro de un rango de 5 días antes del expiry_reminder
-            if ($daysUntilExpiry > intval($documento->expiry_reminder) && $daysUntilExpiry <= (intval($documento->expiry_reminder) + 5)) {
-                Log::info("Documento ID {$documento->id}: Dentro del rango de 5 días antes del expiry_reminder, estableciendo estado 'amarillo'.");
-                $status = 'amarillo'; // Hay al menos un amarillo
-            }
-        }
-
-        // Si se ha encontrado algún documento amarillo, se retornará 'amarillo'
-        Log::info("Ninguna condición de 'rojo' cumplida, retornando estado: {$status}.");
-        return $status; // Retorna 'verde' si no hay amarillos
-    }
 
     public function store(Request $request)
     {
@@ -212,7 +249,7 @@ class EmpleadoController extends Controller
             'nombre' => $validatedData['nombre'],
             'paterno' => $validatedData['paterno'],
             'materno' => $validatedData['materno'] ?? null,
-            'puesto' => $validatedData['puesto']?? null,
+            'puesto' => $validatedData['puesto'] ?? null,
             'telefono' => $validatedData['telefono'],
             'id_domicilio_empleado' => $domicilio->id, // Guardar el ID del domicilio
             'status' => 1,

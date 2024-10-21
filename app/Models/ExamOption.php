@@ -5,32 +5,25 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class DocumentOption extends Model
+class ExamOption extends Model
 {
     use HasFactory;
 
-    // Specify the table if it doesn't follow naming conventions
-    protected $table = 'document_options';
+    protected $table = 'exams_options'; // Especifica el nombre de la tabla
     protected $connection = 'portal_main';
     public $timestamps = false;
-    // Specify the fields that are mass assignable
+   
     protected $fillable = [
-        'creacion',
         'name',
         'type',
         'id_portal',
     ];
 
-    // If you are using timestamps
-   
-
-    // Relationship with the Portal model
+    // Definir la relación con el modelo Portal
     public function portal()
     {
         return $this->belongsTo(Portal::class, 'id_portal');
     }
-
-    // Query scope for ordering by name
     public function scopeOrdered($query)
     {
         return $query->orderBy('name');
