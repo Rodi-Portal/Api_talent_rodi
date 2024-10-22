@@ -57,7 +57,7 @@ class EviarEmpleadoRodi extends Controller
                     'fecha_alta' => $fechaHoy,
                     'nombre' => $empleado->nombre,
                     'paterno' => $empleado->paterno,
-                    'materno' => $empleado->materno ?? null,
+                    'materno' => $empleado->materno,
                     'correo' => $empleado->correo,
                     'id_cliente' => 273,
                     'celular' => $empleado->telefono,
@@ -106,7 +106,7 @@ class EviarEmpleadoRodi extends Controller
                     'id_usuario' => 1, // Ajusta este valor según sea necesario
                     'id_candidato' => $candidato->id ?? 0,
                     'id_cliente' => 273,
-                    'socioeconomico' => $request->socioeconomico ?? 0, // O el valor que estés recibiendo
+                    'socioeconomico' => $socioeconomico ?? 0, // O el valor que estés recibiendo
                 ]);
 
                 $candidatoPruebas->save();
