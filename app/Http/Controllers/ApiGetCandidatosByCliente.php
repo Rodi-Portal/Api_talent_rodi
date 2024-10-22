@@ -37,7 +37,7 @@ class ApiGetCandidatosByCliente extends Controller
             ->select(
                 'candidato.*',
                 'candidato.id AS id',
-                DB::raw("CONCAT(candidato.nombre, ' ', candidato.paterno, ' ', COALESCE(candidato.materno, '')) as candidato"),
+                DB::raw("CONCAT(COALESCE(candidato.nombre, ''), ' ', COALESCE(candidato.paterno, ''), ' ', COALESCE(candidato.materno, '')) as candidato"),
                 'candidato.nombre AS nombre',
                 'candidato.paterno AS paterno',
                 'candidato.materno AS materno',
