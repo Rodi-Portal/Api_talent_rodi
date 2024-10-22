@@ -19,6 +19,105 @@ use Illuminate\Support\Facades\Validator;
 
 class DocumentOptionController extends Controller
 {
+
+    public function getExamsByEmployeeId($employeeId)
+    {
+        // Validar el ID del empleado
+        if (!is_numeric($employeeId)) {
+            return response()->json(['error' => 'ID de empleado no válido.'], 422);
+        }
+    
+        // Buscar documentos del empleado junto con las opciones
+        $exam = ExamEmpleado::with('examOption')->where('employee_id', $employeeId)->get();
+    
+        // Verificar si se encontraron documentos
+        if ($exam->isEmpty()) {
+            return response()->json(['message' => 'No se encontraron documentos para el empleado.'], 404);
+        }
+    
+        // Obtener el id_candidato de los exámenes
+        $idCandidatos = $exam->pluck('id_candidato')->unique();
+    
+        // Consultar CandidatoPruebas y Candidato para obtener los campos deseados
+        $candidatosPruebas = CandidatoPruebas::whereIn('id_candidato', $idCandidatos)->get();
+        $candidatos = Candidato::with('medico')->whereIn('id', $idCandidatos)->get();
+        $psicometrico = Candidato::with('psicometrico')->whereIn('id', $idCandidatos)->get();
+        $doping = Candidato::with('dopings')->whereIn('id', $idCandidatos)->get(); // Cargar la relación del médico
+        // Cargar la relación del médico
+    
+        // Mapear los documentos para incluir los nuevos campos
+        $examConOpciones = $exam->map(function ($documento) use ($candidatosPruebas, $candidatos) {
+            // Encontrar los datos del candidato correspondiente en CandidatoPruebas
+            $candidatoPrueba = $candidatosPruebas->firstWhere('id_candidato', $documento->id_candidato);
+    
+            // Encontrar los datos del candidato correspondiente en Candidato
+            $candidato = $candidatos->firstWhere('id', $documento->id_candidato);
+    
+            // Obtener los datos del médico
+            $medico = $candidato->medico ?? null;
+    
+            switch ($candidato->status_bgc ?? null) {
+                case 1:
+                case 4:
+                    $icono_resultado = 'icono_resultado_aprobado';
+                    break;
+                case 2:
+                    $icono_resultado = 'icono_resultado_reprobado';
+                    break;
+                case 3:
+                    $icono_resultado = 'icono_resultado_revision';
+                    break;
+                default:
+                    $icono_resultado = 'icono_resultado_espera';
+                    break;
+            }
+    
+            return [
+                'id' => $documento->id,
+                'nameDocument' => $documento->name,
+                'optionName' => $documento->examOption ? $documento->examOption->name : null,
+                'optionType' => $documento->examOption ? $documento->examOption->type : null,
+                'description' => $documento->description,
+                'upload_date' => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
+                'expiry_date' => $documento->expiry_date,
+                'expiry_reminder' => $documento->expiry_reminder,
+                'id_candidato' => $documento->id_candidato,
+                'socioeconomico' => $candidatoPrueba->socioeconomico ?? null,
+                'medico' => $candidatoPrueba->medico ?? null,
+
+                'tipo_antidoping' => $candidatoPrueba->tipo_antidoping ?? null,
+                'antidoping' => $candidatoPrueba->antidoping ?? null,
+                'psicometrico' => $candidatoPrueba->psicometrico ?? null,
+                'medicoDetalle' => [
+                    'id' => $medico->id ?? null,
+                    'imagen' => $medico->imagen_historia_clinica ?? null,
+                    'conclusion' => $medico->conclusion ?? null,
+                    'descripcion' => $medico->descripcion ?? null,
+                    'archivo_examen_medico' => $medico->archivo_examen_medico ?? null,
+                ],
+                'psicometricoDet' => [
+                    'id' => $psicometrico->id ?? null,
+                    
+                    'archivo_psicometrico' => $psicometrico->archivo_psicometrico ?? null,
+                ],
+                'doping' => [
+                    'id' => $doping->id ?? null,
+                    'doping_hecho'=>$candidatoPrueba->status_doping ?? null,
+                    'fecha_resultado' => $doping->fecha_resultado ?? null,
+                    'resultado_doping'=> $doping->resultado ?? null,
+                    'statusDoping'=> $doping->status ?? null,
+                ],
+                'liberado' => $candidato->liberado ?? null,
+                'status_bgc' => $candidato->status_bgc ?? null,
+                'cancelado' => $candidato->cancelado ?? null,
+                'icono_resultado' => $icono_resultado,
+            ];
+        });
+    
+        // Devolver los documentos
+        return response()->json(['documentos' => $examConOpciones], 200);
+    }
+
     public function index(Request $request)
     {
         // Verificar si se recibió id_portal
@@ -305,103 +404,7 @@ class DocumentOptionController extends Controller
             'document' => $documentEmpleado,
         ], 201);
     }
-    public function getExamsByEmployeeId($employeeId)
-    {
-        // Validar el ID del empleado
-        if (!is_numeric($employeeId)) {
-            return response()->json(['error' => 'ID de empleado no válido.'], 422);
-        }
-    
-        // Buscar documentos del empleado junto con las opciones
-        $exam = ExamEmpleado::with('examOption')->where('employee_id', $employeeId)->get();
-    
-        // Verificar si se encontraron documentos
-        if ($exam->isEmpty()) {
-            return response()->json(['message' => 'No se encontraron documentos para el empleado.'], 404);
-        }
-    
-        // Obtener el id_candidato de los exámenes
-        $idCandidatos = $exam->pluck('id_candidato')->unique();
-    
-        // Consultar CandidatoPruebas y Candidato para obtener los campos deseados
-        $candidatosPruebas = CandidatoPruebas::whereIn('id_candidato', $idCandidatos)->get();
-        $candidatos = Candidato::with('medico')->whereIn('id', $idCandidatos)->get();
-        $psicometrico = Candidato::with('psicometrico')->whereIn('id', $idCandidatos)->get();
-        $doping = Candidato::with('dopings')->whereIn('id', $idCandidatos)->get(); // Cargar la relación del médico
-        // Cargar la relación del médico
-    
-        // Mapear los documentos para incluir los nuevos campos
-        $examConOpciones = $exam->map(function ($documento) use ($candidatosPruebas, $candidatos) {
-            // Encontrar los datos del candidato correspondiente en CandidatoPruebas
-            $candidatoPrueba = $candidatosPruebas->firstWhere('id_candidato', $documento->id_candidato);
-    
-            // Encontrar los datos del candidato correspondiente en Candidato
-            $candidato = $candidatos->firstWhere('id', $documento->id_candidato);
-    
-            // Obtener los datos del médico
-            $medico = $candidato->medico ?? null;
-    
-            switch ($candidato->status_bgc ?? null) {
-                case 1:
-                case 4:
-                    $icono_resultado = 'icono_resultado_aprobado';
-                    break;
-                case 2:
-                    $icono_resultado = 'icono_resultado_reprobado';
-                    break;
-                case 3:
-                    $icono_resultado = 'icono_resultado_revision';
-                    break;
-                default:
-                    $icono_resultado = 'icono_resultado_espera';
-                    break;
-            }
-    
-            return [
-                'id' => $documento->id,
-                'nameDocument' => $documento->name,
-                'optionName' => $documento->examOption ? $documento->examOption->name : null,
-                'optionType' => $documento->examOption ? $documento->examOption->type : null,
-                'description' => $documento->description,
-                'upload_date' => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
-                'expiry_date' => $documento->expiry_date,
-                'expiry_reminder' => $documento->expiry_reminder,
-                'id_candidato' => $documento->id_candidato,
-                'socioeconomico' => $candidatoPrueba->socioeconomico ?? null,
-                'medico' => $candidatoPrueba->medico ?? null,
-
-                'tipo_antidoping' => $candidatoPrueba->tipo_antidoping ?? null,
-                'antidoping' => $candidatoPrueba->antidoping ?? null,
-                'psicometrico' => $candidatoPrueba->psicometrico ?? null,
-                'medicoDetalle' => [
-                    'id' => $medico->id ?? null,
-                    'imagen' => $medico->imagen_historia_clinica ?? null,
-                    'conclusion' => $medico->conclusion ?? null,
-                    'descripcion' => $medico->descripcion ?? null,
-                    'archivo_examen_medico' => $medico->archivo_examen_medico ?? null,
-                ],
-                'psicometricoDet' => [
-                    'id' => $psicometrico->id ?? null,
-                    
-                    'archivo_psicometrico' => $psicometrico->archivo_psicometrico ?? null,
-                ],
-                'doping' => [
-                    'id' => $doping->id ?? null,
-                    'doping_hecho'=>$candidatoPrueba->status_doping ?? null,
-                    'fecha_resultado' => $doping->fecha_resultado ?? null,
-                    'resultado_doping'=> $doping->resultado ?? null,
-                    'statusDoping'=> $doping->status ?? null,
-                ],
-                'liberado' => $candidato->liberado ?? null,
-                'status_bgc' => $candidato->status_bgc ?? null,
-                'cancelado' => $candidato->cancelado ?? null,
-                'icono_resultado' => $icono_resultado,
-            ];
-        });
-    
-        // Devolver los documentos
-        return response()->json(['documentos' => $examConOpciones], 200);
-    }
+  
     
 
     public function getDocumentsByEmployeeId($employeeId)

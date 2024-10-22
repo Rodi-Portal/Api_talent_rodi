@@ -211,7 +211,7 @@ class Candidato extends Model
 
        public function psicometrico()
        {
-           return $this->hasOne(psicometrico::class, 'id_candidato');
+           return $this->hasOne(Psicometrico::class, 'id_candidato');
        }
        // Método para obtener BGC por id_candidato
        public static function getBGCById($id)
