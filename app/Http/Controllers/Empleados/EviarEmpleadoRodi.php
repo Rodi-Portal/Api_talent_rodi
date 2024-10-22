@@ -72,7 +72,11 @@ class EviarEmpleadoRodi extends Controller
                     'interior' => $domicilio->num_int ?? null, // Verifica aquí
                     'privacidad' => $request->privacidad_usuario ?? 0,
                 ]);
-
+                if($request->project > 0){
+                    $socioeconomico = 1;
+                }else{
+                    $socioeconomico = 0;
+                }
                 $candidato->save();
 
                 /** aqui se llena   el  arreglo para la tabla candidato_sync */

@@ -204,7 +204,15 @@ class Candidato extends Model
        {
            return $this->hasOne(CandidatoBGC::class, 'id_candidato');
        }
-   
+       public function medico()
+       {
+           return $this->hasOne(Medico::class, 'id_candidato');
+       }
+
+       public function psicometrico()
+       {
+           return $this->hasOne(psicometrico::class, 'id_candidato');
+       }
        // Método para obtener BGC por id_candidato
        public static function getBGCById($id)
        {
