@@ -40,21 +40,15 @@ class DocumentOptionController extends Controller
     
         // Consultar CandidatoPruebas y Candidato para obtener los campos deseados
         $candidatosPruebas = CandidatoPruebas::whereIn('id_candidato', $idCandidatos)->get();
-        $candidatos = Candidato::with('medico')->whereIn('id', $idCandidatos)->get();
+        $candidatos = Candidato::with('medico', 'doping')->whereIn('id', $idCandidatos)->get(); // Cargar la relación del doping
         $psicometrico = Candidato::with('psicometrico')->whereIn('id', $idCandidatos)->get();
-        $doping = Candidato::with('dopings')->whereIn('id', $idCandidatos)->get(); // Cargar la relación del médico
-        // Cargar la relación del médico
     
         // Mapear los documentos para incluir los nuevos campos
         $examConOpciones = $exam->map(function ($documento) use ($candidatosPruebas, $candidatos) {
-            // Encontrar los datos del candidato correspondiente en CandidatoPruebas
             $candidatoPrueba = $candidatosPruebas->firstWhere('id_candidato', $documento->id_candidato);
-    
-            // Encontrar los datos del candidato correspondiente en Candidato
             $candidato = $candidatos->firstWhere('id', $documento->id_candidato);
-    
-            // Obtener los datos del médico
             $medico = $candidato->medico ?? null;
+            $doping = $candidato->doping ?? null; // Obtener el doping
     
             switch ($candidato->status_bgc ?? null) {
                 case 1:
@@ -84,7 +78,6 @@ class DocumentOptionController extends Controller
                 'id_candidato' => $documento->id_candidato,
                 'socioeconomico' => $candidatoPrueba->socioeconomico ?? null,
                 'medico' => $candidatoPrueba->medico ?? null,
-
                 'tipo_antidoping' => $candidatoPrueba->tipo_antidoping ?? null,
                 'antidoping' => $candidatoPrueba->antidoping ?? null,
                 'psicometrico' => $candidatoPrueba->psicometrico ?? null,
@@ -97,15 +90,14 @@ class DocumentOptionController extends Controller
                 ],
                 'psicometricoDet' => [
                     'id' => $psicometrico->id ?? null,
-                    
                     'archivo_psicometrico' => $psicometrico->archivo_psicometrico ?? null,
                 ],
                 'doping' => [
                     'id' => $doping->id ?? null,
-                    'doping_hecho'=>$candidatoPrueba->status_doping ?? null,
+                    'doping_hecho' => $candidatoPrueba->status_doping ?? null,
                     'fecha_resultado' => $doping->fecha_resultado ?? null,
-                    'resultado_doping'=> $doping->resultado ?? null,
-                    'statusDoping'=> $doping->status ?? null,
+                    'resultado_doping' => $doping->resultado ?? null,
+                    'statusDoping' => $doping->status ?? null,
                 ],
                 'liberado' => $candidato->liberado ?? null,
                 'status_bgc' => $candidato->status_bgc ?? null,
@@ -117,6 +109,9 @@ class DocumentOptionController extends Controller
         // Devolver los documentos
         return response()->json(['documentos' => $examConOpciones], 200);
     }
+    
+    
+    
 
     public function index(Request $request)
     {

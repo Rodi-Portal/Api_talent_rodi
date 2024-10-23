@@ -194,11 +194,11 @@ class Candidato extends Model
     }
 
   
-    public function dopings()
-    {
-        return $this->hasMany(Doping::class, 'id_candidato');
-    }
-
+    public function doping()
+{
+    return $this->hasOne(Doping::class, 'id_candidato');
+}
+    
        // Definir la relación con CandidatoBGC
        public function bgc()
        {

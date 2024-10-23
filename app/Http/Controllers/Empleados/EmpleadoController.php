@@ -7,9 +7,13 @@ use App\Models\DocumentEmpleado;
 use App\Models\DomicilioEmpleado;
 use App\Models\Empleado;
 use App\Models\MedicalInfo;
+use Carbon\Carbon;
+
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class EmpleadoController extends Controller
@@ -31,9 +35,6 @@ class EmpleadoController extends Controller
         foreach ($empleados as $empleado) {
             // Obtener documentos del empleado
             $documentos = DocumentEmpleado::where('employee_id', $empleado->id)->get();
-
-            
-           
 
             $status = $this->checkDocumentStatus($documentos);
 
@@ -60,7 +61,6 @@ class EmpleadoController extends Controller
             $diasDiferencia = $this->calcularDiferenciaDias($documento->creacion, $documento->expiry_date);
 
             // Log para depurar
-           
 
             // Comprobamos el estado del documento
             if ($documento->expiry_reminder == 0) {
@@ -96,7 +96,6 @@ class EmpleadoController extends Controller
         $diferenciaDias = $fechaExpiracion->diffInDays($fechaCreacion);
 
         // Log para depurar
-       
 
         return $diferenciaDias;
     }
@@ -200,76 +199,109 @@ class EmpleadoController extends Controller
             'id_portal' => 'required|integer',
             'id_usuario' => 'required|integer',
             'id_empleado' => 'required|integer',
-
             'correo' => 'required|email',
+            'fecha_nacimiento' => 'nullable|date',
             'curp' => 'required|string',
+            'rfc'=>'nullable|string',
+            'nss' => 'nullable|string',
             'nombre' => 'required|string',
             'paterno' => 'required|string',
             'materno' => 'nullable|string',
-
             'puesto' => 'nullable|string',
             'telefono' => 'required|string',
-            'peso' => 'nullable|numeric',
-            'edad' => 'nullable|integer',
-            'alergias_medicamentos' => 'nullable|string',
-            'alergias_alimentos' => 'nullable|string',
-            'enfermedades_cronicas' => 'nullable|string',
-            'cirugias' => 'nullable|string',
-            'tipo_sangre' => 'nullable|string',
-            'contacto_emergencia' => 'nullable|string',
-            'medicamentos_frecuentes' => 'nullable|string',
-            'lesiones' => 'nullable|string',
-            'otros_padecimientos' => 'nullable|string',
-            'otros_padecimientos2' => 'nullable|string',
-            'domicilio' => 'array', // Para recibir datos de domicilio
-            'domicilio.pais' => 'nullable|string',
-            'domicilio.estado' => 'nullable|string',
-            'domicilio.ciudad' => 'nullable|string',
-            'domicilio.colonia' => 'nullable|string',
-            'domicilio.calle' => 'nullable|string',
-            'domicilio.cp' => 'nullable|string',
-            'domicilio.num_int' => 'nullable|string',
-            'domicilio.num_ext' => 'nullable|string',
+
+            // Validación para domicilio_empleado
+            'domicilio_empleado.calle' => 'nullable|string',
+            'domicilio_empleado.num_ext' => 'nullable|string',
+            'domicilio_empleado.num_int' => 'nullable|string',
+            'domicilio_empleado.colonia' => 'nullable|string',
+            'domicilio_empleado.ciudad' => 'nullable|string',
+            'domicilio_empleado.estado' => 'nullable|string',
+            'domicilio_empleado.pais' => 'nullable|string',
+            'domicilio_empleado.cp' => 'nullable|string',
         ]);
 
-        // Crear un registro en DomicilioEmpleado
-        $domicilioData = $validatedData['domicilio'] ?? [];
-        $domicilio = DomicilioEmpleado::create($domicilioData);
+        $fechaNacimiento = Carbon::parse($validatedData['fecha_nacimiento']);
+        $fechaCreacion = Carbon::parse($validatedData['creacion']);
+        $edad = $fechaCreacion->diffInYears($fechaNacimiento);
+        // Imprimir los datos en el log
+       // Log::info('Datos recibidos para el registro de empleado: ' . print_r($validatedData, true));
+       // Log::info('edad: ' . $edad);
 
-        // Crear un nuevo empleado
-        $empleado = Empleado::create([
-            'creacion' => $validatedData['creacion'],
-            'id_portal' => $validatedData['id_portal'],
-            'id_usuario' => $validatedData['id_usuario'],
-            'id_empleado' => $validatedData['id_empleado'],
+        // Crear una transacción
+        DB::beginTransaction();
 
-            'edicion' => $validatedData['edicion'],
-            'correo' => $validatedData['correo'],
-            'curp' => $validatedData['curp'],
-            'nombre' => $validatedData['nombre'],
-            'paterno' => $validatedData['paterno'],
-            'materno' => $validatedData['materno'] ?? null,
-            'puesto' => $validatedData['puesto'] ?? null,
-            'telefono' => $validatedData['telefono'],
-            'id_domicilio_empleado' => $domicilio->id, // Guardar el ID del domicilio
-            'status' => 1,
-            'eliminado' => 0,
-        ]);
+        try {
+            // Crear un registro en DomicilioEmpleado
+            $domicilioData = [
+                'calle' => $validatedData['domicilio_empleado']['calle'] ?? null,
+                'num_ext' => $validatedData['domicilio_empleado']['num_ext'] ?? null,
+                'num_int' => $validatedData['domicilio_empleado']['num_int'] ?? null,
+                'colonia' => $validatedData['domicilio_empleado']['colonia'] ?? null,
+                'ciudad' => $validatedData['domicilio_empleado']['ciudad'] ?? null,
+                'estado' => $validatedData['domicilio_empleado']['estado'] ?? null,
+                'pais' => $validatedData['domicilio_empleado']['pais'] ?? null,
+                'cp' => $validatedData['domicilio_empleado']['cp'] ?? null,
+            ];
 
-        // Crear un registro vacío en MedicalInfo con el ID del empleado
-        MedicalInfo::create([
-            'id_empleado' => $empleado->id,
-            'creacion' => now(), // O asignar la fecha según tu lógica
-            'edicion' => now(),
-            // Otros campos se quedan en null
-        ]);
+            Log::info('Insertando en DomicilioEmpleado:', $domicilioData); // Log antes de insertar
+            $domicilio = DomicilioEmpleado::create($domicilioData); // Guardar con create
 
-        // Retornar una respuesta exitosa
-        return response()->json([
-            'message' => 'Employee registered successfully.',
-            'data' => $empleado,
-        ], 201);
+            // Crear un nuevo empleado
+            $empleadoData = [
+                'creacion' => $validatedData['creacion'],
+                'edicion' => $validatedData['edicion'],
+                'id_portal' => $validatedData['id_portal'],
+                'id_usuario' => $validatedData['id_usuario'],
+                'id_empleado' => $validatedData['id_empleado'],
+                'correo' => $validatedData['correo'],
+                'curp' => $validatedData['curp'],
+                'nombre' => $validatedData['nombre'],
+                'nss'=>$validatedData['nss'],
+                'rfc'=>$validatedData['rfc'],
+                'paterno' => $validatedData['paterno'],
+                'materno' => $validatedData['materno'] ?? null,
+                'puesto' => $validatedData['puesto'] ?? null,
+                'fecha_nacimiento' => $validatedData['fecha_nacimiento'] ?? null,
+                'telefono' => $validatedData['telefono'],
+                'id_domicilio_empleado' => $domicilio->id, // Asignar el ID del domicilio creado
+                'status' => 1,
+                'eliminado' => 0,
+            ];
+
+            Log::info('Insertando en Empleado:', $empleadoData); // Log antes de insertar
+            $empleado = Empleado::create($empleadoData); // Guardar con create
+
+            // Crear un registro vacío en MedicalInfo
+            $medicalInfoData = [
+                'id_empleado' => $empleado->id,
+                'creacion' => $validatedData['creacion'],
+                'edicion' => $validatedData['creacion'],
+                'edad' => $edad,
+            ];
+
+            Log::info('Insertando en MedicalInfo:', $medicalInfoData); // Log antes de insertar
+            MedicalInfo::create($medicalInfoData); // Guardar con create
+
+            // Confirmar la transacción
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Empleado registrado exitosamente.',
+                'data' => $empleado,
+            ], 201);
+        } catch (\Exception $e) {
+            // Revertir la transacción en caso de error
+            DB::rollBack();
+            Log::error('Error durante el registro:', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'message' => 'Error al registrar el empleado.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
+
     public function checkEmail(Request $request)
     {
         // Validar que se reciba el correo en la solicitud
