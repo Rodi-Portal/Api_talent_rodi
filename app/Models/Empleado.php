@@ -27,6 +27,7 @@ class Empleado extends Model
         'rfc',
         'curp',
         'nss',
+        'puesto',
         'foto',
         'fecha_nacimiento',
         'status',
