@@ -3,12 +3,13 @@
 namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller;
+use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\DomicilioEmpleado;
 use App\Models\Empleado;
-use App\Models\MedicalInfo;
+use App\Models\MedicalInfo;  
+use App\Models\Evaluacion;
 use Carbon\Carbon;
-
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
@@ -29,25 +30,28 @@ class EmpleadoController extends Controller
 
         // Obtener todos los empleados con sus domicilios
         $empleados = Empleado::with('domicilioEmpleado')->where('id_portal', $id_portal)->get();
-
         $resultados = [];
 
         foreach ($empleados as $empleado) {
             // Obtener documentos del empleado
+
             $documentos = DocumentEmpleado::where('employee_id', $empleado->id)->get();
+            $cursos = CursoEmpleado::where('employee_id', $empleado->id)->get();
 
             $status = $this->checkDocumentStatus($documentos);
 
+            $statusCursos = $this->checkDocumentStatus($cursos);
             // Convertir el empleado a un array y agregar el statusDocuments
             $empleadoArray = $empleado->toArray();
             $empleadoArray['statusDocuments'] = $status;
+            $empleadoArray['statusCursos'] = $statusCursos;
 
             $resultados[] = $empleadoArray;
         }
+       // Log::info('Resultados de empleados con documentos y cursos : ' . print_r($resultados, true));
 
         return response()->json($resultados);
     }
-
     private function checkDocumentStatus($documentos)
     {
         if ($documentos->isEmpty()) {
@@ -58,19 +62,17 @@ class EmpleadoController extends Controller
         $tieneAmarillo = false;
 
         foreach ($documentos as $documento) {
-            $diasDiferencia = $this->calcularDiferenciaDias($documento->creacion, $documento->expiry_date);
-
-            // Log para depurar
+            // Calcular diferencia de días con respecto a la fecha actual
+            $diasDiferencia = $this->calcularDiferenciaDias(now(), $documento->expiry_date);
 
             // Comprobamos el estado del documento
             if ($documento->expiry_reminder == 0) {
-                // No se requiere cálculo, se considera verde
-                continue;
-            } elseif ($diasDiferencia < 0 || $diasDiferencia == 0) {
+                continue; // No se requiere cálculo, se considera verde
+            } elseif ($diasDiferencia <= $documento->expiry_reminder || $diasDiferencia < 0) {
                 // Vencido o exactamente al límite
                 $tieneRojo = true;
-                break; // Salimos del bucle porque rojo tiene mayor prioridad
-            } elseif ($diasDiferencia > 0 && $diasDiferencia <= 7) {
+                break; // Prioridad alta, salimos del bucle
+            } elseif ($diasDiferencia > $documento->expiry_reminder && $diasDiferencia <= ($documento->expiry_reminder + 7)) {
                 // Se requiere atención, se considera amarillo
                 $tieneAmarillo = true;
             }
@@ -88,17 +90,81 @@ class EmpleadoController extends Controller
         return 'verde'; // Si no hay documentos en rojo o amarillo
     }
 
-    private function calcularDiferenciaDias($fechaCreacion, $fechaExpiracion)
+    private function calcularDiferenciaDias($fechaActual, $fechaExpiracion)
     {
-        $fechaCreacion = \Carbon\Carbon::parse($fechaCreacion);
+        $fechaActual = \Carbon\Carbon::parse($fechaActual);
         $fechaExpiracion = \Carbon\Carbon::parse($fechaExpiracion);
 
-        $diferenciaDias = $fechaExpiracion->diffInDays($fechaCreacion);
+        // Calculamos la diferencia de días
+        $diferenciaDias = $fechaExpiracion->diffInDays($fechaActual);
 
-        // Log para depurar
-
-        return $diferenciaDias;
+        // Ajustamos la diferencia para que sea negativa si la fecha de expiración ya ha pasado
+        return $fechaExpiracion < $fechaActual ? -$diferenciaDias : $diferenciaDias;
     }
+
+    public function getEmpleadosStatus(Request $request)
+    {
+        $request->validate([
+            'id_portal' => 'required|integer',
+        ]);
+    
+        $id_portal = $request->input('id_portal');
+    
+        // Obtener todos los empleados
+        $empleados = Empleado::where('id_portal', $id_portal)->get();
+    
+        $statusDocuments = 'verde'; // Asignar un estado inicial
+        $statusCursos = 'verde'; // Asignar un estado inicial
+        $statusEvaluaciones = 'verde'; // Nuevo estado para evaluaciones
+    
+        foreach ($empleados as $empleado) {
+            // Obtener documentos y cursos del empleado
+            $documentos = DocumentEmpleado::where('employee_id', $empleado->id)->get();
+            $cursos = CursoEmpleado::where('employee_id', $empleado->id)->get();
+    
+            // Evaluar el estado de documentos y cursos usando la misma función
+            $statusEmpleadoDocs = $this->checkDocumentStatus($documentos);
+            $statusEmpleadoCursos = $this->checkDocumentStatus($cursos);
+    
+            // Actualizar el estado general para documentos
+            if ($statusEmpleadoDocs === 'rojo') {
+                $statusDocuments = 'rojo';
+            } elseif ($statusEmpleadoDocs === 'amarillo' && $statusDocuments !== 'rojo') {
+                $statusDocuments = 'amarillo';
+            }
+    
+            // Actualizar el estado general para cursos
+            if ($statusEmpleadoCursos === 'rojo') {
+                $statusCursos = 'rojo';
+            } elseif ($statusEmpleadoCursos === 'amarillo' && $statusCursos !== 'rojo') {
+                $statusCursos = 'amarillo';
+            }
+        }
+    
+        // Obtener evaluaciones para el id_portal
+        $evaluaciones = Evaluacion::where('id_portal', $id_portal)->get();
+        foreach ($evaluaciones as $evaluacion) {
+            $statusEvaluacionesPortal = $this->checkDocumentStatus($evaluacion);
+            // Lógica para evaluar el estado de las evaluaciones
+            if ($statusEvaluacionesPortal === 'rojo') {
+                $statusEvaluaciones = 'rojo';
+            } elseif ($statusEvaluacionesPortal === 'amarillo' && $statusEvaluaciones !== 'rojo') {
+                $statusEvaluaciones = 'amarillo';
+            }
+    
+        }
+    
+        $resultado = [
+            'statusDocuments' => $statusDocuments,
+            'statusCursos' => $statusCursos,
+            'statusEvaluaciones' => $statusEvaluaciones,
+        ];
+    
+      //  Log::info('Resultados de estados de documentos, cursos y evaluaciones: ' . print_r($resultado, true));
+    
+        return response()->json($resultado);
+    }
+    
 
     public function update(Request $request)
     {
@@ -188,7 +254,7 @@ class EmpleadoController extends Controller
         ], 200);
     }
 
-    // Método para verificar el estado de los documentos
+    // MEtodo  para  guardar  un empleado  desde  el modulo  employe
 
     public function store(Request $request)
     {
@@ -202,7 +268,7 @@ class EmpleadoController extends Controller
             'correo' => 'required|email',
             'fecha_nacimiento' => 'nullable|date',
             'curp' => 'required|string',
-            'rfc'=>'nullable|string',
+            'rfc' => 'nullable|string',
             'nss' => 'nullable|string',
             'nombre' => 'required|string',
             'paterno' => 'required|string',
@@ -225,8 +291,8 @@ class EmpleadoController extends Controller
         $fechaCreacion = Carbon::parse($validatedData['creacion']);
         $edad = $fechaCreacion->diffInYears($fechaNacimiento);
         // Imprimir los datos en el log
-       // Log::info('Datos recibidos para el registro de empleado: ' . print_r($validatedData, true));
-       // Log::info('edad: ' . $edad);
+        // Log::info('Datos recibidos para el registro de empleado: ' . print_r($validatedData, true));
+        // Log::info('edad: ' . $edad);
 
         // Crear una transacción
         DB::beginTransaction();
@@ -257,8 +323,8 @@ class EmpleadoController extends Controller
                 'correo' => $validatedData['correo'],
                 'curp' => $validatedData['curp'],
                 'nombre' => $validatedData['nombre'],
-                'nss'=>$validatedData['nss'],
-                'rfc'=>$validatedData['rfc'],
+                'nss' => $validatedData['nss'],
+                'rfc' => $validatedData['rfc'],
                 'paterno' => $validatedData['paterno'],
                 'materno' => $validatedData['materno'] ?? null,
                 'puesto' => $validatedData['puesto'] ?? null,
