@@ -18,13 +18,18 @@ class Evaluacion extends Model
     // Define los atributos que son asignables en masa
     protected $fillable = [
         'id_portal',
+        'id_usuario', // Nuevo campo
         'name',
+        'numero_participantes', // Nuevo campo
+        'departamento', // Nuevo campo
         'name_document',
         'id_opcion_evaluaciones',
         'description',
+        'conclusiones', // Nuevo campo
+        'acciones', // Nuevo campo
         'expiry_date',
         'expiry_reminder',
-        'origen',
+        'origen', // Nuevo campo
     ];
 
     // Si tienes timestamps en la tabla y quieres que se manejen automáticamente

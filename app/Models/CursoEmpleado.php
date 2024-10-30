@@ -21,7 +21,7 @@ class CursoEmpleado extends Model
         'employee_id',
         'name',
         'name_document',
-        'id_opcion_exams',
+        'id_opcion_curso',
         'description',
         'expiry_date',
         'expiry_reminder',

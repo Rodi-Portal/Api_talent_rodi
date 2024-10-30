@@ -12,6 +12,7 @@ use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CursosController;
 use App\Http\Controllers\Empleados\DocumentOptionController;
 use App\Http\Controllers\Empleados\EmpleadoController;
+use App\Http\Controllers\Empleados\EvaluacionController;
 use App\Http\Controllers\Empleados\EviarEmpleadoRodi;
 use App\Http\Controllers\Empleados\MedicalInfoController;
 use App\Http\Controllers\ImageController;
@@ -101,8 +102,19 @@ Route::middleware(['api'])->group(function () {
     // para  guardar cursos
     Route::post('/cursos/registrar', [CursosController::class, 'store']);
     Route::get('/cursos/empleado', [CursosController::class, 'obtenerCursosPorEmpleado']);
-    // validar  si hay cursos   vencidos 
+    // validar  si hay cursos   vencidos
     Route::get('/empleados/cursos', [CursosController::class, 'getEmpleadosConCursos']);
+
+/*  rutas  para  subir  las  evaluaciones   */
+    Route::post('/evaluaciones', [EvaluacionController::class, 'store']);
+    Route::get('/evaluaciones', [EvaluacionController::class, 'getEvaluations']);
+    Route::put('/evaluaciones/{id}', [EvaluacionController::class, 'update']);
+
+/*Descomprimir  archivos  */
+    Route::post('/unzip', [DocumentController::class, 'unzipFile']);
+    Route::post('/delete', [DocumentController::class, 'deleteFile']);
+    Route::post('/download-zip', [DocumentController::class, 'downloadZip']);
+    Route::post('/upload-zip', [DocumentController::class, 'uploadZip']);
 
 
 });
