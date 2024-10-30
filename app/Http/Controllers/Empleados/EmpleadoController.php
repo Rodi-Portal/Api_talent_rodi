@@ -54,17 +54,22 @@ class EmpleadoController extends Controller
     }
     private function checkDocumentStatus($documentos)
     {
-        if ($documentos->isEmpty()) {
+        // Si $documentos es un solo documento, conviene usarlo directamente
+        if (!is_array($documentos) && !$documentos instanceof \Illuminate\Support\Collection) {
+            $documentos = [$documentos]; // Convertir a un array para la iteración
+        }
+    
+        if (empty($documentos)) {
             return 'verde'; // Sin documentos, consideramos como verde
         }
-
+    
         $tieneRojo = false;
         $tieneAmarillo = false;
-
+    
         foreach ($documentos as $documento) {
             // Calcular diferencia de días con respecto a la fecha actual
             $diasDiferencia = $this->calcularDiferenciaDias(now(), $documento->expiry_date);
-
+    
             // Comprobamos el estado del documento
             if ($documento->expiry_reminder == 0) {
                 continue; // No se requiere cálculo, se considera verde
@@ -77,18 +82,19 @@ class EmpleadoController extends Controller
                 $tieneAmarillo = true;
             }
         }
-
+    
         // Determinamos el estado basado en las prioridades
         if ($tieneRojo) {
             return 'rojo';
         }
-
+    
         if ($tieneAmarillo) {
             return 'amarillo';
         }
-
+    
         return 'verde'; // Si no hay documentos en rojo o amarillo
     }
+    
 
     private function calcularDiferenciaDias($fechaActual, $fechaExpiracion)
     {
@@ -186,7 +192,7 @@ class EmpleadoController extends Controller
         ]);
 
         if ($validator->fails()) {
-            // \Log::error('Validation errors:', $validator->errors()->toArray());
+             \Log::error('Validation errors:', $validator->errors()->toArray());
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
@@ -203,6 +209,7 @@ class EmpleadoController extends Controller
                 'puesto',
                 'rfc',
                 'nss',
+                'id_empleado',
                 'curp',
                 'foto',
                 'fecha_nacimiento',

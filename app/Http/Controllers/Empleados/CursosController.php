@@ -141,7 +141,8 @@ class CursosController extends Controller
         //Log::info('Resultados de empleados con documentos: ' . print_r($resultados, true));
         //Log::info('Resultados de empleados con documentos:', $resultados);
 
-        return response()->json($resultados);
+        return response()->json($resultados);        //Log::info('Resultados de empleados con documentos: ' . print_r($resultados, true));
+
     }
 
     private function checkDocumentStatus($documentos)
