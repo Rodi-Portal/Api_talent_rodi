@@ -17,6 +17,7 @@ class Empleado extends Model
         'edicion',
         'id_portal',
         'id_usuario',
+        'id_cliente',
         'id_empleado',
         'id_domicilio_empleado',
         'nombre',

@@ -19,6 +19,7 @@ class Evaluacion extends Model
     protected $fillable = [
         'id_portal',
         'id_usuario', // Nuevo campo
+        'id_cliente',
         'name',
         'numero_participantes', // Nuevo campo
         'departamento', // Nuevo campo

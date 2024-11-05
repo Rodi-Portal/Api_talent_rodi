@@ -114,12 +114,18 @@ class CursosController extends Controller
     {
         $request->validate([
             'id_portal' => 'required|integer',
+            'id_cliente' => 'required|integer',
+            'status' => 'required|integer'
         ]);
 
         $id_portal = $request->input('id_portal');
-
+        $id_cliente = $request->input('id_cliente');
+        $status = $request->input('status');
         // Obtener todos los empleados con sus domicilios
-        $empleados = Empleado::where('id_portal', $id_portal)->get();
+        $empleados = Empleado::where('id_portal', $id_portal)
+        ->where('id_cliente', $id_cliente )
+        ->where('status', $status )
+        ->get();
 
         $resultados = [];
 
