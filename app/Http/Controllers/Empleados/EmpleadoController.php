@@ -7,8 +7,10 @@ use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\DomicilioEmpleado;
 use App\Models\Empleado;
-use App\Models\MedicalInfo;  
 use App\Models\Evaluacion;
+use App\Models\MedicalInfo;
+use App\Models\ComentarioFormerEmpleado;
+
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -24,52 +26,77 @@ class EmpleadoController extends Controller
     {
         $request->validate([
             'id_portal' => 'required|integer',
+            'id_cliente' => 'required|integer',
+            'status' => 'required|integer',
         ]);
 
         $id_portal = $request->input('id_portal');
+        $id_cliente = $request->input('id_cliente');
+        $status = $request->input('status');
 
         // Obtener todos los empleados con sus domicilios
-        $empleados = Empleado::with('domicilioEmpleado')->where('id_portal', $id_portal)->get();
+        $empleados = Empleado::with('domicilioEmpleado')
+            ->where('id_portal', $id_portal)
+            ->where('id_cliente', $id_cliente)
+            ->where('status', $status)
+            ->get();
+
         $resultados = [];
 
-        foreach ($empleados as $empleado) {
-            // Obtener documentos del empleado
+        if ($status == 2) {
+            foreach ($empleados as $empleado) {
+                // Obtener el campo 'creacion' de ComentarioFormerEmpleado
+                $comentario = ComentarioFormerEmpleado::where('id_empleado', $empleado->id)->first(['creacion']);
 
-            $documentos = DocumentEmpleado::where('employee_id', $empleado->id)->get();
-            $cursos = CursoEmpleado::where('employee_id', $empleado->id)->get();
+                // Convertir el empleado a un array
+                $empleadoArray = $empleado->toArray();
 
-            $status = $this->checkDocumentStatus($documentos);
+                // Agregar el campo 'creacion' si existe
+                $empleadoArray['fecha_salida'] = $comentario ? $comentario->creacion : null;
 
-            $statusCursos = $this->checkDocumentStatus($cursos);
-            // Convertir el empleado a un array y agregar el statusDocuments
-            $empleadoArray = $empleado->toArray();
-            $empleadoArray['statusDocuments'] = $status;
-            $empleadoArray['statusCursos'] = $statusCursos;
+                // Agregar al resultado
+                $resultados[] = $empleadoArray;
+            }
+        } else {
+            foreach ($empleados as $empleado) {
+                // Obtener documentos del empleado
+                $documentos = DocumentEmpleado::where('employee_id', $empleado->id)->get();
+                $cursos = CursoEmpleado::where('employee_id', $empleado->id)->get();
 
-            $resultados[] = $empleadoArray;
+                $statusDocuments = $this->checkDocumentStatus($documentos);
+                $statusCursos = $this->checkDocumentStatus($cursos);
+
+                // Convertir el empleado a un array y agregar el statusDocuments
+                $empleadoArray = $empleado->toArray();
+                $empleadoArray['statusDocuments'] = $statusDocuments;
+                $empleadoArray['statusCursos'] = $statusCursos;
+
+                // Agregar al resultado
+                $resultados[] = $empleadoArray;
+            }
         }
-       // Log::info('Resultados de empleados con documentos y cursos : ' . print_r($resultados, true));
 
         return response()->json($resultados);
     }
+
     private function checkDocumentStatus($documentos)
     {
         // Si $documentos es un solo documento, conviene usarlo directamente
         if (!is_array($documentos) && !$documentos instanceof \Illuminate\Support\Collection) {
             $documentos = [$documentos]; // Convertir a un array para la iteración
         }
-    
+
         if (empty($documentos)) {
             return 'verde'; // Sin documentos, consideramos como verde
         }
-    
+
         $tieneRojo = false;
         $tieneAmarillo = false;
-    
+
         foreach ($documentos as $documento) {
             // Calcular diferencia de días con respecto a la fecha actual
             $diasDiferencia = $this->calcularDiferenciaDias(now(), $documento->expiry_date);
-    
+
             // Comprobamos el estado del documento
             if ($documento->expiry_reminder == 0) {
                 continue; // No se requiere cálculo, se considera verde
@@ -82,19 +109,18 @@ class EmpleadoController extends Controller
                 $tieneAmarillo = true;
             }
         }
-    
+
         // Determinamos el estado basado en las prioridades
         if ($tieneRojo) {
             return 'rojo';
         }
-    
+
         if ($tieneAmarillo) {
             return 'amarillo';
         }
-    
+
         return 'verde'; // Si no hay documentos en rojo o amarillo
     }
-    
 
     private function calcularDiferenciaDias($fechaActual, $fechaExpiracion)
     {
@@ -113,32 +139,36 @@ class EmpleadoController extends Controller
         $request->validate([
             'id_portal' => 'required|integer',
         ]);
-    
+
         $id_portal = $request->input('id_portal');
-    
+        $id_cliente = $request->input('id_cliente');
+
+
         // Obtener todos los empleados
-        $empleados = Empleado::where('id_portal', $id_portal)->get();
-    
+        $empleados = Empleado::where('id_portal', $id_portal)
+        ->where('id_cliente', $id_cliente) // Asegúrate de que $id_cliente esté definido
+        ->get();
+
         $statusDocuments = 'verde'; // Asignar un estado inicial
         $statusCursos = 'verde'; // Asignar un estado inicial
         $statusEvaluaciones = 'verde'; // Nuevo estado para evaluaciones
-    
+
         foreach ($empleados as $empleado) {
             // Obtener documentos y cursos del empleado
             $documentos = DocumentEmpleado::where('employee_id', $empleado->id)->get();
             $cursos = CursoEmpleado::where('employee_id', $empleado->id)->get();
-    
+
             // Evaluar el estado de documentos y cursos usando la misma función
             $statusEmpleadoDocs = $this->checkDocumentStatus($documentos);
             $statusEmpleadoCursos = $this->checkDocumentStatus($cursos);
-    
+
             // Actualizar el estado general para documentos
             if ($statusEmpleadoDocs === 'rojo') {
                 $statusDocuments = 'rojo';
             } elseif ($statusEmpleadoDocs === 'amarillo' && $statusDocuments !== 'rojo') {
                 $statusDocuments = 'amarillo';
             }
-    
+
             // Actualizar el estado general para cursos
             if ($statusEmpleadoCursos === 'rojo') {
                 $statusCursos = 'rojo';
@@ -146,7 +176,7 @@ class EmpleadoController extends Controller
                 $statusCursos = 'amarillo';
             }
         }
-    
+
         // Obtener evaluaciones para el id_portal
         $evaluaciones = Evaluacion::where('id_portal', $id_portal)->get();
         foreach ($evaluaciones as $evaluacion) {
@@ -157,20 +187,19 @@ class EmpleadoController extends Controller
             } elseif ($statusEvaluacionesPortal === 'amarillo' && $statusEvaluaciones !== 'rojo') {
                 $statusEvaluaciones = 'amarillo';
             }
-    
+
         }
-    
+
         $resultado = [
             'statusDocuments' => $statusDocuments,
             'statusCursos' => $statusCursos,
             'statusEvaluaciones' => $statusEvaluaciones,
         ];
-    
-      //  Log::info('Resultados de estados de documentos, cursos y evaluaciones: ' . print_r($resultado, true));
-    
+
+        //  Log::info('Resultados de estados de documentos, cursos y evaluaciones: ' . print_r($resultado, true));
+
         return response()->json($resultado);
     }
-    
 
     public function update(Request $request)
     {
@@ -192,7 +221,7 @@ class EmpleadoController extends Controller
         ]);
 
         if ($validator->fails()) {
-             \Log::error('Validation errors:', $validator->errors()->toArray());
+            \Log::error('Validation errors:', $validator->errors()->toArray());
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
@@ -271,6 +300,7 @@ class EmpleadoController extends Controller
             'edicion' => 'required|date',
             'id_portal' => 'required|integer',
             'id_usuario' => 'required|integer',
+            'id_cliente' => 'required|integer',
             'id_empleado' => 'required|integer',
             'correo' => 'required|email',
             'fecha_nacimiento' => 'nullable|date',
@@ -326,6 +356,7 @@ class EmpleadoController extends Controller
                 'edicion' => $validatedData['edicion'],
                 'id_portal' => $validatedData['id_portal'],
                 'id_usuario' => $validatedData['id_usuario'],
+                'id_cliente' => $validatedData['id_cliente'],
                 'id_empleado' => $validatedData['id_empleado'],
                 'correo' => $validatedData['correo'],
                 'curp' => $validatedData['curp'],

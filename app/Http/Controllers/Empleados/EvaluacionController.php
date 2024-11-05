@@ -16,10 +16,13 @@ class EvaluacionController extends Controller
     {
         $request->validate([
             'id_portal' => 'required|integer',
+            'id_cliente' => 'required|integer',
         ]);
 
         // Obtener todas las evaluaciones asociadas al id_portal
-        $evaluaciones = Evaluacion::where('id_portal', $request->input('id_portal'))->get();
+        $evaluaciones = Evaluacion::where('id_portal', $request->input('id_portal'))
+        ->where('id_cliente', $request->input('id_cliente'))
+        ->get();
         $resultados = [];
 
         foreach ($evaluaciones as $evaluacion) {
@@ -99,6 +102,7 @@ class EvaluacionController extends Controller
         $validator = Validator::make($request->all(), [
             'id_portal' => 'required|integer',
             'id_usuario' => 'nullable|integer',
+            'id_cliente' => 'nullable|integer',
             'name' => 'required|string|max:255',
             'numero_participantes' => 'nullable|integer',
             'departamento' => 'nullable|string|max:250',

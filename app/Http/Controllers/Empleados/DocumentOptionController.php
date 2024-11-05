@@ -425,6 +425,7 @@ class DocumentOptionController extends Controller
                 'upload_date' => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
                 'expiry_date' => $documento->expiry_date,
                 'expiry_reminder' => $documento->expiry_reminder,
+                'nameAlterno' => $documento->nameDocument
                 // Agrega otros campos que necesites
             ];
         });

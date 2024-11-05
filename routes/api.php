@@ -15,6 +15,7 @@ use App\Http\Controllers\Empleados\EmpleadoController;
 use App\Http\Controllers\Empleados\EvaluacionController;
 use App\Http\Controllers\Empleados\EviarEmpleadoRodi;
 use App\Http\Controllers\Empleados\MedicalInfoController;
+use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ProyectosHistorialController;
 use App\Http\Controllers\ReportController;
@@ -116,6 +117,12 @@ Route::middleware(['api'])->group(function () {
     Route::post('/download-zip', [DocumentController::class, 'downloadZip']);
     Route::post('/upload-zip', [DocumentController::class, 'uploadZip']);
 
+/** Former Employe   endpoints */
+Route::post('/comentarios-former-empleado', [FormerEmpleadoController::class, 'storeComentarioFormer']);
+Route::get('empleados/{id_empleado}/documentos-y-cursos', [FormerEmpleadoController::class, 'getDocumentosYCursos']);
+Route::post('/documentos/former', [FormerEmpleadoController::class, 'storeDocumentos']);
+Route::get('/conclusions/{id_empleado}', [FormerEmpleadoController::class, 'getConclusionsByEmployeeId']);
+Route::delete('/comentarios-former-empleado/{id}', [FormerEmpleadoController::class, 'deleteComentario']);
 
 });
 
