@@ -304,7 +304,7 @@ class EmpleadoController extends Controller
             'id_empleado' => 'required|integer',
             'correo' => 'required|email',
             'fecha_nacimiento' => 'nullable|date',
-            'curp' => 'required|string',
+            'curp' => 'nullable|string',
             'rfc' => 'nullable|string',
             'nss' => 'nullable|string',
             'nombre' => 'required|string',
@@ -347,7 +347,7 @@ class EmpleadoController extends Controller
                 'cp' => $validatedData['domicilio_empleado']['cp'] ?? null,
             ];
 
-            Log::info('Insertando en DomicilioEmpleado:', $domicilioData); // Log antes de insertar
+           // Log::info('Insertando en DomicilioEmpleado:', $domicilioData); // Log antes de insertar
             $domicilio = DomicilioEmpleado::create($domicilioData); // Guardar con create
 
             // Crear un nuevo empleado
@@ -373,7 +373,7 @@ class EmpleadoController extends Controller
                 'eliminado' => 0,
             ];
 
-            Log::info('Insertando en Empleado:', $empleadoData); // Log antes de insertar
+            //Log::info('Insertando en Empleado:', $empleadoData); // Log antes de insertar
             $empleado = Empleado::create($empleadoData); // Guardar con create
 
             // Crear un registro vacío en MedicalInfo
@@ -384,7 +384,7 @@ class EmpleadoController extends Controller
                 'edad' => $edad,
             ];
 
-            Log::info('Insertando en MedicalInfo:', $medicalInfoData); // Log antes de insertar
+           // Log::info('Insertando en MedicalInfo:', $medicalInfoData); // Log antes de insertar
             MedicalInfo::create($medicalInfoData); // Guardar con create
 
             // Confirmar la transacción

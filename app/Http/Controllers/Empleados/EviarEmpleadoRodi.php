@@ -9,13 +9,13 @@ use App\Models\CandidatoSeccion;
 use App\Models\CandidatoSync;
 use App\Models\CatDocumentoRequerimiento;
 use App\Models\Empleado;
-use App\Models\Visita;
+use App\Models\ClienteTalent;
 use App\Models\ExamEmpleado;
-use App\Models\Doping;
 use App\Models\ProyectosHistorial;
-use Illuminate\Support\Facades\DB;
+use App\Models\Visita;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -40,7 +40,8 @@ class EviarEmpleadoRodi extends Controller
         if ($request->project == 0) {
             $tipo_formulario = 0;
         }
-
+        $nombre = ClienteTalent::where('id', $request->id_cliente_talent)->pluck('nombre')->first();
+     
         /*  aqui se llena el arreglo de la tabla  candidato */
         DB::beginTransaction();
 
@@ -72,9 +73,9 @@ class EviarEmpleadoRodi extends Controller
                     'interior' => $domicilio->num_int ?? null, // Verifica aquí
                     'privacidad' => $request->privacidad_usuario ?? 0,
                 ]);
-                if($request->project > 0){
+                if ($request->project > 0) {
                     $socioeconomico = 1;
-                }else{
+                } else {
                     $socioeconomico = 0;
                 }
                 $candidato->save();
@@ -83,15 +84,15 @@ class EviarEmpleadoRodi extends Controller
                 $candidatoSync = new CandidatoSync([
                     'id_cliente_talent' => $request->id_cliente_talent ?? null,
                     'id_aspirante_talent' => $request->id_aspirante_talent ?? null,
-                    'id_empleado_talent'=> $empleado->id ?? null,
-                    'nombre_cliente_talent' => $request->nombre_cliente_talent ?? 'ModuloEmpleados',
+                    'id_empleado_talent' => $empleado->id ?? null,
+                    'nombre_cliente_talent' => $request->nombre_cliente_talent ?? $nombre,
                     'id_portal' => $request->id_portal,
                     'id_candidato_rodi' => $candidato->id,
                     'id_puesto_talent' => $request->id_puesto_talent ?? null,
                     'creacion' => $fechaHoy,
                     'edicion' => $fechaHoy,
                 ]);
-                
+
                 $candidatoSync->save();
 
                 // aqui se   genera  el arreglo para  la tabla  candidato_pruebas
@@ -99,7 +100,7 @@ class EviarEmpleadoRodi extends Controller
                     'creacion' => $fechaHoy,
                     'edicion' => $fechaHoy,
                     'tipo_antidoping' => $request->tipo_antidoping ?? 0,
-                    'antidoping' => $request->paquete,
+                    'antidoping' => $request->paquete ?? 0,
                     'medico' => $request->medicalExam ?? 0,
                     'tipo_psicometrico' => $request->psychometric ?? 0,
                     'psicometrico' => $request->psychometric ?? 0,
@@ -111,23 +112,20 @@ class EviarEmpleadoRodi extends Controller
 
                 $candidatoPruebas->save();
 
-
-                $examEmpleado =  new ExamEmpleado([
-                  'creacion'=> $fechaHoy,
-                  'edicion'=> $fechaHoy,
-                  'employee_id'=>$empleado->id,
-                  'name'=> $request->name,
-                  'id_opcion' => $request->opcion ?? null,
-                  'descripcion'=>$request->descripcion,
-                  'expiry_date'=>$request->expiry_date,
-                  'expiry_reminder'=> $request->expiryReminder,
-                  'id_candidato'=>$candidato->id ?? null,
-
+                $examEmpleado = new ExamEmpleado([
+                    'creacion' => $fechaHoy,
+                    'edicion' => $fechaHoy,
+                    'employee_id' => $empleado->id,
+                    'name' => $request->name,
+                    'id_opcion' => $request->opcion ?? null,
+                    'descripcion' => $request->descripcion,
+                    'expiry_date' => $request->expiry_date,
+                    'expiry_reminder' => $request->expiryReminder,
+                    'id_candidato' => $candidato->id ?? null,
 
                 ]);
                 $examEmpleado->save();
-            
-              
+
                 /*  aqui se llena el arreglo de la tabla  candidato_seccion */
                 if ($request->project > 0) {
                     $proyecto = ProyectosHistorial::where('id', $request->project)->first();
@@ -226,34 +224,34 @@ class EviarEmpleadoRodi extends Controller
                             'solicitado' => $documentoData['solicitado'],
                         ]);
 
-                       $documentoRequerido->save();
+                        $documentoRequerido->save();
                     }
                     // Guardar en la base de datos
                     //$candidatoSeccion->save();
-                /*    Log::info('Datos del documentoRequerido: ' . print_r($documentoRequerido->toArray(), true));
-                    Log::info('Datos del visita: ' . print_r($visita->toArray(), true));
+                    /*    Log::info('Datos del documentoRequerido: ' . print_r($documentoRequerido->toArray(), true));
+                Log::info('Datos del visita: ' . print_r($visita->toArray(), true));
 
-                    Log::info('Datos del candidato: ' . print_r($candidato->toArray(), true));
-                    Log::info('Datos del candidatoSync: ' . print_r($candidatoSync->toArray(), true));
-                    Log::info('Datos del candidatoPruebas: ' . print_r($candidatoPruebas->toArray(), true));
-                    Log::info('Datos del candidatoSeccion: ' . print_r($candidatoSeccion->toArray(), true));
-                    Log::info('Datos del candidato: ' . print_r($documentosSolicitados, true));
-*/
+                Log::info('Datos del candidato: ' . print_r($candidato->toArray(), true));
+                Log::info('Datos del candidatoSync: ' . print_r($candidatoSync->toArray(), true));
+                Log::info('Datos del candidatoPruebas: ' . print_r($candidatoPruebas->toArray(), true));
+                Log::info('Datos del candidatoSeccion: ' . print_r($candidatoSeccion->toArray(), true));
+                Log::info('Datos del candidato: ' . print_r($documentosSolicitados, true));
+                 */
                 }
 
             } else {
-              return response()->json(['codigo' => 0, 'msg' => 'Could not register the candidate, please try again later'], 500);
+                return response()->json(['codigo' => 0, 'msg' => 'Could not register the candidate, please try again later'], 500);
 
-              Log::warning('Employee not found with id_empleado:', ['id_empleado' => $id_empleado]);
+                Log::warning('Employee not found with id_empleado:', ['id_empleado' => $id_empleado]);
             }
             DB::commit();
 
             return response()->json(['codigo' => 1, 'msg' => 'The candidate was registered successfully'], 201);
-          } catch (Exception $e) {
+        } catch (Exception $e) {
             DB::rollback(); // Revierte la transacción si ocurrió algún error
             Log::error($e->getMessage());
             return response()->json(['codigo' => 0, 'msg' => 'Could not register the candidate, please try again later'], 500);
-          }
+        }
     }
 
     // obtener  el fecha y hora

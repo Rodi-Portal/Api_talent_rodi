@@ -43,6 +43,7 @@ class DocumentOptionController extends Controller
         $candidatosPruebas = CandidatoPruebas::whereIn('id_candidato', $idCandidatos)->get();
         $candidatos = Candidato::with('medico', 'doping')->whereIn('id', $idCandidatos)->get(); // Cargar la relación del doping
         $psicometrico = Candidato::with('psicometrico')->whereIn('id', $idCandidatos)->get();
+      // Log::info('Psicométrico obtenido:', ['psicometrico' => $psicometrico]);
 
         // Mapear los documentos para incluir los nuevos campos
         $examConOpciones = $exam->map(function ($documento) use ($candidatosPruebas, $candidatos) {
@@ -50,6 +51,7 @@ class DocumentOptionController extends Controller
             $candidato = $candidatos->firstWhere('id', $documento->id_candidato);
             $medico = $candidato->medico ?? null;
             $doping = $candidato->doping ?? null; // Obtener el doping
+            $psicometrico = $candidato->psicometrico ?? null; // Obtener el psicométrico
 
             switch ($candidato->status_bgc ?? null) {
                 case 1:
@@ -91,7 +93,7 @@ class DocumentOptionController extends Controller
                 ],
                 'psicometricoDet' => [
                     'id' => $psicometrico->id ?? null,
-                    'archivo_psicometrico' => $psicometrico->archivo_psicometrico ?? null,
+                    'archivo_psicometrico' => $psicometrico->archivo ?? null,
                 ],
                 'doping' => [
                     'id' => $doping->id ?? null,
@@ -227,7 +229,7 @@ class DocumentOptionController extends Controller
         }
 
         // Log de los datos recibidos
-        Log::info('Datos recibidos en el store:', $request->all());
+       // Log::info('Datos recibidos en el store:', $request->all());
 
         // Verificar si se recibió un archivo
         if (!$request->hasFile('file')) {
@@ -253,7 +255,7 @@ class DocumentOptionController extends Controller
         $idOpcion = json_decode($opcionResponse->getContent())->id_opciones;
 
         // Log para verificar el ID obtenido
-        Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
+        //Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
 
         // Preparar la solicitud para la subida del archivo
         $employeeId = $request->input('employee_id');

@@ -53,6 +53,7 @@ Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::cla
 Route::post('/candidatos', [ApiCandidatoSinEseController::class, 'store']);
 Route::post('/existe-cliente', [ApiClientesController::class, 'VerificarCliente']);
 Route::get('candidato-sync/{id_cliente_talent}', [ApiGetCandidatosByCliente::class, 'getByClienteTalent']);
+
 Route::get('doping/{id}', [ApiGetDopingDetalles::class, 'getDatosDoping']);
 Route::get('doping-detalles/{id}', [ApiGetDopingDetalles::class, 'getDopingDetalles']);
 
@@ -118,11 +119,14 @@ Route::middleware(['api'])->group(function () {
     Route::post('/upload-zip', [DocumentController::class, 'uploadZip']);
 
 /** Former Employe   endpoints */
-Route::post('/comentarios-former-empleado', [FormerEmpleadoController::class, 'storeComentarioFormer']);
-Route::get('empleados/{id_empleado}/documentos-y-cursos', [FormerEmpleadoController::class, 'getDocumentosYCursos']);
-Route::post('/documentos/former', [FormerEmpleadoController::class, 'storeDocumentos']);
-Route::get('/conclusions/{id_empleado}', [FormerEmpleadoController::class, 'getConclusionsByEmployeeId']);
-Route::delete('/comentarios-former-empleado/{id}', [FormerEmpleadoController::class, 'deleteComentario']);
+    Route::post('/comentarios-former-empleado', [FormerEmpleadoController::class, 'storeComentarioFormer']);
+    Route::get('empleados/{id_empleado}/documentos-y-cursos', [FormerEmpleadoController::class, 'getDocumentosYCursos']);
+    Route::post('/documentos/former', [FormerEmpleadoController::class, 'storeDocumentos']);
+    Route::get('/conclusions/{id_empleado}', [FormerEmpleadoController::class, 'getConclusionsByEmployeeId']);
+    Route::delete('/comentarios-former-empleado/{id}', [FormerEmpleadoController::class, 'deleteComentario']);
+
+// ruta  para   enviar     de pre employment  a employment
+    Route::post('candidato-send/{id_candidato}', [ApiGetCandidatosByCliente::class, 'sendCandidateToEmployee']);
 
 });
 
