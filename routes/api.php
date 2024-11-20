@@ -67,6 +67,7 @@ Route::get('/report/{id_candidato}', [ReportController::class, 'getReport']);
 Route::get('empleados', [ApiEmpleadoController::class, 'index']);
 Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
 Route::get('/document-options', [DocumentOptionController::class, 'index']);
+
 Route::middleware(['api'])->group(function () {
 
     //  obtener  el status  de general  de los empleados
@@ -104,6 +105,9 @@ Route::middleware(['api'])->group(function () {
     // para  guardar cursos
     Route::post('/cursos/registrar', [CursosController::class, 'store']);
     Route::get('/cursos/empleado', [CursosController::class, 'obtenerCursosPorEmpleado']);
+    Route::get('/clientes/{clienteId}/cursos', [CursosController::class, 'getCursosPorCliente']);
+    Route::get('/clientes/{id}/exportar-cursos', [CursosController::class, 'exportCursosPorCliente']);
+
     // validar  si hay cursos   vencidos
     Route::get('/empleados/cursos', [CursosController::class, 'getEmpleadosConCursos']);
 
