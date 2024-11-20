@@ -210,6 +210,7 @@ return [
     */
 
     'aliases' => Facade::defaultAliases()->merge([
+        'Excel' => Maatwebsite\Excel\Facades\Excel::class, // Agrega este alias
         // 'ExampleClass' => App\Example\ExampleClass::class,
     ])->toArray(),
 
