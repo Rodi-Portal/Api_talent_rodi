@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -7,13 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class ClienteTalent extends Model
 {
-    // Definir el nombre de la tabla (si es diferente al plural del nombre del modelo)
     use HasFactory;
 
     protected $connection = 'portal_main';
-    protected $table = 'cliente'; // Cambia esto si el nombre de tu tabla es diferente
+    protected $table = 'cliente';
     public $timestamps = false;
-    // Definir los campos que se pueden llenar masivamente
+
     protected $fillable = [
         'id_portal',
         'id_usuario',
@@ -33,6 +31,16 @@ class ClienteTalent extends Model
         'eliminado',
     ];
 
-    // Si no quieres que ciertos campos sean asignados masivamente, puedes especificarlos en $guarded
-    // protected $guarded = ['id'];
+    // Relación con empleados
+    public function empleados()
+    {
+        return $this->hasMany(Empleado::class, 'id_cliente');
+    }
+
+    // Relación con cursos a través de empleados
+    public function cursos()
+    {
+        return $this->hasManyThrough(CursoEmpleado::class, Empleado::class, 'id_cliente', 'employee_id');
+    }
 }
+

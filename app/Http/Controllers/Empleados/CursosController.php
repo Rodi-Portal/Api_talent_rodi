@@ -6,6 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\DocumentController;
 use App\Models\CursoEmpleado;
 use App\Models\Empleado;
+use App\Models\ClienteTalent;
+use Illuminate\Support\Facades\Http;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\CursosExport; 
 use Illuminate\Http\Request; // Cambia esto al nombre correcto de tu controlador
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -14,6 +18,64 @@ use Carbon\Carbon;
 
 class CursosController extends Controller
 {
+
+    public function getCursosPorCliente($clienteId)
+    {
+        // Buscar al cliente por su ID
+        $cliente = ClienteTalent::with('cursos.empleado')->find($clienteId);
+
+        if (!$cliente) {
+            return response()->json(['error' => 'Cliente no encontrado'], 404);
+        }
+
+        // Mapear los cursos con los detalles necesarios
+        $cursos = $cliente->cursos->map(function ($curso) {
+            // Determinar el estado del curso basado en la fecha de expiración
+            $estado = $this->getEstadoCurso1($curso->expiry_date);
+
+            return [
+                'curso' => $curso->name,
+                'empleado' => $curso->empleado->nombre ?? 'Sin asignar',
+                'fecha_expiracion' => $curso->expiry_date,
+                'estado' => $estado
+            ];
+        });
+
+        return response()->json($cursos);
+    }
+
+    public function exportCursosPorCliente($clienteId)
+    {
+        // Llama al método para obtener los datos
+        $response = $this->getCursosPorCliente($clienteId);
+
+        if ($response->status() !== 200) {
+            return $response; // Retorna el error si ocurre
+        }
+
+        // Obtén los datos del response
+        $cursos = $response->getData(true);
+
+        // Genera y devuelve el Excel
+        return Excel::download(new CursosExport($cursos), "reporte_cursos_cliente_{$clienteId}.xlsx");
+    }
+
+    private function getEstadoCurso1($expiryDate)
+    {
+        if (!$expiryDate) {
+            return 'Sin fecha';
+        }
+
+        $fechaExpiracion = Carbon::parse($expiryDate);
+        $fechaHoy = Carbon::now();
+
+        if ($fechaExpiracion->isPast()) {
+            return 'Expirado';
+        }
+
+        return 'Vigente';
+    }
+
     public function store(Request $request)
     {
         // Validar los datos de entrada
@@ -110,6 +172,7 @@ class CursosController extends Controller
         // Retornar los resultados
         return response()->json($cursos);
     }
+
     public function getEmpleadosConCursos(Request $request)
     {
         $request->validate([
@@ -200,7 +263,23 @@ class CursosController extends Controller
         // Ajustamos la diferencia para que sea negativa si la fecha de expiración ya ha pasado
         return $fechaExpiracion < $fechaActual ? -$diferenciaDias : $diferenciaDias;
     }
-    
+
+  
+
+    // Método auxiliar para determinar el estado del curso
+    private function getEstadoCurso($fechaExpiracion)
+    {
+        $fechaExpiracion = \Carbon\Carbon::parse($fechaExpiracion);
+        $hoy = \Carbon\Carbon::now();
+
+        if ($fechaExpiracion->isPast()) {
+            return 'Expirado';
+        } elseif ($fechaExpiracion->diffInDays($hoy) <= 5) {
+            return 'Por expirar';
+        } else {
+            return 'Vigente';
+        }
+    }
 
     private function generateRandomString($length = 10)
     {

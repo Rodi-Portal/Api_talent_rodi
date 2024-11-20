@@ -301,8 +301,8 @@ class EmpleadoController extends Controller
             'id_portal' => 'required|integer',
             'id_usuario' => 'required|integer',
             'id_cliente' => 'required|integer',
-            'id_empleado' => 'required|integer',
-            'correo' => 'required|email',
+            'id_empleado' => 'nullable|integer',
+            'correo' => 'nullable|email',
             'fecha_nacimiento' => 'nullable|date',
             'curp' => 'nullable|string',
             'rfc' => 'nullable|string',
@@ -324,13 +324,18 @@ class EmpleadoController extends Controller
             'domicilio_empleado.cp' => 'nullable|string',
         ]);
 
-        $fechaNacimiento = Carbon::parse($validatedData['fecha_nacimiento']);
-        $fechaCreacion = Carbon::parse($validatedData['creacion']);
-        $edad = $fechaCreacion->diffInYears($fechaNacimiento);
+        $fechaNacimiento = '';
+        $fechaCreacion = '';
+        $edad = null;
+        if (isset($validatedData['fecha_nacimiento']) && $validatedData['fecha_nacimiento'] != '') {
+            $fechaNacimiento = Carbon::parse($validatedData['fecha_nacimiento']);
+            $fechaCreacion = Carbon::parse($validatedData['creacion']);
+            $edad = $fechaCreacion->diffInYears($fechaNacimiento);
+        }
         // Imprimir los datos en el log
         // Log::info('Datos recibidos para el registro de empleado: ' . print_r($validatedData, true));
         // Log::info('edad: ' . $edad);
-
+        
         // Crear una transacción
         DB::beginTransaction();
 
@@ -357,12 +362,12 @@ class EmpleadoController extends Controller
                 'id_portal' => $validatedData['id_portal'],
                 'id_usuario' => $validatedData['id_usuario'],
                 'id_cliente' => $validatedData['id_cliente'],
-                'id_empleado' => $validatedData['id_empleado'],
-                'correo' => $validatedData['correo'],
-                'curp' => $validatedData['curp'],
+                'id_empleado' => $validatedData['id_empleado'] ?? null,
+                'correo' => $validatedData['correo']?? null,
+                'curp' => $validatedData['curp']?? null,
                 'nombre' => $validatedData['nombre'],
-                'nss' => $validatedData['nss'],
-                'rfc' => $validatedData['rfc'],
+                'nss' => $validatedData['nss']?? null,
+                'rfc' => $validatedData['rfc']?? null,
                 'paterno' => $validatedData['paterno'],
                 'materno' => $validatedData['materno'] ?? null,
                 'puesto' => $validatedData['puesto'] ?? null,
@@ -381,7 +386,7 @@ class EmpleadoController extends Controller
                 'id_empleado' => $empleado->id,
                 'creacion' => $validatedData['creacion'],
                 'edicion' => $validatedData['creacion'],
-                'edad' => $edad,
+                'edad' => $edad ?? null,
             ];
 
            // Log::info('Insertando en MedicalInfo:', $medicalInfoData); // Log antes de insertar
