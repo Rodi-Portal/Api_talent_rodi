@@ -19,51 +19,36 @@ use Carbon\Carbon;
 class CursosController extends Controller
 {
 
-    public function getCursosPorCliente($clienteId)
-    {
-        // Buscar al cliente por su ID
-        $cliente = ClienteTalent::with('cursos.empleado')->find($clienteId);
+   
 
+    public function exportCursosPorCliente($clienteId)
+    {
+        // Llama al método para obtener los datos del cliente
+        $cliente = ClienteTalent::with('cursos.empleado')->find($clienteId);
+    
         if (!$cliente) {
             return response()->json(['error' => 'Cliente no encontrado'], 404);
         }
-
-        // Mapear los cursos con los detalles necesarios
-        $cursos = $cliente->cursos->map(function ($curso) {
-            // Determinar el estado del curso basado en la fecha de expiración
+    
+        // Llama al método para obtener los cursos
+        $cursos = $cliente->cursos->map(function ($curso) use ($cliente) {
             $estado = $this->getEstadoCurso1($curso->expiry_date);
-
             return [
                 'curso' => $curso->name,
-                'empleado' => $curso->empleado->nombre ?? 'Sin asignar',
+                'empleado' =>'ID: '. $curso->empleado->id_empleado.' - '. $curso->empleado->nombre.' '.$curso->empleado->paterno.' '.$curso->empleado->materno ?? 'Sin asignar',
                 'fecha_expiracion' => $curso->expiry_date,
                 'estado' => $estado
             ];
         });
-
-        return response()->json($cursos);
-    }
-
-    public function exportCursosPorCliente($clienteId)
-    {
-        // Llama al método para obtener los datos
-        $response = $this->getCursosPorCliente($clienteId);
-
-        if ($response->status() !== 200) {
-            return $response; // Retorna el error si ocurre
-        }
-
-        // Obtén los datos del response
-        $cursos = $response->getData(true);
-
-        // Genera y devuelve el Excel
-        return Excel::download(new CursosExport($cursos), "reporte_cursos_cliente_{$clienteId}.xlsx");
+    
+        // Genera y devuelve el Excel con el nombre del cliente incluido
+        return Excel::download(new CursosExport($cursos, $cliente->nombre), "reporte_cursos_cliente_{$clienteId}.xlsx");
     }
 
     private function getEstadoCurso1($expiryDate)
     {
         if (!$expiryDate) {
-            return 'Sin fecha';
+            return '';
         }
 
         $fechaExpiracion = Carbon::parse($expiryDate);
@@ -271,7 +256,9 @@ class CursosController extends Controller
     {
         $fechaExpiracion = \Carbon\Carbon::parse($fechaExpiracion);
         $hoy = \Carbon\Carbon::now();
-
+        if (!$expiryDate) {
+            return '';
+        }
         if ($fechaExpiracion->isPast()) {
             return 'Expirado';
         } elseif ($fechaExpiracion->diffInDays($hoy) <= 5) {
