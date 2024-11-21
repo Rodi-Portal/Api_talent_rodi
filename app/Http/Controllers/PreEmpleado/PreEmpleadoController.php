@@ -1,10 +1,9 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\PreEmpleado;
 
-use App\Models\Empleados; // Asegúrate de tener el modelo de PreEmpleado
+use App\Models\Empleado; // Asegúrate de tener el modelo de Empleado
 use Illuminate\Http\Request;
-
 class PreEmpleadoController extends Controller
 {
     /**
@@ -12,7 +11,7 @@ class PreEmpleadoController extends Controller
      */
     public function index()
     {
-        $preEmpleados = PreEmpleado::all(); // Obtén todos los registros de pre-empleados
+        $preEmpleados = Empleado::all(); // Obtén todos los registros de pre-empleados
         return view('preempleados.index', compact('preEmpleados')); // Devuelve la vista con los pre-empleados
     }
 
@@ -36,7 +35,7 @@ class PreEmpleadoController extends Controller
             // Agregar otras validaciones aquí
         ]);
 
-        $preEmpleado = PreEmpleado::create([
+        $preEmpleado = Empleado::create([
             'nombre' => $request->nombre,
             'correo' => $request->correo,
             'telefono' => $request->telefono,
@@ -51,7 +50,7 @@ class PreEmpleadoController extends Controller
      */
     public function edit($id)
     {
-        $preEmpleado = PreEmpleado::findOrFail($id); // Busca el pre-empleado por ID
+        $preEmpleado = Empleado::findOrFail($id); // Busca el pre-empleado por ID
         return view('preempleados.edit', compact('preEmpleado')); // Muestra el formulario de edición
     }
 

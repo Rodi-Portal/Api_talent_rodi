@@ -22,9 +22,7 @@ class CursosController extends Controller
     {
 
         // Limpiar cachés de manera temporal
-        \Artisan::call('config:clear');
-        \Artisan::call('cache:clear');
-        \Artisan::call('route:clear');
+      
         // Llama al método para obtener los datos del cliente
         $cliente = ClienteTalent::with('cursos.empleado')->find($clienteId);
 

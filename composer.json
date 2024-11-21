@@ -7,7 +7,6 @@
     "require": {
         "php": "^8.0.2",
         "bshaffer/oauth2-server-php": "^1.14",
-        "fruitcake/laravel-cors": "^3.0",
         "guzzlehttp/guzzle": "^7.2",
         "laravel/framework": "^9.19",
         "laravel/sanctum": "^3.0",
