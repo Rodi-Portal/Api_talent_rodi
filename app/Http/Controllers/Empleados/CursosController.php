@@ -2,45 +2,47 @@
 
 namespace App\Http\Controllers\Empleados;
 
+use App\Exports\CursosExport;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\DocumentController;
+use App\Models\ClienteTalent;
 use App\Models\CursoEmpleado;
 use App\Models\Empleado;
-use App\Models\ClienteTalent;
-use Illuminate\Support\Facades\Http;
-use Maatwebsite\Excel\Facades\Excel;
-use App\Exports\CursosExport; 
-use Illuminate\Http\Request; // Cambia esto al nombre correcto de tu controlador
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http; // Cambia esto al nombre correcto de tu controlador
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Carbon\Carbon;
-
+use Maatwebsite\Excel\Facades\Excel;
 
 class CursosController extends Controller
 {
 
-   
-
     public function exportCursosPorCliente($clienteId)
     {
+
+        // Limpiar cachés de manera temporal
+        \Artisan::call('config:clear');
+        \Artisan::call('cache:clear');
+        \Artisan::call('route:clear');
         // Llama al método para obtener los datos del cliente
         $cliente = ClienteTalent::with('cursos.empleado')->find($clienteId);
-    
+
         if (!$cliente) {
             return response()->json(['error' => 'Cliente no encontrado'], 404);
         }
-    
+
         // Llama al método para obtener los cursos
         $cursos = $cliente->cursos->map(function ($curso) use ($cliente) {
             $estado = $this->getEstadoCurso1($curso->expiry_date);
             return [
                 'curso' => $curso->name,
-                'empleado' =>'ID: '. $curso->empleado->id_empleado.' - '. $curso->empleado->nombre.' '.$curso->empleado->paterno.' '.$curso->empleado->materno ?? 'Sin asignar',
+                'empleado' => 'ID: ' . $curso->empleado->id_empleado . ' - ' . $curso->empleado->nombre . ' ' . $curso->empleado->paterno . ' ' . $curso->empleado->materno ?? 'Sin asignar',
                 'fecha_expiracion' => $curso->expiry_date,
-                'estado' => $estado
+                'estado' => $estado,
             ];
         });
-    
+
         // Genera y devuelve el Excel con el nombre del cliente incluido
         return Excel::download(new CursosExport($cursos, $cliente->nombre), "reporte_cursos_cliente_{$clienteId}.xlsx");
     }
@@ -163,7 +165,7 @@ class CursosController extends Controller
         $request->validate([
             'id_portal' => 'required|integer',
             'id_cliente' => 'required|integer',
-            'status' => 'required|integer'
+            'status' => 'required|integer',
         ]);
 
         $id_portal = $request->input('id_portal');
@@ -171,9 +173,9 @@ class CursosController extends Controller
         $status = $request->input('status');
         // Obtener todos los empleados con sus domicilios
         $empleados = Empleado::where('id_portal', $id_portal)
-        ->where('id_cliente', $id_cliente )
-        ->where('status', $status )
-        ->get();
+            ->where('id_cliente', $id_cliente)
+            ->where('status', $status)
+            ->get();
 
         $resultados = [];
 
@@ -195,7 +197,7 @@ class CursosController extends Controller
         //Log::info('Resultados de empleados con documentos: ' . print_r($resultados, true));
         //Log::info('Resultados de empleados con documentos:', $resultados);
 
-        return response()->json($resultados);        //Log::info('Resultados de empleados con documentos: ' . print_r($resultados, true));
+        return response()->json($resultados); //Log::info('Resultados de empleados con documentos: ' . print_r($resultados, true));
 
     }
 
@@ -204,18 +206,18 @@ class CursosController extends Controller
         if ($documentos->isEmpty()) {
             return 'verde'; // Sin documentos, consideramos como verde
         }
-    
+
         $tieneRojo = false;
         $tieneAmarillo = false;
-    
+
         foreach ($documentos as $documento) {
             // Calcular diferencia de días con respecto a la fecha actual
             $diasDiferencia = $this->calcularDiferenciaDias(now(), $documento->expiry_date);
-    
+
             // Comprobamos el estado del documento
             if ($documento->expiry_reminder == 0) {
                 continue; // No se requiere cálculo, se considera verde
-            } elseif ($diasDiferencia <= $documento->expiry_reminder|| $diasDiferencia < 0) {
+            } elseif ($diasDiferencia <= $documento->expiry_reminder || $diasDiferencia < 0) {
                 // Vencido o exactamente al límite
                 $tieneRojo = true;
                 break; // Prioridad alta, salimos del bucle
@@ -224,32 +226,30 @@ class CursosController extends Controller
                 $tieneAmarillo = true;
             }
         }
-    
+
         // Determinamos el estado basado en las prioridades
         if ($tieneRojo) {
             return 'rojo';
         }
-    
+
         if ($tieneAmarillo) {
             return 'amarillo';
         }
-    
+
         return 'verde'; // Si no hay documentos en rojo o amarillo
     }
-    
+
     private function calcularDiferenciaDias($fechaActual, $fechaExpiracion)
     {
         $fechaActual = \Carbon\Carbon::parse($fechaActual);
         $fechaExpiracion = \Carbon\Carbon::parse($fechaExpiracion);
-    
+
         // Calculamos la diferencia de días
         $diferenciaDias = $fechaExpiracion->diffInDays($fechaActual);
-    
+
         // Ajustamos la diferencia para que sea negativa si la fecha de expiración ya ha pasado
         return $fechaExpiracion < $fechaActual ? -$diferenciaDias : $diferenciaDias;
     }
-
-  
 
     // Método auxiliar para determinar el estado del curso
     private function getEstadoCurso($fechaExpiracion)
