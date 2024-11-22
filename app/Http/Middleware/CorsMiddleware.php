@@ -9,7 +9,7 @@ class CorsMiddleware
 {
     public function handle(Request $request, Closure $next)
     {
-        // Define el origen
+        // Obtener el origen de la solicitud
         $origin = $request->headers->get('Origin');
 
         // Lista de orígenes permitidos
@@ -24,14 +24,15 @@ class CorsMiddleware
         if ($request->isMethod('options')) {
             return response()
                 ->json([], 200)
-                ->header('Access-Control-Allow-Origin', in_array($origin, $allowedOrigins) ? $origin : '*')
+                ->header('Access-Control-Allow-Origin', in_array($origin, $allowedOrigins) ? $origin : '')
                 ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                 ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-TOKEN');
         }
 
+        // Procesa la solicitud y agrega los encabezados CORS en la respuesta
         $response = $next($request);
 
-        // Verifica si el origen está en la lista de permitidos
+        // Verifica si el origen está en la lista de permitidos y agrega los headers correspondientes
         if (in_array($origin, $allowedOrigins)) {
             $response->headers->set('Access-Control-Allow-Origin', $origin);
             $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');

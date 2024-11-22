@@ -7,16 +7,15 @@ use Illuminate\Foundation\Http\Kernel as HttpKernel;
 class Kernel extends HttpKernel
 {
     /**
-     * The application's global HTTP middleware stack.
+     * El stack de middleware global de la aplicación.
      *
-     * These middleware are run during every request to your application.
+     * Estos middleware se ejecutan durante cada solicitud a tu aplicación.
      *
      * @var array<int, class-string|string>
      */
     protected $middleware = [
-        \App\Http\Middleware\CorsMiddleware::class,
+        \App\Http\Middleware\CorsMiddleware::class, // Middleware CORS global
         \App\Http\Middleware\TrustProxies::class,
-        //\Fruitcake\Cors\HandleCors::class, // Mantén Fruitcake CORS aquí si lo prefieres
         \App\Http\Middleware\PreventRequestsDuringMaintenance::class,
         \Illuminate\Foundation\Http\Middleware\ValidatePostSize::class,
         \App\Http\Middleware\TrimStrings::class,
@@ -24,7 +23,7 @@ class Kernel extends HttpKernel
     ];
 
     /**
-     * The application's route middleware groups.
+     * Los grupos de middleware de la aplicación.
      *
      * @var array<string, array<int, class-string|string>>
      */
@@ -40,15 +39,14 @@ class Kernel extends HttpKernel
 
         'api' => [
             'throttle:api',
-            \App\Http\Middleware\CorsMiddleware::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
     ];
 
     /**
-     * The application's route middleware.
+     * Los middleware de ruta de la aplicación.
      *
-     * These middleware may be assigned to groups or used individually.
+     * Estos middleware pueden asignarse a grupos o usarse individualmente.
      *
      * @var array<string, class-string|string>
      */
