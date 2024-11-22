@@ -32,8 +32,9 @@ class CorsMiddleware
         // Procesa la solicitud y agrega los encabezados CORS en la respuesta
         $response = $next($request);
 
-        // Verifica si el origen está en la lista de permitidos y agrega los headers correspondientes
+        // Verifica si el origen está en la lista de permitidos
         if (in_array($origin, $allowedOrigins)) {
+            // Solo establece el encabezado CORS si el origen está permitido
             $response->headers->set('Access-Control-Allow-Origin', $origin);
             $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
             $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-TOKEN');
@@ -42,4 +43,3 @@ class CorsMiddleware
         return $response;
     }
 }
-
