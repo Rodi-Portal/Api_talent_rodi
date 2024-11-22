@@ -42,7 +42,7 @@ class CursosController extends Controller
         });
 
         // Genera y devuelve el Excel con el nombre del cliente incluido
-        return Excel::download(new CursosExport($cursos, $cliente->nombre), "reporte_cursos_cliente_{$clienteId}.xlsx");
+        return Excel::download(new CursosExport($cursos, $cliente->nombre), "reporte_cursos_{$clienteId}.xlsx");
     }
 
     private function getEstadoCurso1($expiryDate)
