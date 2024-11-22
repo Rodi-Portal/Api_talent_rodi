@@ -35,40 +35,41 @@ use Illuminate\Support\Facades\Route;
 |
  */
 //  rutas  para  envio de  mensajes  de  whatsssApp
-Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
-Route::post('/send-message-movimiento', [WhatsAppController::class, 'sendMessage_movimiento_aspirante']);
-Route::post('/send-message-comentario-reclu', [WhatsAppController::class, 'sendMessage_comentario_reclu']);
-Route::post('/send-message-comentario-cliente', [WhatsAppController::class, 'sendMessage_comentario_cliente']);
-Route::post('/send-message-requisicion-cliente', [WhatsAppController::class, 'sendMessage_requisicion_cliente']);
-
-// ruta  de  examen  medico
-Route::get('/medico/{id}', [ApiGetMedicoDetalles::class, 'getDatosMedico']);
-Route::get('/test', [TestController::class, 'testPost']);
-
-Route::get('file/{path}', [ImageController::class, 'getFile'])->where('path', '.*');
-Route::post('/upload', [DocumentController::class, 'upload']);
-
-//  rutas    para  candidatos  socioeconomicos  y doping
-Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
-Route::post('/candidatos', [ApiCandidatoSinEseController::class, 'store']);
-Route::post('/existe-cliente', [ApiClientesController::class, 'VerificarCliente']);
-Route::get('candidato-sync/{id_cliente_talent}', [ApiGetCandidatosByCliente::class, 'getByClienteTalent']);
-
-Route::get('doping/{id}', [ApiGetDopingDetalles::class, 'getDatosDoping']);
-Route::get('doping-detalles/{id}', [ApiGetDopingDetalles::class, 'getDopingDetalles']);
-
-// ruta  para  cargar
-Route::get('area/{nombre}', [ApiGetArea::class, 'getArea']);
-
-// EndPoints bgv  reportes
-Route::get('/report/{id_candidato}', [ReportController::class, 'getReport']);
-
-// Emdpoints Empleados
-Route::get('empleados', [ApiEmpleadoController::class, 'index']);
-Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
-Route::get('/document-options', [DocumentOptionController::class, 'index']);
 
 Route::middleware(['api'])->group(function () {
+
+    Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
+    Route::post('/send-message-movimiento', [WhatsAppController::class, 'sendMessage_movimiento_aspirante']);
+    Route::post('/send-message-comentario-reclu', [WhatsAppController::class, 'sendMessage_comentario_reclu']);
+    Route::post('/send-message-comentario-cliente', [WhatsAppController::class, 'sendMessage_comentario_cliente']);
+    Route::post('/send-message-requisicion-cliente', [WhatsAppController::class, 'sendMessage_requisicion_cliente']);
+
+// ruta  de  examen  medico
+    Route::get('/medico/{id}', [ApiGetMedicoDetalles::class, 'getDatosMedico']);
+    Route::get('/test', [TestController::class, 'testPost']);
+
+    Route::get('file/{path}', [ImageController::class, 'getFile'])->where('path', '.*');
+    Route::post('/upload', [DocumentController::class, 'upload']);
+
+//  rutas    para  candidatos  socioeconomicos  y doping
+    Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
+    Route::post('/candidatos', [ApiCandidatoSinEseController::class, 'store']);
+    Route::post('/existe-cliente', [ApiClientesController::class, 'VerificarCliente']);
+    Route::get('candidato-sync/{id_cliente_talent}', [ApiGetCandidatosByCliente::class, 'getByClienteTalent']);
+
+    Route::get('doping/{id}', [ApiGetDopingDetalles::class, 'getDatosDoping']);
+    Route::get('doping-detalles/{id}', [ApiGetDopingDetalles::class, 'getDopingDetalles']);
+
+// ruta  para  cargar
+    Route::get('area/{nombre}', [ApiGetArea::class, 'getArea']);
+
+// EndPoints bgv  reportes
+    Route::get('/report/{id_candidato}', [ReportController::class, 'getReport']);
+
+// Emdpoints Empleados
+    Route::get('empleados', [ApiEmpleadoController::class, 'index']);
+    Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
+    Route::get('/document-options', [DocumentOptionController::class, 'index']);
 
     //  obtener  el status  de general  de los empleados
     Route::get('/empleados/status', [EmpleadoController::class, 'getEmpleadosStatus']);
