@@ -9,6 +9,7 @@ use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
+use App\Http\Controllers\Empleados\CsvController;
 use App\Http\Controllers\Empleados\CursosController;
 use App\Http\Controllers\Empleados\DocumentOptionController;
 use App\Http\Controllers\Empleados\EmpleadoController;
@@ -70,15 +71,17 @@ Route::middleware(['api'])->group(function () {
     Route::get('empleados', [ApiEmpleadoController::class, 'index']);
     Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
     Route::get('/document-options', [DocumentOptionController::class, 'index']);
+    //descargar plantilla Empleados Masivos
+    Route::get('/download-template', [CsvController::class, 'downloadTemplate']);
+    // Ruta para la importación de empleados desde un archivo CSV o Excel
+    Route::post('/empleados/importar', [CsvController::class, 'import']);
 
     //  obtener  el status  de general  de los empleados
     Route::get('/empleados/status', [EmpleadoController::class, 'getEmpleadosStatus']);
-
-/* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
+    /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
     Route::get('/empleados/documentos', [EmpleadoController::class, 'getEmpleadosConDocumentos']);
-/* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
+    /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
     Route::get('/empleados/check-email', [EmpleadoController::class, 'checkEmail']);
-
     Route::post('/empleados/register', [EmpleadoController::class, 'store']);
     Route::put('/empleados/update', [EmpleadoController::class, 'update']);
     Route::get('/medical-info/{id_empleado}', [MedicalInfoController::class, 'show']);
@@ -87,11 +90,8 @@ Route::middleware(['api'])->group(function () {
     Route::post('/exams', [DocumentOptionController::class, 'storeExams']);
     Route::get('/documents/{id}', [DocumentOptionController::class, 'getDocumentsByEmployeeId']);
     Route::get('/exam/{id}', [DocumentOptionController::class, 'getExamsByEmployeeId']);
-
     // Ruta para actualizar la expiración del documento, cursos y examanes
-
     Route::put('/documents/{id}', [DocumentOptionController::class, 'updateExpiration']);
-
     Route::get('/empleados/{id_empleado}/documentos', [EmpleadoController::class, 'getDocumentos']);
     //eliminar Documentos  del empleado
     Route::delete('/documents', [DocumentOptionController::class, 'deleteDocument']);

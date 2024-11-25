@@ -22,7 +22,7 @@ class MedicalInfoController extends Controller
             'alergias_alimentos' => 'nullable|string|max:255',
             'enfermedades_cronicas' => 'nullable|string|max:255',
             'cirugias' => 'nullable|string|max:255',
-            'tipo_sangre' => 'nullable|string|max:10',
+            'tipo_sangre' => 'nullable|string|max:20',
             'contacto_emergencia' => 'nullable|string|max:255',
             'medicamentos_frecuentes' => 'nullable|string|max:255',
             'lesiones' => 'nullable|string|max:255',

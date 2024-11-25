@@ -214,7 +214,7 @@ class EmpleadoController extends Controller
             'domicilio_empleado.ciudad' => 'nullable|string|max:255',
             'domicilio_empleado.colonia' => 'nullable|string|max:255',
             'domicilio_empleado.calle' => 'nullable|string|max:255',
-            'domicilio_empleado.cp' => 'nullable|integer',
+            'domicilio_empleado.cp' => 'nullable|string|max:25',
             'domicilio_empleado.num_int' => 'nullable|string|max:255',
             'domicilio_empleado.num_ext' => 'nullable|string|max:255',
             // ... otros campos del empleado ...
