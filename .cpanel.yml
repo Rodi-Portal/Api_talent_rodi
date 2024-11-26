@@ -1,6 +1,6 @@
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/rodicomm/public_html/sandboxtalentsafe/sandbox.talentsafecontrol.com
+    - export DEPLOYPATH=/home/rodicomm/public_html/apis/apisandbox
     - /bin/cp -R * $DEPLOYPATH
     - cd $DEPLOYPATH
     - /usr/bin/composer install --no-dev --optimize-autoloader
