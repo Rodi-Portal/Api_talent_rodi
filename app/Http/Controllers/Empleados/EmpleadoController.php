@@ -229,6 +229,7 @@ class EmpleadoController extends Controller
             // Actualizar el empleado
             $empleado = Empleado::findOrFail($request->id);
             $empleado->update($request->only([
+                'creacion',
                 'edicion',
                 'nombre',
                 'paterno',
