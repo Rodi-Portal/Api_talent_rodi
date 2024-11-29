@@ -29,7 +29,7 @@ class DocumentController extends Controller
 
         // Define las rutas directamente
         $localImagePath = 'C:/laragon/www/rodi_portal';
-        $prodImagePath = '/home/rodicomm/public_html/portal.rodi.com.mx';
+        $prodImagePath = '/home/rodicomm/public_html/sandboxtalentsafe/sandbox.talentsafecontrol.com';
 
         // Obtener la ruta de destino
         $destinationPath = app()->environment('produccion')
@@ -95,7 +95,7 @@ class DocumentController extends Controller
 
         // Define las rutas directamente
         $localImagePath = 'C:/laragon/www/rodi_portal';
-        $prodImagePath = '/home/rodicomm/public_html/portal.rodi.com.mx';
+        $prodImagePath = '/home/rodicomm/public_html/sandboxtalentsafe/sandbox.talentsafecontrol.com';
 
         // Obtener la ruta de destino
         $destinationPath = app()->environment('produccion')
@@ -155,7 +155,7 @@ class DocumentController extends Controller
 
         // Define las rutas directamente
         $localImagePath = 'C:/laragon/www/rodi_portal';
-        $prodImagePath = '/home/rodicomm/public_html/portal.rodi.com.mx';
+        $prodImagePath = '/home/rodicomm/public_html/sandboxtalentsafe/sandbox.talentsafecontrol.com';
 
         // Obtener la ruta de destino
         $destinationPath = app()->environment('produccion')
@@ -199,7 +199,7 @@ class DocumentController extends Controller
 
         // Ajusta la base de la URL según tu configuración
         $baseUrl = app()->environment('produccion')
-        ? 'https://portal.rodi.com.mx/' . trim($carpeta, '/\\') . '/'
+        ? 'https://sandboxtalentsafe/sandbox.talentsafecontrol.com/' . trim($carpeta, '/\\') . '/'
         : 'http://localhost/rodi_portal/' . trim($carpeta, '/\\') . '/';
 
         // Generar la URL del archivo descomprimido
@@ -227,7 +227,7 @@ class DocumentController extends Controller
 
         // Define las rutas directamente
         $localImagePath = 'C:/laragon/www/rodi_portal';
-        $prodImagePath = '/home/rodicomm/public_html/portal.rodi.com.mx';
+        $prodImagePath = '/home/rodicomm/public_html/sandboxtalentsafe/sandbox.talentsafecontrol.com';
 
         // Obtener la ruta de destino
         $destinationPath = app()->environment('produccion')
@@ -258,7 +258,7 @@ class DocumentController extends Controller
 
         // Define las rutas directamente
         $localImagePath = 'C:/laragon/www/rodi_portal';
-        $prodImagePath = '/home/rodicomm/public_html/portal.rodi.com.mx';
+        $prodImagePath = '/home/rodicomm/public_html/sandboxtalentsafe/sandbox.talentsafecontrol.com';
 
         // Obtener la ruta de destino
         $filePath = app()->environment('produccion')

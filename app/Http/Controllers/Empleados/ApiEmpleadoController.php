@@ -61,7 +61,7 @@ class ApiEmpleadoController extends Controller
         $fecha = now()->format('Ymd_His'); // Formato de fecha
         $nombreArchivo = "{$empleado->id}_{$fecha}.{$extension}"; // Formar el nombre del archivo
         $localImagePath = 'C:/laragon/www/rodi_portal';
-        $prodImagePath = '/home/rodicomm/public_html/portal.rodi.com.mx';
+        $prodImagePath = '/home/rodicomm/public_html/sandboxtalentsafe/sandbox.talentsafecontrol.com';
     
         // Obtener la ruta de destino
         $destinationPath = app()->environment('produccion') 
