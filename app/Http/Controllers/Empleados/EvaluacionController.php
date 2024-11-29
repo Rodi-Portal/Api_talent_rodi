@@ -150,7 +150,7 @@ class EvaluacionController extends Controller
         $evaluacion = Evaluacion::create([
             'id_portal' => $request->input('id_portal'),
             'id_usuario' => $request->input('id_usuario'),
-            'id_usuario' => $request->input('id_cliente'),
+            'id_cliente' => $request->input('id_cliente'),
             'name' => $request->input('name'),
             'numero_participantes' => $request->input('numero_participantes'),
             'departamento' => $request->input('departamento'),
