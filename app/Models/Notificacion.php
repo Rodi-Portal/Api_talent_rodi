@@ -10,7 +10,7 @@ class Notificacion extends Model
 
     // Si no estás utilizando las migraciones, se debe indicar la conexión y la tabla de la base de datos.
     protected $connection = 'portal_main'; // Asegúrate de que sea la conexión correcta
-    protected $table = 'notificaciones'; // El nombre de la tabla en la base de datos
+    protected $table = 'notificaciones_empleados'; // El nombre de la tabla en la base de datos
 
     // Indicamos que no se manejen timestamps
     public $timestamps = false;
