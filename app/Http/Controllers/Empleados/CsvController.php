@@ -31,9 +31,6 @@ class CsvController extends Controller
 
     public function import(Request $request)
     {
-
-    Log::info('Datos recibidos en la solicitud:', $request->all());
-
         // Validar que se haya subido un archivo y los datos generales
         $validator = Validator::make($request->all(), [
             'file' => 'required|mimes:xlsx,csv',
@@ -62,8 +59,45 @@ class CsvController extends Controller
         ];
     
         try {
-            // Importar el archivo Excel y pasar los datos generales al importar
-            Excel::import(new EmpleadosImport($generalData), $request->file('file'));
+            // Leer cabeceras del archivo para validar
+            $file = $request->file('file');
+            $headings = Excel::toArray([], $file)[0][0] ?? [];
+    
+            // Definir las cabeceras esperadas
+            $expectedHeadings = [
+                'First Name*',
+                'Last Name*',
+                'Middle Name',
+                'Phone*',
+                'Email',
+                'Position',
+                'Date of Birth',
+                'CURP',
+                'NSS',
+                'RFC',
+                'Employee ID*',
+                'Street',
+                'Exterior Number',
+                'Interior Number',
+                'Neighborhood',
+                'City',
+                'State',
+                'Country',
+                'Postal Code'
+            ];
+    
+            if ($headings !== $expectedHeadings) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El archivo no tiene las cabeceras esperadas.',
+                    'errors' => [
+                        'file' => 'Las cabeceras del archivo no coinciden con el formato esperado.'
+                    ]
+                ], 422);
+            }
+    
+            // Importar el archivo Excel
+            Excel::import(new EmpleadosImport($generalData), $file);
     
             return response()->json([
                 'success' => true,
@@ -77,5 +111,6 @@ class CsvController extends Controller
             ], 500);
         }
     }
+    
     
 }
