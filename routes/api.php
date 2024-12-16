@@ -11,6 +11,8 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CsvController;
 use App\Http\Controllers\Empleados\CursosController;
+use App\Http\Controllers\Empleados\NotificacionController;
+
 use App\Http\Controllers\Empleados\DocumentOptionController;
 use App\Http\Controllers\Empleados\EmpleadoController;
 use App\Http\Controllers\Empleados\EvaluacionController;
@@ -24,6 +26,7 @@ use App\Http\Controllers\TestController;
 use App\Http\Controllers\WhatsAppController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -133,6 +136,9 @@ Route::middleware(['api'])->group(function () {
 // ruta  para   enviar     de pre employment  a employment
     Route::post('candidato-send/{id_candidato}', [ApiGetCandidatosByCliente::class, 'sendCandidateToEmployee']);
 
+// ruta  para  guardar  y consultar  notificaciones Whats  y correo
+Route::post('/notificaciones/guardar', [NotificacionController::class, 'guardar']);
+Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}', [NotificacionController::class, 'consultar']);
 });
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
