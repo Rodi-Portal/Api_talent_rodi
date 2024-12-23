@@ -178,7 +178,9 @@ class EmpleadoController extends Controller
         }
 
         // Obtener evaluaciones para el id_portal
-        $evaluaciones = Evaluacion::where('id_portal', $id_portal)->get();
+        $evaluaciones = Evaluacion::where('id_portal', $id_portal) 
+        ->where('id_cliente', $id_cliente) // Asegúrate de que $id_cliente esté definido
+        ->get();
         foreach ($evaluaciones as $evaluacion) {
             $statusEvaluacionesPortal = $this->checkDocumentStatus($evaluacion);
             // Lógica para evaluar el estado de las evaluaciones
@@ -196,7 +198,7 @@ class EmpleadoController extends Controller
             'statusEvaluaciones' => $statusEvaluaciones,
         ];
 
-        //  Log::info('Resultados de estados de documentos, cursos y evaluaciones: ' . print_r($resultado, true));
+         Log::info('Resultados de estados de documentos, cursos y evaluaciones: ' . print_r($resultado, true));
 
         return response()->json($resultado);
     }
