@@ -211,97 +211,99 @@ class DocumentOptionController extends Controller
     //  registrar  nuevos  documentos
     public function store(Request $request)
     {
-    // Validar los datos de entrada
-    $validator = Validator::make($request->all(), [
-    'employee_id' => 'required|integer',
-    'name' => 'required|string|max:255',
-    'description' => 'nullable|string|max:500',
-    'expiry_date' => 'nullable|date',
-    'expiry_reminder' => 'nullable|integer',
-    'file' => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120',
-    'creacion' => 'required|string',
-    'edicion' => 'required|string',
-    'id_portal' => 'required|integer',
-    ]);
+    
+        // Validar los datos de entrada
+        $validator = Validator::make($request->all(), [
+            'employee_id' => 'required|integer',
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string|max:500',
+            'expiry_date' => 'nullable|date',
+            'expiry_reminder' => 'nullable|integer',
+            'file' => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120',
+            'creacion' => 'required|string',
+            'edicion' => 'required|string',
+            'id_portal' => 'required|integer',
+        ]);
 
-    if ($validator->fails()) {
-    return response()->json($validator->errors(), 422);
-    }
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
 
-    // Log de los datos recibidos
-    // Log::info('Datos recibidos en el store:', $request->all());
+        // Log de los datos recibidos
+        // Log::info('Datos recibidos en el store:', $request->all());
 
-    // Verificar si se recibió un archivo
-    if (!$request->hasFile('file')) {
-    Log::error('No se recibió ningún archivo en la solicitud.');
-    return response()->json(['error' => 'No se recibió ningún archivo.'], 400);
-    }
+        // Verificar si se recibió un archivo
+        if (!$request->hasFile('file')) {
+            ////Log::error('No se recibió ningún archivo en la solicitud.');
+            return response()->json(['error' => 'No se recibió ningún archivo.'], 400);
+        }
 
-    // Asegurarse de que el archivo es válido
-    if (!$request->file('file')->isValid()) {
-    Log::error('El archivo recibido no es válido.');
-    return response()->json(['error' => 'El archivo recibido no es válido.'], 400);
-    }
+        // Asegurarse de que el archivo es válido
+        if (!$request->file('file')->isValid()) {
+           //// Log::error('El archivo recibido no es válido.');
+            return response()->json(['error' => 'El archivo recibido no es válido.'], 400);
+        }
 
-    // Llamar a buscar_insertar_opcion para obtener el id_opciones
-    $opcionRequest = new Request([
-    'id_portal' => $request->input('id_portal'),
-    'name' => $request->input('name'),
-    'creacion' => $request->input('creacion'),
-    'tabla' => 'documentos',
-    ]);
+        // Llamar a buscar_insertar_opcion para obtener el id_opciones
+        $opcionRequest = new Request([
+            'id_portal' => $request->input('id_portal'),
+            'name' => $request->input('name'),
+            'creacion' => $request->input('creacion'),
+            'tabla' => 'documentos',
+        ]);
 
-    $opcionResponse = $this->buscar_insertar_opcion($opcionRequest);
-    $idOpcion = json_decode($opcionResponse->getContent())->id_opciones;
+        $opcionResponse = $this->buscar_insertar_opcion($opcionRequest);
+        $idOpcion = json_decode($opcionResponse->getContent())->id_opciones;
 
-    // Log para verificar el ID obtenido
-    //Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
+        // Log para verificar el ID obtenido
+        //Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
 
-    // Preparar la solicitud para la subida del archivo
-    $employeeId = $request->input('employee_id');
-    $randomString = $this->generateRandomString(); // Generar la cadena aleatoria
-    $fileExtension = $request->file('file')->getClientOriginalExtension(); // Obtener la extensión del archivo
+        // Preparar la solicitud para la subida del archivo
+        $employeeId = $request->input('employee_id');
+        $randomString = $this->generateRandomString(); // Generar la cadena aleatoria
+        $fileExtension = $request->file('file')->getClientOriginalExtension(); // Obtener la extensión del archivo
 
-    // Crear el nuevo nombre de archivo
-    $newFileName = "{$employeeId}_{$randomString}.{$fileExtension}";
+        // Crear el nuevo nombre de archivo
+        $newFileName = "{$employeeId}_{$randomString}.{$fileExtension}";
 
-    // Preparar la solicitud para la subida del archivo
-    $uploadRequest = new Request();
-    $uploadRequest->files->set('file', $request->file('file'));
-    $uploadRequest->merge([
-    'file_name' => $newFileName,
-    'carpeta' => $request->input('carpeta'),
-    ]);
-    $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
+        // Preparar la solicitud para la subida del archivo
+        $uploadRequest = new Request();
+        $uploadRequest->files->set('file', $request->file('file'));
+        $uploadRequest->merge([
+            'file_name' => $newFileName,
+            'carpeta' => $request->input('carpeta'),
+        ]);
+        $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
 
-    // Verificar si la subida fue exitosa
-    if ($uploadResponse->getStatusCode() !== 200) {
-    return response()->json(['error' => 'Error al subir el documento.'], 500);
-    }
+        // Verificar si la subida fue exitosa
+        if ($uploadResponse->getStatusCode() !== 200) {
+            return response()->json(['error' => 'Error al subir el documento.'], 500);
+        }
 
-    // Log para verificar el ID antes de la creación
-    // Log::info('Preparándose para crear DocumentEmpleado con id_opcion:', ['id_opcion' => $idOpcion]);
+        // Log para verificar el ID antes de la creación
+        // Log::info('Preparándose para crear DocumentEmpleado con id_opcion:', ['id_opcion' => $idOpcion]);
 
-    // Crear un nuevo registro en la base de datos
-    $documentEmpleado = DocumentEmpleado::create([
-    'creacion' => $request->input('creacion'),
-    'edicion' => $request->input('edicion'),
-    'employee_id' => $request->input('employee_id'),
-    'name' => $newFileName,
-    'id_opcion' => $idOpcion, // Aquí se usa el ID correcto
-    'description' => $request->input('description'),
-    'expiry_date' => $request->input('expiry_date'),
-    'expiry_reminder' => $request->input('expiry_reminder'),
-    ]);
+        // Crear un nuevo registro en la base de datos
+        $documentEmpleado = DocumentEmpleado::create([
+            'creacion' => $request->input('creacion'),
+            'edicion' => $request->input('edicion'),
+            'employee_id' => $request->input('employee_id'),
+            'name' => $newFileName,
+            'id_opcion' => $idOpcion, // Aquí se usa el ID correcto
+            'description' => $request->input('description'),
+            'expiry_date' => $request->input('expiry_date'),
+            'expiry_reminder' => $request->input('expiry_reminder'),
+            'status' => $request->input('status', 1),
+        ]);
 
-    // Log para verificar el documento registrado
-    // Log::info('Documento registrado:', ['document' => $documentEmpleado]);
+        // Log para verificar el documento registrado
+        // Log::info('Documento registrado:', ['document' => $documentEmpleado]);
 
-    // Devolver una respuesta exitosa
-    return response()->json([
-    'message' => 'Documento agregado exitosamente.',
-    'document' => $documentEmpleado,
-    ], 201);
+        // Devolver una respuesta exitosa
+        return response()->json([
+            'message' => 'Documento agregado exitosamente.',
+            'document' => $documentEmpleado,
+        ], 201);
     }
 
     //  registrar  nuevos  examenes
@@ -329,13 +331,13 @@ class DocumentOptionController extends Controller
 
         // Verificar si se recibió un archivo
         if (!$request->hasFile('file')) {
-            Log::error('No se recibió ningún archivo en la solicitud.');
+            //Log::error('No se recibió ningún archivo en la solicitud.');
             return response()->json(['error' => 'No se recibió ningún archivo.'], 400);
         }
 
         // Asegurarse de que el archivo es válido
         if (!$request->file('file')->isValid()) {
-            Log::error('El archivo recibido no es válido.');
+            //Log::error('El archivo recibido no es válido.');
             return response()->json(['error' => 'El archivo recibido no es válido.'], 400);
         }
 
@@ -528,8 +530,6 @@ class DocumentOptionController extends Controller
 
             // Delete the document from the database
             $document->delete();
-
-
 
         } elseif ($request->tabla === 'documentos') {
             $document = DocumentEmpleado::find($request->id);
