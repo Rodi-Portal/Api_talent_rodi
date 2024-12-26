@@ -36,7 +36,7 @@ class DocumentController extends Controller
         ? $prodImagePath . '/' . $carpeta
     : $localImagePath . '/' . $carpeta; // Cambia el separador de directorios
 
-    Log::info('Ruta de destino:', ['destination_path' => $destinationPath]);
+    //Log::info('Ruta de destino:', ['destination_path' => $destinationPath]);
 
     // Asegúrate de que el directorio existe
     if (!file_exists($destinationPath)) {
@@ -102,7 +102,7 @@ class DocumentController extends Controller
         ? $prodImagePath . '/' . $carpeta
         : $localImagePath . '/' . $carpeta;
 
-        Log::info('Ruta de destino:', ['destination_path' => $destinationPath]);
+       // Log::info('Ruta de destino:', ['destination_path' => $destinationPath]);
 
         // Asegúrate de que el directorio existe
         if (!file_exists($destinationPath)) {
@@ -150,8 +150,8 @@ class DocumentController extends Controller
         $fileName = $request->input('file_name');
         $carpeta = $request->input('carpeta');
 
-        \Log::info('Archivo a descomprimir:', [$fileName]);
-        \Log::info('Carpeta destino:', [$carpeta]);
+      //  \Log::info('Archivo a descomprimir:', [$fileName]);
+      //  \Log::info('Carpeta destino:', [$carpeta]);
 
         // Define las rutas directamente
         $localImagePath = 'C:/laragon/www/rodi_portal';
@@ -162,36 +162,36 @@ class DocumentController extends Controller
         ? rtrim($prodImagePath, '/\\') . '/' . trim($carpeta, '/\\')
         : rtrim($localImagePath, '/\\') . '/' . trim($carpeta, '/\\');
 
-        \Log::info('Ruta de destino:', [$destinationPath]);
+       // \Log::info('Ruta de destino:', [$destinationPath]);
 
         // Asegúrate de que el directorio existe
         if (!is_dir($destinationPath)) {
-            \Log::info('El directorio no existe, se creará uno nuevo: ' . $destinationPath);
+         //   \Log::info('El directorio no existe, se creará uno nuevo: ' . $destinationPath);
             mkdir($destinationPath, 0755, true);
         }
 
         // Ruta del archivo ZIP
         $zipFilePath = rtrim($destinationPath, '/\\') . DIRECTORY_SEPARATOR . trim($fileName, '/\\');
         $zipFilePath = str_replace('\\', '/', $zipFilePath); // Normaliza las barras
-        \Log::info('Ruta del archivo ZIP:', [$zipFilePath]);
+      //  \Log::info('Ruta del archivo ZIP:', [$zipFilePath]);
 
         // Verificar si el archivo ZIP existe
         if (!file_exists($zipFilePath)) {
-            \Log::error('El archivo ZIP no se encontró:', [$zipFilePath]);
+          //  \Log::error('El archivo ZIP no se encontró:', [$zipFilePath]);
             return response()->json(['error' => 'El archivo ZIP no existe.'], 404);
         }
 
         // Crear un objeto ZipArchive
         $zip = new ZipArchive();
         if ($zip->open($zipFilePath) !== true) {
-            \Log::error('No se pudo abrir el archivo ZIP:', [$zipFilePath]);
+          //  \Log::error('No se pudo abrir el archivo ZIP:', [$zipFilePath]);
             return response()->json(['error' => 'No se pudo abrir el archivo ZIP.'], 500);
         }
 
         // Extraer el contenido del ZIP
         $zip->extractTo($destinationPath);
         $zip->close();
-        \Log::info('Archivo descomprimido correctamente.');
+       // \Log::info('Archivo descomprimido correctamente.');
 
         // Eliminar la extensión .zip para obtener el nombre del archivo descomprimido
         $baseFileName = pathinfo($fileName, PATHINFO_FILENAME);
@@ -204,7 +204,7 @@ class DocumentController extends Controller
 
         // Generar la URL del archivo descomprimido
         $fileUrl = $baseUrl . $baseFileName;
-        \Log::info('URL del archivo:', [$fileUrl]);
+      // \Log::info('URL del archivo:', [$fileUrl]);
 
         // Respuesta exitosa con la URL del archivo
         return response()->json([
