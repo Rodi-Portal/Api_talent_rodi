@@ -138,8 +138,13 @@ Route::middleware(['api'])->group(function () {
 
 // ruta  para  guardar  y consultar  notificaciones Whats  y correo
 Route::post('/notificaciones/guardar', [NotificacionController::class, 'guardar']);
-Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}', [NotificacionController::class, 'consultar']);
+Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultar']);
 });
+
+
+/*notificaciones  via  whatsapp modulo empleados*/
+
+Route::post('/send-notification', [WhatsAppController::class, 'sendMessage_notificacion_talentsafe']);
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();

@@ -15,13 +15,20 @@ class NotificacionController extends Controller
     /**
      * Consultar las notificaciones de un cliente y portal específicos.
      */
-    public function consultar($id_portal, $id_cliente)
+    public function consultar($id_portal, $id_cliente, $status)
     {
-        // Consultar la notificación
+        if($status == 2){ 
         $notificacion = Notificacion::where('id_portal', $id_portal)
             ->where('id_cliente', $id_cliente)
+            ->where('notificacionesActivas', $status)
             ->first();
-    
+        }elseif($status == 1)
+        {
+            $notificacion = Notificacion::where('id_portal', $id_portal)
+            ->where('id_cliente', $id_cliente)
+            ->where('status', $status)
+            ->first();
+        }
         // Si la notificación no existe, devolver un mensaje indicando que no hay datos
         if (!$notificacion) {
             return response()->json(['message' => 'No se encontraron notificaciones para este cliente y portal.'], 404);
@@ -51,7 +58,7 @@ class NotificacionController extends Controller
             'horarios' => 'nullable|string',
             'ladaSeleccionada' => 'nullable|string',
             'ladaSeleccionada2' => 'nullable|string',
-            'notificacionesActivas' => 'nullable|boolean',
+            'notificacionesActivas' => 'nullable|integer',
             'status' => 'nullable|boolean',
             'telefono1' => 'nullable|string',
             'telefono2' => 'nullable|string',
