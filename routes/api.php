@@ -138,7 +138,7 @@ Route::middleware(['api'])->group(function () {
 
 // ruta  para  guardar  y consultar  notificaciones Whats  y correo
 Route::post('/notificaciones/guardar', [NotificacionController::class, 'guardar']);
-Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}', [NotificacionController::class, 'consultar']);
+Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultar']);
 });
 
 

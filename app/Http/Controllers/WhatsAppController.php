@@ -372,7 +372,7 @@ class WhatsAppController extends Controller
                 'submodulo' => 'required|string',
                 'sucursales' => 'required|string',
             ]);
-            Log::info('Datos recibidos para el registro de empleado: ' . print_r($validated, true));
+           // Log::info('Datos recibidos para el registro de empleado: ' . print_r($validated, true));
 
             // Obtén los datos de la solicitud
             $phone = $validated['phone'];
@@ -387,7 +387,7 @@ class WhatsAppController extends Controller
             // Define el token de autorización (se recomienda almacenarlo en .env)
           
             $token = config('services.facebook.access_token');
-            Log::info('Token de acceso: ' . $token);
+           // Log::info('Token de acceso: ' . $token);
             // Define el payload de la solicitud
             $payload = [
                 'messaging_product' => 'whatsapp',
@@ -426,28 +426,28 @@ class WhatsAppController extends Controller
 
             // Verifica la respuesta
             if ($response->successful()) {
-                Log::info('Mensaje enviado exitosamente a ' . $phone);
+                //Log::info('Mensaje enviado exitosamente a ' . $phone);
                 return response()->json([
                     'status' => 'success',
                     'data' => $response->json(),
                 ]);
             } else {
                 $error = $response->json('error', 'Error desconocido');
-                Log::error('Error al enviar mensaje a ' . $phone . ': ' . json_encode($error));
+               // Log::error('Error al enviar mensaje a ' . $phone . ': ' . json_encode($error));
                 return response()->json([
                     'status' => 'error',
                     'message' => $error,
                 ], $response->status());
             }
         } catch (ValidationException $e) {
-            Log::error('Error de validación: ' . $e->getMessage());
+         //   Log::error('Error de validación: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Datos de entrada inválidos',
                 'errors' => $e->errors(),
             ], 422);
         } catch (Exception $e) {
-            Log::error('Error inesperado: ' . $e->getMessage());
+           // Log::error('Error inesperado: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Ha ocurrido un error inesperado',
