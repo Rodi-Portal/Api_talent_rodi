@@ -12,6 +12,9 @@ use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CsvController;
 use App\Http\Controllers\Empleados\CursosController;
 use App\Http\Controllers\Empleados\NotificacionController;
+use App\Http\Controllers\PreEmpleado\PreEmpleadoController;
+
+use App\Http\Controllers\AvanceController;
 
 use App\Http\Controllers\Empleados\DocumentOptionController;
 use App\Http\Controllers\Empleados\EmpleadoController;
@@ -145,6 +148,15 @@ Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [Notif
 /*notificaciones  via  whatsapp modulo empleados*/
 
 Route::post('/send-notification', [WhatsAppController::class, 'sendMessage_notificacion_talentsafe']);
+
+
+
+/*Este  endpoint  es para   mostrar  avances  de los  candidatos  en pre empleo  */
+Route::get('/check-avances', [AvanceController::class, 'checkAvances']);
+Route::post('/preempleados/proceso-candidato', [PreEmpleadoController::class, 'verProcesoCandidato'])->name('preempleados.procesoCandidato');
+
+
+
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();

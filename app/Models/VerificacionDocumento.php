@@ -51,6 +51,14 @@ class VerificacionDocumento extends Model
         'comentarios',
     ];
 
+    /**
+     * Relación con el modelo Candidato
+     */
+    public function candidato()
+    {
+        return $this->belongsTo(Candidato::class, 'id_candidato');
+    }
+
     // Método para obtener la fila según el id_candidato
     public function getByCandidatoId($id_candidato)
     {
