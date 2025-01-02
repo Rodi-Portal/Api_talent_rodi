@@ -84,6 +84,9 @@ class CandidatoSeccion extends Model
     {
         return $this->where('id_candidato', $id_candidato)->first();
     }
-
+    public function candidato()
+    {
+        return $this->belongsTo(Candidato::class, 'id_candidato');
+    }
     // Aquí puedes agregar métodos y relaciones del modelo si es necesario
 }
