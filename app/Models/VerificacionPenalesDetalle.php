@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class VerificacionPenalesDetalle extends Model
 {
+    use HasFactory;
+
     protected $table = 'verificacion_penales_detalle';
     protected $primaryKey = 'id';
     public $timestamps = false;
@@ -21,17 +24,10 @@ class VerificacionPenalesDetalle extends Model
     ];
 
     /**
-     * Obtener los detalles de verificación penales para un candidato específico.
-     *
-     * @param int $idCandidato
-     * @return \Illuminate\Database\Eloquent\Collection|static[]
+     * Relación con la verificación penal principal.
      */
-    public static function getDetalleVerificacion($idCandidato)
+    public function verificacion()
     {
-        return self::select('D.*')
-            ->from('verificacion_penales_detalle as D')
-            ->join('verificacion_penales as V', 'V.id', '=', 'D.id_verificacion_penales')
-            ->where('V.id_candidato', $idCandidato)
-            ->get();
+        return $this->belongsTo(VerificacionPenales::class, 'id_verificacion_penales');
     }
 }

@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CandidatoRefProfesional extends Model
 {
+    use HasFactory;
+
     protected $table = 'candidato_ref_profesional';
 
     protected $fillable = [
@@ -28,15 +31,35 @@ class CandidatoRefProfesional extends Model
         'comentarios',
     ];
 
-    // Opcionalmente, puedes definir campos de fecha para castear automáticamente
     protected $dates = [
         'creacion',
         'edicion',
     ];
 
-    // Función para obtener la referencia profesional del candidato por id_candidato
+    /**
+     * Relación con el modelo Usuario (quién creó o editó la referencia).
+     */
+    public function usuario()
+    {
+        return $this->belongsTo(User::class, 'id_usuario');
+    }
+
+    /**
+     * Relación con el modelo Candidato.
+     */
+    public function candidato()
+    {
+        return $this->belongsTo(Candidato::class, 'id_candidato');
+    }
+
+    /**
+     * Función para obtener referencias profesionales por ID de candidato.
+     *
+     * @param int $idCandidato
+     * @return \Illuminate\Database\Eloquent\Collection
+     */
     public static function getById($idCandidato)
     {
-        return self::where('id_candidato', $idCandidato)->first();
+        return self::where('id_candidato', $idCandidato)->get();
     }
 }

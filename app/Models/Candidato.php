@@ -144,7 +144,7 @@ class Candidato extends Model
         'applicant_id',
         'liberado',
         'cancelado',
-        'eliminado'
+        'eliminado',
     ];
     public function getDetalles($id_candidato)
     {
@@ -193,35 +193,35 @@ class Candidato extends Model
         return $this->belongsTo(Usuario::class, 'id_usuario');
     }
 
-  
-    public function doping()
-{
-    return $this->hasOne(Doping::class, 'id_candidato');
-}
-    
-       // Definir la relación con CandidatoBGC
-       public function bgc()
-       {
-           return $this->hasOne(CandidatoBGC::class, 'id_candidato');
-       }
-       public function medico()
-       {
-           return $this->hasOne(Medico::class, 'id_candidato');
-       }
 
-       public function psicometrico()
-       {
-           return $this->hasOne(Psicometrico::class, 'id_candidato');
-       }
-       // Método para obtener BGC por id_candidato
-       public static function getBGCById($id)
-       {
-           return self::select('candidato.id', 'candidato.status_bgc', 'candidato_bgc.*')
-               ->join('candidato_bgc', 'candidato_bgc.id_candidato', '=', 'candidato.id')
-               ->where('candidato.id', $id)
-               ->first();
-       }
-       public static function getDetallesPDF($idCandidato)
+    public function doping()
+    {
+        return $this->hasOne(Doping::class, 'id_candidato');
+    }
+
+    // Definir la relación con CandidatoBGC
+    public function bgc()
+    {
+        return $this->hasOne(CandidatoBGC::class, 'id_candidato');
+    }
+    public function medico()
+    {
+        return $this->hasOne(Medico::class, 'id_candidato');
+    }
+
+    public function psicometrico()
+    {
+        return $this->hasOne(Psicometrico::class, 'id_candidato');
+    }
+    // Método para obtener BGC por id_candidato
+    public static function getBGCById($id)
+    {
+        return self::select('candidato.id', 'candidato.status_bgc', 'candidato_bgc.*')
+            ->join('candidato_bgc', 'candidato_bgc.id_candidato', '=', 'candidato.id')
+            ->where('candidato.id', $id)
+            ->first();
+    }
+    public static function getDetallesPDF($idCandidato)
     {
         return DB::table('candidato as c')
             ->select(
@@ -249,4 +249,37 @@ class Candidato extends Model
             ->first();
     }
 
+    public function historialCrediticio()
+    {
+        return $this->hasOne(CandidatoHistorialCrediticio::class, 'id_candidato');
+    }
+
+    public function referenciasPersonales()
+    {
+        return $this->hasMany(CandidatoRefPersonal::class, 'id_candidato');
+    }
+
+    public function referenciasProfesionales()
+    {
+        return $this->hasMany(CandidatoRefProfesional::class, 'id_candidato');
+    }
+
+    public function verificacionesPenales()
+    {
+        return $this->hasMany(VerificacionPenales::class, 'id_candidato');
+    }
+
+    public function verificacionesDomicilio()
+    {
+        return $this->hasMany(VerificacionDomicilio::class, 'id_candidato');
+    }
+
+    public function globalSearches()
+    {
+        return $this->hasOne(CandidatoGlobalSearches::class, 'id_candidato');
+    }
+    public function secciones()
+    {
+        return $this->hasOne(CandidatoSeccion::class, 'id_candidato', 'id');
+    }
 }
