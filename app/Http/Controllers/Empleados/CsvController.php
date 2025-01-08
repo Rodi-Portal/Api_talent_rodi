@@ -19,7 +19,7 @@ class CsvController extends Controller
         // Aquí defines los encabezados para la descarga de Excel
         $encabezados = [
             'First Name*', 'Last Name*', 'Middle Name', 'Phone*', 'Email', 'Position', 
-            'Date of Birth', 'CURP', 'NSS', 'RFC', 'Employee ID', 'Street', 
+            'CURP', 'NSS', 'RFC', 'Employee ID', 'Street', 
             'Exterior Number', 'Interior Number', 'Neighborhood', 'City', 'State', 
             'Country', 'Postal Code'
         ];
@@ -85,7 +85,6 @@ class CsvController extends Controller
                 'Phone*',
                 'Email',
                 'Position',
-                'Date of Birth',
                 'CURP',
                 'NSS',
                 'RFC',
