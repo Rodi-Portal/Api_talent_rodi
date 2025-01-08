@@ -31,7 +31,7 @@ class CargaMasivaPlantillaExport implements FromArray, WithHeadings, WithStyles
     public function styles(Worksheet $sheet)
     {
         // Estilo para el encabezado
-        $sheet->getStyle('A1:S1')->applyFromArray([
+        $sheet->getStyle('A1:R1')->applyFromArray([
             'font' => [
                 'bold' => true,
                 'size' => 14,
@@ -54,7 +54,7 @@ class CargaMasivaPlantillaExport implements FromArray, WithHeadings, WithStyles
         ]);
 
         // Ajustar el ancho de las columnas
-        foreach (range('A', 'S') as $column) {
+        foreach (range('A', 'R') as $column) {
             $sheet->getColumnDimension($column)->setAutoSize(true);
         }
 
