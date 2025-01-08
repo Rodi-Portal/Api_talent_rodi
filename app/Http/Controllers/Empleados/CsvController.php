@@ -33,15 +33,27 @@ class CsvController extends Controller
     {
         // Validar que se haya subido un archivo y los datos generales
         $validator = Validator::make($request->all(), [
-            'file' => 'required|mimes:xlsx,csv',
+            'file' => 'required|file|mimes:xlsx,csv',
             'creacion' => 'required|date',
             'edicion' => 'required|date',
-            'id_portal' => 'required|integer',
-            'id_usuario' => 'required|integer',
-            'id_cliente' => 'required|integer',
+            'id_portal' => 'required|numeric',
+            'id_usuario' => 'required|numeric',
+            'id_cliente' => 'required|numeric',
         ]);
     
+    
+        // Registrar detalles del archivo si está presente
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+          
+        } else {
+            \Log::error('No se detectó archivo en la solicitud.');
+        }
+    
+        // Verificar si la validación falla
         if ($validator->fails()) {
+           
+    
             return response()->json([
                 'success' => false,
                 'message' => 'Errores de validación.',
@@ -63,6 +75,8 @@ class CsvController extends Controller
             $file = $request->file('file');
             $headings = Excel::toArray([], $file)[0][0] ?? [];
     
+            // Registrar cabeceras detectadas
+    
             // Definir las cabeceras esperadas
             $expectedHeadings = [
                 'First Name*',
@@ -75,7 +89,7 @@ class CsvController extends Controller
                 'CURP',
                 'NSS',
                 'RFC',
-                'Employee ID*',
+                'Employee ID',
                 'Street',
                 'Exterior Number',
                 'Interior Number',
@@ -87,6 +101,11 @@ class CsvController extends Controller
             ];
     
             if ($headings !== $expectedHeadings) {
+                \Log::error('Cabeceras no coinciden con las esperadas.', [
+                    'cabeceras_detectadas' => $headings,
+                    'cabeceras_esperadas' => $expectedHeadings,
+                ]);
+    
                 return response()->json([
                     'success' => false,
                     'message' => 'El archivo no tiene las cabeceras esperadas.',
@@ -104,13 +123,19 @@ class CsvController extends Controller
                 'message' => 'Empleados importados correctamente',
             ], 200);
         } catch (\Exception $e) {
-            // Si hay algún error, devolverlo
+            // Registrar errores
+            \Log::error('Error al importar el archivo:', [
+                'mensaje' => $e->getMessage(),
+                'traza' => $e->getTraceAsString(),
+            ]);
+    
             return response()->json([
                 'success' => false,
                 'message' => 'Error al importar el archivo: ' . $e->getMessage(),
             ], 500);
         }
     }
+    
     
     
 }
