@@ -80,18 +80,18 @@ class EmpleadosImport implements ToModel
             ]);
 
             // Crear información médica
-            if (!empty($validatedData['fecha_nacimiento'])) {
-                $fechaNacimiento = Carbon::parse($validatedData['fecha_nacimiento']);
+            
+                
                 $fechaCreacion = Carbon::parse($this->generalData['creacion']);
-                $edad = $fechaCreacion->diffInYears($fechaNacimiento);
+                
 
                 MedicalInfo::create([
                     'id_empleado' => $empleado->id,
                     'creacion' => $this->generalData['creacion'],
                     'edicion' => $this->generalData['creacion'],
-                    'edad' => $edad,
+                    
                 ]);
-            }
+            
 
             return $empleado;
         } catch (\Exception $e) {
