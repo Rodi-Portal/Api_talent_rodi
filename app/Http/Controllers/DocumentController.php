@@ -11,7 +11,7 @@ class DocumentController extends Controller
     {
         // Validar la solicitud
         $request->validate([
-            'file'      => 'required|file|mimes:pdf,application/pdf,application/x-pdf,application/acrobat,application/vnd.pdf|max:5120',
+            'file'      => 'required|file|mimes:pdf,application/pdf,application/x-pdf,application/acrobat,application/vnd.pdf,jpg,jpeg,png|max:5120',
             'file_name' => 'required|string',
             'carpeta'   => 'required|string',
         ]);
