@@ -230,17 +230,17 @@ class DocumentOptionController extends Controller
         }
 
         // Log de los datos recibidos
-        // Log::info('Datos recibidos en el store:', $request->all());
+         Log::info('Datos recibidos en el store:', $request->all());
 
         // Verificar si se recibió un archivo
         if (!$request->hasFile('file')) {
-            ////Log::error('No se recibió ningún archivo en la solicitud.');
+            Log::error('No se recibió ningún archivo en la solicitud.');
             return response()->json(['error' => 'No se recibió ningún archivo.'], 400);
         }
 
         // Asegurarse de que el archivo es válido
         if (!$request->file('file')->isValid()) {
-           //// Log::error('El archivo recibido no es válido.');
+            Log::error('El archivo recibido no es válido.');
             return response()->json(['error' => 'El archivo recibido no es válido.'], 400);
         }
 
@@ -256,7 +256,7 @@ class DocumentOptionController extends Controller
         $idOpcion = json_decode($opcionResponse->getContent())->id_opciones;
 
         // Log para verificar el ID obtenido
-        //Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
+        Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
 
         // Preparar la solicitud para la subida del archivo
         $employeeId = $request->input('employee_id');
@@ -281,7 +281,7 @@ class DocumentOptionController extends Controller
         }
 
         // Log para verificar el ID antes de la creación
-        // Log::info('Preparándose para crear DocumentEmpleado con id_opcion:', ['id_opcion' => $idOpcion]);
+         Log::info('Preparándose para crear DocumentEmpleado con id_opcion:', ['id_opcion' => $idOpcion]);
 
         // Crear un nuevo registro en la base de datos
         $documentEmpleado = DocumentEmpleado::create([
@@ -297,7 +297,7 @@ class DocumentOptionController extends Controller
         ]);
 
         // Log para verificar el documento registrado
-        // Log::info('Documento registrado:', ['document' => $documentEmpleado]);
+         Log::info('Documento registrado:', ['document' => $documentEmpleado]);
 
         // Devolver una respuesta exitosa
         return response()->json([
