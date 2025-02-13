@@ -28,8 +28,7 @@ class DocumentEmpleado extends Model
         'expiry_date',
         'file_path',
         'expiry_reminder',
-        'nameDocument',
-        'status',
+        'nameDocument'
     ];
 
     // Relación con el modelo Empleado (si lo necesitas)
