@@ -7,29 +7,27 @@ use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
+use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CsvController;
 use App\Http\Controllers\Empleados\CursosController;
-use App\Http\Controllers\Empleados\NotificacionController;
-use App\Http\Controllers\PreEmpleado\PreEmpleadoController;
-
-use App\Http\Controllers\AvanceController;
-
 use App\Http\Controllers\Empleados\DocumentOptionController;
 use App\Http\Controllers\Empleados\EmpleadoController;
 use App\Http\Controllers\Empleados\EvaluacionController;
 use App\Http\Controllers\Empleados\EviarEmpleadoRodi;
+use App\Http\Controllers\Empleados\LaboralesController;
 use App\Http\Controllers\Empleados\MedicalInfoController;
+use App\Http\Controllers\Empleados\NotificacionController;
 use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
 use App\Http\Controllers\ImageController;
+use App\Http\Controllers\PreEmpleado\PreEmpleadoController;
 use App\Http\Controllers\ProyectosHistorialController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\TestController;
 use App\Http\Controllers\WhatsAppController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-
 
 /*
 |--------------------------------------------------------------------------
@@ -81,6 +79,15 @@ Route::middleware(['api'])->group(function () {
     Route::get('/download-template', [CsvController::class, 'downloadTemplate']);
     // Ruta para la importación de empleados desde un archivo CSV o Excel
     Route::post('/empleados/importar', [CsvController::class, 'import']);
+    // ruta para eliminar EMpleados
+    Route::delete('/empleados/{id}', [EmpleadoController::class, 'deleteEmpleado']);
+
+    // Ruta para  los  laborales del empleado */
+
+    Route::get('/empleado/{id_empleado}/laborales', [LaboralesController::class, 'obtenerDatosLaborales']);
+    Route::post('/empleados/laborales', [LaboralesController::class, 'guardarDatosLaborales']);
+    Route::put('/empleados/laborales/{id_empleado}', [LaboralesController::class, 'actualizarDatosLaborales']);
+    // Fin para  los  laborales del empleado */
 
     //  obtener  el status  de general  de los empleados
     Route::get('/empleados/status', [EmpleadoController::class, 'getEmpleadosStatus']);
@@ -140,23 +147,17 @@ Route::middleware(['api'])->group(function () {
     Route::post('candidato-send/{id_candidato}', [ApiGetCandidatosByCliente::class, 'sendCandidateToEmployee']);
 
 // ruta  para  guardar  y consultar  notificaciones Whats  y correo
-Route::post('/notificaciones/guardar', [NotificacionController::class, 'guardar']);
-Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultar']);
+    Route::post('/notificaciones/guardar', [NotificacionController::class, 'guardar']);
+    Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultar']);
 });
-
 
 /*notificaciones  via  whatsapp modulo empleados*/
 
 Route::post('/send-notification', [WhatsAppController::class, 'sendMessage_notificacion_talentsafe']);
 
-
-
 /*Este  endpoint  es para   mostrar  avances  de los  candidatos  en pre empleo  */
 Route::get('/check-avances', [AvanceController::class, 'checkAvances']);
 Route::post('/preempleados/proceso-candidato', [PreEmpleadoController::class, 'verProcesoCandidato'])->name('preempleados.procesoCandidato');
-
-
-
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();

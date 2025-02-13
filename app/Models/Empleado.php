@@ -43,4 +43,25 @@ class Empleado extends Model
     {
         return $this->hasMany(DocumentEmpleado::class, 'employee_id', 'id_empleado');
     }
+    public function laborales()
+    {
+        return $this->hasOne(LaboralesEmpleado::class, 'id_empleado');
+    }
+
+    public function preNominaEmpleados()
+    {
+        return $this->hasMany(PreNominaEmpleado::class, 'id_empleado');
+    }
+
+    /**
+     * Obtener los datos del empleado junto con sus relaciones.
+     *
+     * @param  int  $id_empleado
+     * @return \App\Models\Empleado|null
+     */
+    public static function obtenerEmpleadoConRelacionados($id_empleado)
+    {
+        return self::with(['laborales', 'preNominaEmpleados']) // Aquí cargas las relaciones
+                   ->find($id_empleado);
+    }
 }
