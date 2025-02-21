@@ -17,23 +17,33 @@ class PreNominaEmpleado extends Model
 
     // Deshabilitar el uso de timestamps si no los necesitas
     public $timestamps = false;
-
+    protected $connection = 'portal_main';
     // Especificar los campos que son asignables
     protected $fillable = [
+        'creacion',
+        'edicion',
         'id_empleado',
         'sueldo_base',
-        'horas_extras', 
+        'horas_extras',
+        'pago_horas_extra',
         'comisiones',
         'bonificaciones',
+        'dias_festivos',
         'pago_dias_festivos',
+        'dias_ausencia',
         'descuento_ausencias',
+        'descuento_imss',
+        'descuento_infornavit',
+        'pago_vacaciones',
         'aguinaldo',
-        'vacaciones',
-        'prima_vacacional',
+        'dias_vacaciones',
         'vales_despensa',
         'fondo_ahorro',
         'prestamos',
-        'descuentos_adicionales',
+        'deducciones_extra',// jason
+        'prestaciones_extra',// jason 
+        'sueldo_total',
+        'sueldo_neto',
     ];
 
     // Definir la relación con el modelo de Empleado

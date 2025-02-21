@@ -61,7 +61,10 @@ class Empleado extends Model
      */
     public static function obtenerEmpleadoConRelacionados($id_empleado)
     {
-        return self::with(['laborales', 'preNominaEmpleados']) // Aquí cargas las relaciones
-                   ->find($id_empleado);
+        return self::with(['laborales', 'preNominaEmpleados' => function ($query) {
+                        $query->orderBy('id', 'desc')->first(); // Ordena por id descendente
+                    }])
+                    ->find($id_empleado);
     }
+    
 }
