@@ -87,6 +87,8 @@ Route::middleware(['api'])->group(function () {
     Route::get('/empleado/{id_empleado}/laborales', [LaboralesController::class, 'obtenerDatosLaborales']);
     Route::post('/empleados/laborales', [LaboralesController::class, 'guardarDatosLaborales']);
     Route::put('/empleados/laborales/{id_empleado}', [LaboralesController::class, 'actualizarDatosLaborales']);
+    Route::post('/empleados/registro_prenomina', [LaboralesController::class, 'guardarPrenomina']);
+
     // Fin para  los  laborales del empleado */
 
     //  obtener  el status  de general  de los empleados

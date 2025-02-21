@@ -3,7 +3,9 @@ namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller;
 use App\Models\Empleado;
+use App\Models\PreNominaEmpleado;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class LaboralesController extends Controller
 {
@@ -159,8 +161,90 @@ class LaboralesController extends Controller
             'tipo_nomina'            => $request->tipoNomina,
             'tipo_regimen'           => $request->tipoRegimen,
             'vacaciones_disponibles' => $request->vacacionesDisponibles,
-            'dias_descanso'          => json_encode($request->diasDescanso), // Guardar los días de descanso como un JSON
+            'dias_descanso'          => json_encode($request->diasDescanso), 
         ]);
         return response()->json(['message' => 'Datos laborales actualizados correctamente'], 200);
+    }
+
+    public function guardarPrenomina(Request $request)
+    {
+        // Registra todos los datos recibidos para asegurarte de que la solicitud llega correctamente
+        Log::info('Datos recibidos: ', $request->all());
+
+        // Validar los datos si es necesario
+        try {
+            $validated = $request->validate([
+                'idEmpleado'         => 'required|numeric',
+                'sueldoBase'         => 'required|numeric',
+                'horasExtras'        => 'nullable|numeric',
+                'pagoHorasExtras'    => 'nullable|numeric',
+                'comisiones'         => 'nullable|numeric',
+                'bonificaciones'     => 'nullable|numeric',
+                'diasFestivos'       => 'nullable|numeric',
+                'pagoDiasFestivos'   => 'nullable|numeric',
+                'diasAusencias'      => 'nullable|numeric',
+                'aguinaldo'          => 'nullable|numeric',
+                'vacaciones'         => 'nullable|numeric',
+                'pagoVacaciones'     => 'nullable|numeric',
+                'primaVacacional'    => 'required|numeric',
+                'valesDespensa'      => 'nullable|numeric',
+                'fondoAhorro'        => 'nullable|numeric',
+                'descuentoAusencia'  => 'nullable|numeric',
+                'descuentoImss'      => 'nullable|numeric',
+                'descuentoInfonavit' => 'nullable|numeric',
+                'prestamos'          => 'nullable|numeric',
+                'deduccionesExtras'  => 'nullable|json',
+                'prestacionesExtras' => 'nullable|json',
+                'salarioNeto'        => 'required|numeric',
+                'totalPagar'         => 'required|numeric',
+            ]);
+        
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Error en validación: ', $e->errors());
+            return response()->json(['errors' => $e->errors()], 422);
+        }
+        
+
+        // Si pasa la validación, continúa con el guardado
+        try {
+            Log::info('Intentando guardar el registro en la base de datos.');
+        
+            $registro                     = new PreNominaEmpleado();
+            $registro->id_empleado        = $validated['idEmpleado'];
+            $registro->sueldo_base        = $validated['sueldoBase'];
+            $registro->horas_extras       = $validated['horasExtras'];
+            $registro->pago_horas_extra   = $validated['pagoHorasExtras'];
+            $registro->comisiones         = $validated['comisiones'];
+            $registro->bonificaciones     = $validated['bonificaciones'];
+            $registro->dias_festivos      = $validated['diasFestivos'];
+            $registro->dias_ausencia      = $validated['diasAusencias'];
+            $registro->descuento_ausencias= $validated['descuentoAusencia'];
+            $registro->descuento_imss     = $validated['descuentoImss'];
+            $registro->descuento_infonavit= $validated['descuentoInfonavit'];
+            $registro->aguinaldo          = $validated['aguinaldo'];
+            $registro->dias_vacaciones    = $validated['vacaciones'];
+            $registro->pago_vacaciones    = $validated['pagoVacaciones'];
+            $registro->pago_dias_festivos = $validated['pagoDiasFestivos'];
+            $registro->prima_vacacional   = $validated['primaVacacional'];
+            $registro->vales_despensa     = $validated['valesDespensa'];
+            $registro->fondo_ahorro       = $validated['fondoAhorro'];
+            $registro->prestamos          = $validated['prestamos'];
+            $registro->deducciones_extra  = json_encode($validated['deduccionesExtras']);
+            $registro->prestaciones_extra = json_encode($validated['prestacionesExtras']);
+            $registro->sueldo_neto        = $validated['salarioNeto'];
+            $registro->sueldo_total       = $validated['totalPagar'];
+        
+            if ($registro->save()) {
+                Log::info('Registro guardado exitosamente.');
+                return response()->json(['message' => 'Datos registrados correctamente.'], 201);
+            } else {
+                Log::error('Error al guardar el registro en la base de datos.');
+                return response()->json(['message' => 'Error al guardar los datos.'], 500);
+            }
+        
+        } catch (\Exception $e) {
+            Log::error('Excepción al guardar datos: ' . $e->getMessage());
+            return response()->json(['message' => 'Hubo un error al guardar los datos.'], 500);
+        }
     }
 }
