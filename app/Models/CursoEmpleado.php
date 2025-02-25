@@ -25,7 +25,8 @@ class CursoEmpleado extends Model
         'description',
         'expiry_date',
         'expiry_reminder',
-        'origen'
+        'origen',
+        'status'
     ];
 
 

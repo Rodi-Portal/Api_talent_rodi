@@ -74,7 +74,8 @@ class CursosController extends Controller
             'creacion' => 'required|string',
             'edicion' => 'required|string',
             'id_portal' => 'required|integer',
-            'origen' => 'required|integer', // Asegúrate de usar este campo según lo necesites
+            'origen' => 'required|integer',
+            'status' => 'required|integer',// Asegúrate de usar este campo según lo necesites
         ]);
 
         if ($validator->fails()) {
@@ -120,7 +121,8 @@ class CursosController extends Controller
             'origen' => $origen,
             'creacion' => $request->input('creacion'),
             'edicion' => $request->input('edicion'),
-            'id_opcion_exams' => $request->input('id_opcion_exams') ?? null, // Esto es opcional
+            'id_opcion_exams' => $request->input('id_opcion_exams') ?? null,
+            'status' => $request->input('status'), // Esto es opcional
         ]);
 
         // Log para verificar el curso registrado
