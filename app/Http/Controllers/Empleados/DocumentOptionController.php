@@ -223,6 +223,7 @@ class DocumentOptionController extends Controller
             'creacion' => 'required|string',
             'edicion' => 'required|string',
             'id_portal' => 'required|integer',
+            'status' =>     'required|integuer',
         ]);
 
         if ($validator->fails()) {
@@ -256,7 +257,7 @@ class DocumentOptionController extends Controller
         $idOpcion = json_decode($opcionResponse->getContent())->id_opciones;
 
         // Log para verificar el ID obtenido
-        Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
+       // Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
 
         // Preparar la solicitud para la subida del archivo
         $employeeId = $request->input('employee_id');
@@ -281,7 +282,7 @@ class DocumentOptionController extends Controller
         }
 
         // Log para verificar el ID antes de la creación
-         Log::info('Preparándose para crear DocumentEmpleado con id_opcion:', ['id_opcion' => $idOpcion]);
+       //  Log::info('Preparándose para crear DocumentEmpleado con id_opcion:', ['id_opcion' => $idOpcion]);
 
         // Crear un nuevo registro en la base de datos
         $documentEmpleado = DocumentEmpleado::create([
@@ -430,6 +431,7 @@ class DocumentOptionController extends Controller
                 'expiry_date' => $documento->expiry_date,
                 'expiry_reminder' => $documento->expiry_reminder,
                 'nameAlterno' => $documento->nameDocument,
+                'status'      => $documento->status,
                 // Agrega otros campos que necesites
             ];
         });
@@ -445,6 +447,7 @@ class DocumentOptionController extends Controller
             'expiry_date' => 'required|date',
             'expiry_reminder' => 'nullable|integer|min:0',
             'table' => 'required|string',
+            'status' => 'required|numeric',
         ]);
         $tabla = $request->input('table');
         // Encontrar el documento por ID
@@ -465,7 +468,7 @@ class DocumentOptionController extends Controller
 
         // Asignar expiry_reminder, se establecerá a null si no se proporciona
         $document->expiry_reminder = $request->input('expiry_reminder', null);
-
+        $document->status = $request->input('status');
         // Guardar los cambios
         $document->save();
 
