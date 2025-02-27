@@ -455,7 +455,7 @@ class DocumentOptionController extends Controller
             $document = DocumentEmpleado::find($id);
         } elseif ($tabla == 'cursos_empleados') {
             $document = CursoEmpleado::find($id);
-        } elseif ($tabla == 'exams_empleado') {
+        } elseif ($tabla == 'exams_empleados') {
             $document = ExamEmpleado::find($id);
         }
 
