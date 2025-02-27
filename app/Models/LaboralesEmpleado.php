@@ -20,6 +20,7 @@ class LaboralesEmpleado extends Model
 
     // Si la tabla no tiene timestamps, se debe poner false
     public $timestamps = false;
+    protected $connection = 'portal_main';
 
     // Definir los campos que se pueden asignar masivamente
     protected $fillable = [
