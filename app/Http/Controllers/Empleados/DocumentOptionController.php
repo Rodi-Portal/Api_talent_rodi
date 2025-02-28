@@ -77,6 +77,7 @@ class DocumentOptionController extends Controller
                 'description' => $documento->description,
                 'upload_date' => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
                 'expiry_date' => $documento->expiry_date,
+                'statusexm' => $documento->status,
                 'expiry_reminder' => $documento->expiry_reminder,
                 'id_candidato' => $documento->id_candidato,
                 'socioeconomico' => $candidatoPrueba->socioeconomico ?? null,

@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers\Empleados;
 
 use App\Exports\CursosExport;
@@ -22,11 +21,11 @@ class CursosController extends Controller
     {
 
         // Limpiar cachés de manera temporal
-      
+
         // Llama al método para obtener los datos del cliente
         $cliente = ClienteTalent::with('cursos.empleado')->find($clienteId);
 
-        if (!$cliente) {
+        if (! $cliente) {
             return response()->json(['error' => 'Cliente no encontrado'], 404);
         }
 
@@ -34,10 +33,10 @@ class CursosController extends Controller
         $cursos = $cliente->cursos->map(function ($curso) use ($cliente) {
             $estado = $this->getEstadoCurso1($curso->expiry_date);
             return [
-                'curso' => $curso->name,
-                'empleado' => 'ID: ' . $curso->empleado->id_empleado . ' - ' . $curso->empleado->nombre . ' ' . $curso->empleado->paterno . ' ' . $curso->empleado->materno ?? 'Sin asignar',
+                'curso'            => $curso->name,
+                'empleado'         => 'ID: ' . $curso->empleado->id_empleado . ' - ' . $curso->empleado->nombre . ' ' . $curso->empleado->paterno . ' ' . $curso->empleado->materno ?? 'Sin asignar',
                 'fecha_expiracion' => $curso->expiry_date,
-                'estado' => $estado,
+                'estado'           => $estado,
             ];
         });
 
@@ -47,12 +46,12 @@ class CursosController extends Controller
 
     private function getEstadoCurso1($expiryDate)
     {
-        if (!$expiryDate) {
+        if (! $expiryDate) {
             return '';
         }
 
         $fechaExpiracion = Carbon::parse($expiryDate);
-        $fechaHoy = Carbon::now();
+        $fechaHoy        = Carbon::now();
 
         if ($fechaExpiracion->isPast()) {
             return 'Expirado';
@@ -65,17 +64,17 @@ class CursosController extends Controller
     {
         // Validar los datos de entrada
         $validator = Validator::make($request->all(), [
-            'employee_id' => 'required|integer',
-            'name' => 'required|string|max:255',
-            'description' => 'nullable|string|max:500',
-            'expiry_date' => 'required|date',
+            'employee_id'     => 'required|integer',
+            'name'            => 'required|string|max:255',
+            'description'     => 'nullable|string|max:500',
+            'expiry_date'     => 'required|date',
             'expiry_reminder' => 'nullable|integer',
-            'file' => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120',
-            'creacion' => 'required|string',
-            'edicion' => 'required|string',
-            'id_portal' => 'required|integer',
-            'origen' => 'required|integer',
-            'status' => 'required|integer',// Asegúrate de usar este campo según lo necesites
+            'file'            => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120',
+            'creacion'        => 'required|string',
+            'edicion'         => 'required|string',
+            'id_portal'       => 'required|integer',
+            'origen'          => 'required|integer',
+            'status'          => 'required|integer', // Asegúrate de usar este campo según lo necesites
         ]);
 
         if ($validator->fails()) {
@@ -89,20 +88,20 @@ class CursosController extends Controller
 
         $origen = $request->input('origen');
         // Preparar el nombre del archivo para la subida
-        $employeeId = $request->input('employee_id');
-        $randomString = $this->generateRandomString(); // Generar cadena aleatoria
+        $employeeId    = $request->input('employee_id');
+        $randomString  = $this->generateRandomString();                        // Generar cadena aleatoria
         $fileExtension = $request->file('file')->getClientOriginalExtension(); // Obtener extensión del archivo
-        $newFileName = "{$employeeId}_{$randomString}_{$origen}.{$fileExtension}";
+        $newFileName   = "{$employeeId}_{$randomString}_{$origen}.{$fileExtension}";
 
         // Preparar la solicitud para la subida del archivo
         $uploadRequest = new Request();
         $uploadRequest->files->set('file', $request->file('file'));
         $uploadRequest->merge([
             'file_name' => $newFileName,
-            'carpeta' => '_cursos', // Cambia esto a tu carpeta deseada
+            'carpeta'   => '_cursos', // Cambia esto a tu carpeta deseada
         ]);
 
-        // Llamar a la función de upload
+                                                                                  // Llamar a la función de upload
         $uploadResponse = app(DocumentController::class)->upload($uploadRequest); // Asegúrate de cambiar el nombre del controlador
 
         // Verificar si la subida fue exitosa
@@ -112,17 +111,17 @@ class CursosController extends Controller
 
         // Crear un nuevo registro en la base de datos
         $cursoEmpleado = CursoEmpleado::create([
-            'employee_id' => $request->input('employee_id'),
-            'name' => $request->input('name'),
-            'name_document' => $newFileName,
-            'description' => $request->input('description'),
-            'expiry_date' => $request->input('expiry_date'),
+            'employee_id'     => $request->input('employee_id'),
+            'name'            => $request->input('name'),
+            'name_document'   => $newFileName,
+            'description'     => $request->input('description'),
+            'expiry_date'     => $request->input('expiry_date'),
             'expiry_reminder' => $request->input('expiry_reminder'),
-            'origen' => $origen,
-            'creacion' => $request->input('creacion'),
-            'edicion' => $request->input('edicion'),
+            'origen'          => $origen,
+            'creacion'        => $request->input('creacion'),
+            'edicion'         => $request->input('edicion'),
             'id_opcion_exams' => $request->input('id_opcion_exams') ?? null,
-            'status' => $request->input('status'), // Esto es opcional
+            'status'          => $request->input('status'), // Esto es opcional
         ]);
 
         // Log para verificar el curso registrado
@@ -131,7 +130,7 @@ class CursosController extends Controller
         // Devolver una respuesta exitosa
         return response()->json([
             'message' => 'Curso agregado exitosamente.',
-            'curso' => $cursoEmpleado,
+            'curso'   => $cursoEmpleado,
         ], 201);
     }
 
@@ -139,12 +138,12 @@ class CursosController extends Controller
     {
         // Obtener el ID del empleado y el origen del request
         $employeeId = $request->input('employee_id');
-        $origen = $request->input('origen');
+        $origen     = $request->input('origen');
 
         // Validar que se proporcionen ambos parámetros
         $request->validate([
             'employee_id' => 'required|integer',
-            'origen' => 'required|integer',
+            'origen'      => 'required|integer',
         ]);
         if ($origen == 3) {
             $cursos = CursoEmpleado::where('employee_id', $employeeId)
@@ -163,14 +162,14 @@ class CursosController extends Controller
     public function getEmpleadosConCursos(Request $request)
     {
         $request->validate([
-            'id_portal' => 'required|integer',
+            'id_portal'  => 'required|integer',
             'id_cliente' => 'required|integer',
-            'status' => 'required|integer',
+            'status'     => 'required|integer',
         ]);
 
-        $id_portal = $request->input('id_portal');
+        $id_portal  = $request->input('id_portal');
         $id_cliente = $request->input('id_cliente');
-        $status = $request->input('status');
+        $status     = $request->input('status');
         // Obtener todos los empleados con sus domicilios
         $empleados = Empleado::where('id_portal', $id_portal)
             ->where('id_cliente', $id_cliente)
@@ -184,21 +183,46 @@ class CursosController extends Controller
             $cursosOrigen1 = CursoEmpleado::where('employee_id', $empleado->id)->where('origen', 1)->get();
             $cursosOrigen2 = CursoEmpleado::where('employee_id', $empleado->id)->where('origen', 2)->get();
 
+            // Determinar estado final
+            $estadoFinal  = $this->determinarEstado($cursosOrigen1);
+            $estadoFinal2 = $this->determinarEstado($cursosOrigen2);
+
             $statusOrigen1 = $this->checkDocumentStatus($cursosOrigen1);
             $statusOrigen2 = $this->checkDocumentStatus($cursosOrigen2);
 
             // Convertir el empleado a un array y agregar los statusDocuments
-            $empleadoArray = $empleado->toArray();
+            $empleadoArray                  = $empleado->toArray();
             $empleadoArray['statusCursos1'] = $statusOrigen1;
             $empleadoArray['statusCursos2'] = $statusOrigen2;
-
-            $resultados[] = $empleadoArray;
+            $empleadoArray['estadoCursos1'] = $estadoFinal;
+            $empleadoArray['estadoCursos2'] = $estadoFinal2;
+            $resultados[]                   = $empleadoArray;
         }
         //Log::info('Resultados de empleados con documentos: ' . print_r($resultados, true));
         //Log::info('Resultados de empleados con documentos:', $resultados);
 
         return response()->json($resultados); //Log::info('Resultados de empleados con documentos: ' . print_r($resultados, true));
 
+    }
+    private function determinarEstado($cursos)
+    {
+        $tieneRojo     = false;
+        $tieneAmarillo = false;
+
+        foreach ($cursos as $curso) {
+            if ($curso->status == 3) {
+                return 'rojo'; // Si hay al menos un rojo, el resultado es rojo
+            }
+            if ($curso->status == 2) {
+                $tieneAmarillo = true; // Si hay amarillo, pero no rojo, será amarillo
+            }
+        }
+
+        if ($tieneAmarillo) {
+            return 'amarillo';
+        }
+
+        return 'verde'; // Si no hay ni rojo ni amarillo, es verde
     }
 
     private function checkDocumentStatus($documentos)
@@ -207,7 +231,7 @@ class CursosController extends Controller
             return 'verde'; // Sin documentos, consideramos como verde
         }
 
-        $tieneRojo = false;
+        $tieneRojo     = false;
         $tieneAmarillo = false;
 
         foreach ($documentos as $documento) {
@@ -241,7 +265,7 @@ class CursosController extends Controller
 
     private function calcularDiferenciaDias($fechaActual, $fechaExpiracion)
     {
-        $fechaActual = \Carbon\Carbon::parse($fechaActual);
+        $fechaActual     = \Carbon\Carbon::parse($fechaActual);
         $fechaExpiracion = \Carbon\Carbon::parse($fechaExpiracion);
 
         // Calculamos la diferencia de días
@@ -255,8 +279,8 @@ class CursosController extends Controller
     private function getEstadoCurso($fechaExpiracion)
     {
         $fechaExpiracion = \Carbon\Carbon::parse($fechaExpiracion);
-        $hoy = \Carbon\Carbon::now();
-        if (!$expiryDate) {
+        $hoy             = \Carbon\Carbon::now();
+        if (! $expiryDate) {
             return '';
         }
         if ($fechaExpiracion->isPast()) {

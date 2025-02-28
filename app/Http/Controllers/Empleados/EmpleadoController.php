@@ -533,21 +533,21 @@ class EmpleadoController extends Controller
         // Recorrer los items (documentos o cursos)
         foreach ($items as $item) {
             // Imprimir el estado de cada documento en el log
-            Log::info('Documento ID: ' . $item->id . ' - Estado: ' . $item->status);
+           // Log::info('Documento ID: ' . $item->id . ' - Estado: ' . $item->status);
 
             // Si encontramos un estado 3 (rojo), retornamos rojo
             if ($item->status == 3) {
-                Log::info('Estado del documento ' . $item->id . ' es ROJO');
+               // Log::info('Estado del documento ' . $item->id . ' es ROJO');
                 return 'rojo';
             }
         }
 
         // Si no hay estado 3, pero encontramos un estado 2 (amarillo), retornamos amarillo
         foreach ($items as $item) {
-            Log::info('Documento ID: ' . $item->id . ' - Estado: ' . $item->status);
+            //7Log::info('Documento ID: ' . $item->id . ' - Estado: ' . $item->status);
 
             if ($item->status == 2) {
-                Log::info('Estado del documento ' . $item->id . ' es AMARILLO');
+                //Log::info('Estado del documento ' . $item->id . ' es AMARILLO');
                 return 'amarillo';
             }
         }
