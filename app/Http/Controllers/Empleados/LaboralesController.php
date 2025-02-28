@@ -171,7 +171,7 @@ class LaboralesController extends Controller
     public function guardarPrenomina(Request $request)
 {
     // Registra todos los datos recibidos para asegurarte de que la solicitud llega correctamente
-    Log::info('Datos recibidos: ', $request->all());
+  //  Log::info('Datos recibidos: ', $request->all());
 
     // Validar los datos si es necesario
     try {
@@ -209,7 +209,7 @@ class LaboralesController extends Controller
 
     // Si pasa la validación, continúa con el guardado
     try {
-        Log::info('Intentando guardar el registro en la base de datos.');
+      //  Log::info('Intentando guardar el registro en la base de datos.');
     
         $registro                     = new PreNominaEmpleado();
         $registro->id_empleado        = $validated['idEmpleado'];
@@ -237,7 +237,7 @@ class LaboralesController extends Controller
         $registro->sueldo_total       = $validated['totalPagar'];
     
         if ($registro->save()) {
-            Log::info('Registro guardado exitosamente.');
+          //  Log::info('Registro guardado exitosamente.');
 
             // Verificar si vacaciones es mayor que 0 y actualizar vacaciones_disponibles
             if (!empty($validated['vacaciones']) && $validated['vacaciones'] > 0) {
@@ -248,7 +248,7 @@ class LaboralesController extends Controller
                     $laborales->vacaciones_disponibles = $nuevasVacaciones;
                     $laborales->save();
 
-                    Log::info("Vacaciones actualizadas para el empleado {$validated['idEmpleado']}: {$nuevasVacaciones}");
+                  // Log::info("Vacaciones actualizadas para el empleado {$validated['idEmpleado']}: {$nuevasVacaciones}");
                 } else {
                     Log::warning("No se encontró registro en laborales_empleado para el empleado {$validated['idEmpleado']}");
                 }
