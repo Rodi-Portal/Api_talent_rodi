@@ -9,13 +9,13 @@ use App\Models\DocumentEmpleado;
 use App\Models\DomicilioEmpleado;
 use App\Models\Empleado;
 use App\Models\Evaluacion;
+use App\Models\ExamEmpleado;
 use App\Models\MedicalInfo;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class EmpleadoController extends Controller
@@ -60,7 +60,6 @@ class EmpleadoController extends Controller
 
                 // Verificar el estado de los documentos
                 $statusDocuments = $this->checkDocumentStatus($documentos);
-              
 
                 // Log del estado de los documentos
                 // Log::info('Estado de los documentos para empleado ' . $empleado->id . ': ', ['statusDocuments' => $statusDocuments]);
@@ -87,16 +86,26 @@ class EmpleadoController extends Controller
                 // Obtener documentos del empleado
                 $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
                     ->get();
-                $cursos = CursoEmpleado::where('employee_id', $empleado->id)->get();
+                $cursos   = CursoEmpleado::where('employee_id', $empleado->id)->get();
+                $examenes = ExamEmpleado::where('employee_id', $empleado->id)->get();
+                $medico   = MedicalInfo::where('id_empleado', $empleado->id)->get();
 
-                $statusDocuments = $this->checkDocumentStatus($documentos);
-                $statusCursos    = $this->checkDocumentStatus($cursos);
-                $estadoDocumentos =  $this->obtenerEstado($documentos);
+                $statusExam = $this->checkDocumentStatus($examenes);
+
+                $statusPadecimientos = $this->evaluarPadecimientos($medico);
+                $statusDocuments  = $this->checkDocumentStatus($documentos);
+                $statusCursos     = $this->checkDocumentStatus($cursos);
+                $estadoDocumentos = $this->obtenerEstado($documentos);
+                $estadoExam       = $this->obtenerEstado($examenes);
+
                 // Convertir el empleado a un array y agregar el statusDocuments
-                $empleadoArray                    = $empleado->toArray();
+                $empleadoArray = $empleado->toArray();
+                $empleadoArray['statusMedico']      = $statusPadecimientos;
                 $empleadoArray['statusDocuments'] = $statusDocuments;
+                $empleadoArray['statusExam']      = $statusExam;
+                $empleadoArray['estadoExam']      = $estadoExam;
                 $empleadoArray['statusCursos']    = $statusCursos;
-                $empleadoArray['estadoDocumento']    = $estadoDocumentos;
+                $empleadoArray['estadoDocumento'] = $estadoDocumentos;
                 // Agregar al resultado
                 $resultados[] = $empleadoArray;
             }
@@ -104,7 +113,28 @@ class EmpleadoController extends Controller
 
         return response()->json($resultados);
     }
+    public function evaluarPadecimientos($medico)
+    {
+        // Obtener los datos del modelo MedicalInfo
+        
 
+        // Recorrer cada fila (registro)
+        foreach ($medico as $registro) {
+            // Evaluar los campos 'otros_padecimientos' y 'otros_padecimientos2'
+            $campo1 = $registro->otros_padecimientos;
+            $campo2 = $registro->otros_padecimientos2;
+
+            // Verificar si los campos tienen un valor distinto a los valores no deseados
+            if (! in_array($campo1, ['No aplica', null, 'No', '']) ||
+                ! in_array($campo2, ['No aplica', null, 'No', ''])) {
+                // Si alguno de los dos campos tiene un valor distinto, retornar 1
+                return 1;
+            }
+        }
+
+        // Si todos los registros tienen los valores que no deben, retornar 0
+        return 0;
+    }
     private function checkDocumentStatus($documentos)
     {
         // Si $documentos es un solo documento, conviene usarlo directamente
@@ -184,8 +214,8 @@ class EmpleadoController extends Controller
         }
         $statusDocuments    = 'verde'; // Asignar un estado inicial
         $statusCursos       = 'verde'; // Asignar un estado inicial
-        $statusEvaluaciones = 'verde'; 
-        $estadoDocumentos    = 'verde'; // Asignar un estado inicial
+        $statusEvaluaciones = 'verde';
+        $estadoDocumentos   = 'verde'; // Asignar un estado inicial
         $estadoCursos       = 'verde'; // Nuevo estado para evaluaciones
         if ($status != null) {
             $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
@@ -214,7 +244,7 @@ class EmpleadoController extends Controller
                 // Evaluamos el estado de los documentos y cursos
                 if ($estadoDocumentos1 === 'rojo') {
                     $estadoDocumentos = 'rojo';
-                } elseif ($estadoDocumentos1 === 'amarillo' ) {
+                } elseif ($estadoDocumentos1 === 'amarillo') {
                     $estadoDocumentos = 'amarillo';
                 }
 
@@ -263,7 +293,7 @@ class EmpleadoController extends Controller
                 'statusDocuments'    => $statusDocuments,
                 'statusCursos'       => $statusCursos,
                 'statusEvaluaciones' => $statusEvaluaciones,
-                'estadoDocumentos'    => $estadoDocumentos,
+                'estadoDocumentos'   => $estadoDocumentos,
                 'estadoCursos'       => $estadoCursos,
             ];
         }
@@ -533,11 +563,11 @@ class EmpleadoController extends Controller
         // Recorrer los items (documentos o cursos)
         foreach ($items as $item) {
             // Imprimir el estado de cada documento en el log
-           // Log::info('Documento ID: ' . $item->id . ' - Estado: ' . $item->status);
+            // Log::info('Documento ID: ' . $item->id . ' - Estado: ' . $item->status);
 
             // Si encontramos un estado 3 (rojo), retornamos rojo
             if ($item->status == 3) {
-               // Log::info('Estado del documento ' . $item->id . ' es ROJO');
+                // Log::info('Estado del documento ' . $item->id . ' es ROJO');
                 return 'rojo';
             }
         }
