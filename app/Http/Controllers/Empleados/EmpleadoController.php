@@ -125,9 +125,11 @@ class EmpleadoController extends Controller
             $campo2 = $registro->otros_padecimientos2;
 
             // Verificar si los campos tienen un valor distinto a los valores no deseados
-            if (! in_array($campo1, ['No aplica', null, 'No', '','NINGUNA','NINGUNO']) ||
-                ! in_array($campo2, ['No aplica', null, 'No', '','NINGUNA','NINGUNO'])) {
-                // Si alguno de los dos campos tiene un valor distinto, retornar 1
+            if (
+                !in_array(is_null($campo1) ? null : strtolower($campo1), [null, 'no aplica', 'no', '', 'ninguna', 'ninguno','n/a'], true) ||
+                !in_array(is_null($campo2) ? null : strtolower($campo2), [null, 'no aplica', 'no', '', 'ninguna', 'ninguno','n/a'], true)
+            ) {
+                // Si alguno de los dos campos tiene un valor distinto a los permitidos, retorna 1
                 return 1;
             }
         }
