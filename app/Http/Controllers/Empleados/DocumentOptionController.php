@@ -224,7 +224,7 @@ class DocumentOptionController extends Controller
             'creacion' => 'required|string',
             'edicion' => 'required|string',
             'id_portal' => 'required|integer',
-            'status' =>     'required|integuer',
+            'status' =>     'required|integer',
         ]);
 
         if ($validator->fails()) {
