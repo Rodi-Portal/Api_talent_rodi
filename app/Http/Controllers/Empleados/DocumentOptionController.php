@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller;
@@ -17,14 +16,14 @@ use App\Models\Psicometrico;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-
+use Carbon\Carbon;
 class DocumentOptionController extends Controller
 {
 
     public function getExamsByEmployeeId($employeeId)
     {
         // Validar el ID del empleado
-        if (!is_numeric($employeeId)) {
+        if (! is_numeric($employeeId)) {
             return response()->json(['error' => 'ID de empleado no válido.'], 422);
         }
 
@@ -41,17 +40,17 @@ class DocumentOptionController extends Controller
 
         // Consultar CandidatoPruebas y Candidato para obtener los campos deseados
         $candidatosPruebas = CandidatoPruebas::whereIn('id_candidato', $idCandidatos)->get();
-        $candidatos = Candidato::with('medico', 'doping')->whereIn('id', $idCandidatos)->get(); // Cargar la relación del doping
-        $psicometrico = Candidato::with('psicometrico')->whereIn('id', $idCandidatos)->get();
+        $candidatos        = Candidato::with('medico', 'doping')->whereIn('id', $idCandidatos)->get(); // Cargar la relación del doping
+        $psicometrico      = Candidato::with('psicometrico')->whereIn('id', $idCandidatos)->get();
         // Log::info('Psicométrico obtenido:', ['psicometrico' => $psicometrico]);
 
         // Mapear los documentos para incluir los nuevos campos
         $examConOpciones = $exam->map(function ($documento) use ($candidatosPruebas, $candidatos) {
             $candidatoPrueba = $candidatosPruebas->firstWhere('id_candidato', $documento->id_candidato);
-            $candidato = $candidatos->firstWhere('id', $documento->id_candidato);
-            $medico = $candidato->medico ?? null;
-            $doping = $candidato->doping ?? null; // Obtener el doping
-            $psicometrico = $candidato->psicometrico ?? null; // Obtener el psicométrico
+            $candidato       = $candidatos->firstWhere('id', $documento->id_candidato);
+            $medico          = $candidato->medico ?? null;
+            $doping          = $candidato->doping ?? null;       // Obtener el doping
+            $psicometrico    = $candidato->psicometrico ?? null; // Obtener el psicométrico
 
             switch ($candidato->status_bgc ?? null) {
                 case 1:
@@ -70,42 +69,42 @@ class DocumentOptionController extends Controller
             }
 
             return [
-                'id' => $documento->id,
-                'nameDocument' => $documento->name,
-                'optionName' => $documento->examOption ? $documento->examOption->name : null,
-                'optionType' => $documento->examOption ? $documento->examOption->type : null,
-                'description' => $documento->description,
-                'upload_date' => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
-                'expiry_date' => $documento->expiry_date,
-                'statusexm' => $documento->status,
+                'id'              => $documento->id,
+                'nameDocument'    => $documento->name,
+                'optionName'      => $documento->examOption ? $documento->examOption->name : null,
+                'optionType'      => $documento->examOption ? $documento->examOption->type : null,
+                'description'     => $documento->description,
+                'upload_date'     => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
+                'expiry_date'     => $documento->expiry_date,
+                'statusexm'       => $documento->status,
                 'expiry_reminder' => $documento->expiry_reminder,
-                'id_candidato' => $documento->id_candidato,
-                'socioeconomico' => $candidatoPrueba->socioeconomico ?? null,
-                'medico' => $candidatoPrueba->medico ?? null,
+                'id_candidato'    => $documento->id_candidato,
+                'socioeconomico'  => $candidatoPrueba->socioeconomico ?? null,
+                'medico'          => $candidatoPrueba->medico ?? null,
                 'tipo_antidoping' => $candidatoPrueba->tipo_antidoping ?? null,
-                'antidoping' => $candidatoPrueba->antidoping ?? null,
-                'psicometrico' => $candidatoPrueba->psicometrico ?? null,
-                'medicoDetalle' => [
-                    'id' => $medico->id ?? null,
-                    'imagen' => $medico->imagen_historia_clinica ?? null,
-                    'conclusion' => $medico->conclusion ?? null,
-                    'descripcion' => $medico->descripcion ?? null,
+                'antidoping'      => $candidatoPrueba->antidoping ?? null,
+                'psicometrico'    => $candidatoPrueba->psicometrico ?? null,
+                'medicoDetalle'   => [
+                    'id'                    => $medico->id ?? null,
+                    'imagen'                => $medico->imagen_historia_clinica ?? null,
+                    'conclusion'            => $medico->conclusion ?? null,
+                    'descripcion'           => $medico->descripcion ?? null,
                     'archivo_examen_medico' => $medico->archivo_examen_medico ?? null,
                 ],
                 'psicometricoDet' => [
-                    'id' => $psicometrico->id ?? null,
+                    'id'                   => $psicometrico->id ?? null,
                     'archivo_psicometrico' => $psicometrico->archivo ?? null,
                 ],
-                'doping' => [
-                    'id' => $doping->id ?? null,
-                    'doping_hecho' => $candidatoPrueba->status_doping ?? null,
-                    'fecha_resultado' => $doping->fecha_resultado ?? null,
+                'doping'          => [
+                    'id'               => $doping->id ?? null,
+                    'doping_hecho'     => $candidatoPrueba->status_doping ?? null,
+                    'fecha_resultado'  => $doping->fecha_resultado ?? null,
                     'resultado_doping' => $doping->resultado ?? null,
-                    'statusDoping' => $doping->status ?? null,
+                    'statusDoping'     => $doping->status ?? null,
                 ],
-                'liberado' => $candidato->liberado ?? null,
-                'status_bgc' => $candidato->status_bgc ?? null,
-                'cancelado' => $candidato->cancelado ?? null,
+                'liberado'        => $candidato->liberado ?? null,
+                'status_bgc'      => $candidato->status_bgc ?? null,
+                'cancelado'       => $candidato->cancelado ?? null,
                 'icono_resultado' => $icono_resultado,
             ];
         });
@@ -118,12 +117,12 @@ class DocumentOptionController extends Controller
     {
         // Verificar si se recibió id_portal
         $id_portal = $request->input('id_portal');
-        $tabla = $request->input('tabla');
+        $tabla     = $request->input('tabla');
 
         // Determinar el modelo a utilizar
         $model = $tabla === 'documentos' ? DocumentOption::class : ($tabla === 'examenes' ? ExamOption::class : null);
 
-        if (!$model) {
+        if (! $model) {
             return response()->json(['error' => 'Tabla no válida'], 400);
         }
 
@@ -144,7 +143,7 @@ class DocumentOptionController extends Controller
 
         // Filtrar por nombre si se proporciona
         if ($request->has('name')) {
-            $name = $request->input('name');
+            $name     = $request->input('name');
             $filtered = $documentOptions->filter(function ($option) use ($name) {
                 return stripos($option->name, $name) !== false; // Comparación no sensible a mayúsculas
             });
@@ -163,8 +162,8 @@ class DocumentOptionController extends Controller
     {
         // Obtener los parámetros de la solicitud
         $id_portal = $request->input('id_portal');
-        $name = $request->input('name');
-        $tabla = $request->input('tabla');
+        $name      = $request->input('name');
+        $tabla     = $request->input('tabla');
 
         // Verificar los datos recibidos
 
@@ -173,7 +172,7 @@ class DocumentOptionController extends Controller
 
         // Verifica el modelo seleccionado
 
-        if (!$model) {
+        if (! $model) {
             return response()->json(['error' => 'Tabla no válida'], 400);
         }
 
@@ -195,8 +194,8 @@ class DocumentOptionController extends Controller
         // Si no existe, crear un nuevo registro
         try {
             $newDocumentOption = $model::create([
-                'name' => $name,
-                'type' => 'default_type', // Ajusta según sea necesario
+                'name'      => $name,
+                'type'      => 'default_type', // Ajusta según sea necesario
                 'id_portal' => $id_portal,
             ]);
         } catch (\Exception $e) {
@@ -212,19 +211,19 @@ class DocumentOptionController extends Controller
     //  registrar  nuevos  documentos
     public function store(Request $request)
     {
-    
+        $creacion = Carbon::now('America/Mexico_City')->format('Y-m-d H:i:s');
+        $edicion  = Carbon::now('America/Mexico_City')->format('Y-m-d H:i:s');
         // Validar los datos de entrada
         $validator = Validator::make($request->all(), [
-            'employee_id' => 'required|integer',
-            'name' => 'required|string|max:255',
-            'description' => 'nullable|string|max:500',
-            'expiry_date' => 'nullable|date',
+            'employee_id'     => 'required|integer',
+            'name'            => 'required|string|max:255',
+            'description'     => 'nullable|string|max:500',
+            'expiry_date'     => 'nullable|date',
             'expiry_reminder' => 'nullable|integer',
-            'file' => 'required|file|mimes:pdf,application/pdf,application/x-pdf,application/acrobat,application/vnd.pdf,jpg,jpeg,png|max:5120',
-            'creacion' => 'required|string',
-            'edicion' => 'required|string',
-            'id_portal' => 'required|integer',
-            'status' =>     'required|integer',
+            'file'            => 'required|file|mimes:pdf,application/pdf,application/x-pdf,application/acrobat,application/vnd.pdf,jpg,jpeg,png|max:5120',
+
+            'id_portal'       => 'required|integer',
+            'status'          => 'required|integer',
         ]);
 
         if ($validator->fails()) {
@@ -232,16 +231,16 @@ class DocumentOptionController extends Controller
         }
 
         // Log de los datos recibidos
-         Log::info('Datos recibidos en el store:', $request->all());
+        Log::info('Datos recibidos en el store:', $request->all());
 
         // Verificar si se recibió un archivo
-        if (!$request->hasFile('file')) {
+        if (! $request->hasFile('file')) {
             Log::error('No se recibió ningún archivo en la solicitud.');
             return response()->json(['error' => 'No se recibió ningún archivo.'], 400);
         }
 
         // Asegurarse de que el archivo es válido
-        if (!$request->file('file')->isValid()) {
+        if (! $request->file('file')->isValid()) {
             Log::error('El archivo recibido no es válido.');
             return response()->json(['error' => 'El archivo recibido no es válido.'], 400);
         }
@@ -249,20 +248,20 @@ class DocumentOptionController extends Controller
         // Llamar a buscar_insertar_opcion para obtener el id_opciones
         $opcionRequest = new Request([
             'id_portal' => $request->input('id_portal'),
-            'name' => $request->input('name'),
-            'creacion' => $request->input('creacion'),
-            'tabla' => 'documentos',
+            'name'      => $request->input('name'),
+            'creacion'  => $creacion,
+            'tabla'     => 'documentos',
         ]);
 
         $opcionResponse = $this->buscar_insertar_opcion($opcionRequest);
-        $idOpcion = json_decode($opcionResponse->getContent())->id_opciones;
+        $idOpcion       = json_decode($opcionResponse->getContent())->id_opciones;
 
         // Log para verificar el ID obtenido
-       // Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
+        // Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
 
         // Preparar la solicitud para la subida del archivo
-        $employeeId = $request->input('employee_id');
-        $randomString = $this->generateRandomString(); // Generar la cadena aleatoria
+        $employeeId    = $request->input('employee_id');
+        $randomString  = $this->generateRandomString();                        // Generar la cadena aleatoria
         $fileExtension = $request->file('file')->getClientOriginalExtension(); // Obtener la extensión del archivo
 
         // Crear el nuevo nombre de archivo
@@ -273,7 +272,7 @@ class DocumentOptionController extends Controller
         $uploadRequest->files->set('file', $request->file('file'));
         $uploadRequest->merge([
             'file_name' => $newFileName,
-            'carpeta' => $request->input('carpeta'),
+            'carpeta'   => $request->input('carpeta'),
         ]);
         $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
 
@@ -283,27 +282,27 @@ class DocumentOptionController extends Controller
         }
 
         // Log para verificar el ID antes de la creación
-       //  Log::info('Preparándose para crear DocumentEmpleado con id_opcion:', ['id_opcion' => $idOpcion]);
+        //  Log::info('Preparándose para crear DocumentEmpleado con id_opcion:', ['id_opcion' => $idOpcion]);
 
         // Crear un nuevo registro en la base de datos
         $documentEmpleado = DocumentEmpleado::create([
-            'creacion' => $request->input('creacion'),
-            'edicion' => $request->input('edicion'),
-            'employee_id' => $request->input('employee_id'),
-            'name' => $newFileName,
-            'id_opcion' => $idOpcion, // Aquí se usa el ID correcto
-            'description' => $request->input('description'),
-            'expiry_date' => $request->input('expiry_date'),
+            'creacion'        => $creacion,
+            'edicion'         => $creacion,
+            'employee_id'     => $request->input('employee_id'),
+            'name'            => $newFileName,
+            'id_opcion'       => $idOpcion, // Aquí se usa el ID correcto
+            'description'     => $request->input('description'),
+            'expiry_date'     => $request->input('expiry_date'),
             'expiry_reminder' => $request->input('expiry_reminder'),
-            'status' => $request->input('status', 1),
+            'status'          => $request->input('status', 1),
         ]);
 
         // Log para verificar el documento registrado
-         Log::info('Documento registrado:', ['document' => $documentEmpleado]);
+        Log::info('Documento registrado:', ['document' => $documentEmpleado]);
 
         // Devolver una respuesta exitosa
         return response()->json([
-            'message' => 'Documento agregado exitosamente.',
+            'message'  => 'Documento agregado exitosamente.',
             'document' => $documentEmpleado,
         ], 201);
     }
@@ -311,17 +310,18 @@ class DocumentOptionController extends Controller
     //  registrar  nuevos  examenes
     public function storeExams(Request $request)
     {
+        $creacion = Carbon::now('America/Mexico_City')->format('Y-m-d H:i:s');
+        $edicion  = Carbon::now('America/Mexico_City')->format('Y-m-d H:i:s');
         // Validar los datos de entrada
         $validator = Validator::make($request->all(), [
-            'employee_id' => 'required|integer',
-            'creacion' => 'required|string',
-            'edicion' => 'required|string',
-            'name' => 'required|string|max:255',
-            'description' => 'nullable|string|max:500',
-            'expiry_date' => 'nullable|date',
+            'employee_id'     => 'required|integer',
+            
+            'name'            => 'required|string|max:255',
+            'description'     => 'nullable|string|max:500',
+            'expiry_date'     => 'nullable|date',
             'expiry_reminder' => 'nullable|integer',
-            'file' => 'required|file|mimes:jpg,jpeg,png,pdf|max:2048',
-            'id_portal' => 'required|integer',
+            'file'            => 'required|file|mimes:jpg,jpeg,png,pdf|max:2048',
+            'id_portal'       => 'required|integer',
         ]);
 
         if ($validator->fails()) {
@@ -332,13 +332,13 @@ class DocumentOptionController extends Controller
         //Log::info('Datos recibidos en el store:', $request->all());
 
         // Verificar si se recibió un archivo
-        if (!$request->hasFile('file')) {
+        if (! $request->hasFile('file')) {
             //Log::error('No se recibió ningún archivo en la solicitud.');
             return response()->json(['error' => 'No se recibió ningún archivo.'], 400);
         }
 
         // Asegurarse de que el archivo es válido
-        if (!$request->file('file')->isValid()) {
+        if (! $request->file('file')->isValid()) {
             //Log::error('El archivo recibido no es válido.');
             return response()->json(['error' => 'El archivo recibido no es válido.'], 400);
         }
@@ -346,20 +346,20 @@ class DocumentOptionController extends Controller
         // Llamar a buscar_insertar_opcion para obtener el id_opciones
         $opcionRequest = new Request([
             'id_portal' => $request->input('id_portal'),
-            'name' => $request->input('name'),
-            'creacion' => $request->input('creacion'),
-            'tabla' => 'examenes',
+            'name'      => $request->input('name'),
+            'creacion'  => $creacion,
+            'tabla'     => 'examenes',
         ]);
 
         $opcionResponse = $this->buscar_insertar_opcion($opcionRequest);
-        $idOpcion = json_decode($opcionResponse->getContent())->id_opciones;
+        $idOpcion       = json_decode($opcionResponse->getContent())->id_opciones;
 
         // Log para verificar el ID obtenido
         // Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
 
         // Preparar la solicitud para la subida del archivo
-        $employeeId = $request->input('employee_id');
-        $randomString = $this->generateRandomString(); // Generar la cadena aleatoria
+        $employeeId    = $request->input('employee_id');
+        $randomString  = $this->generateRandomString();                        // Generar la cadena aleatoria
         $fileExtension = $request->file('file')->getClientOriginalExtension(); // Obtener la extensión del archivo
 
         // Crear el nuevo nombre de archivo
@@ -370,7 +370,7 @@ class DocumentOptionController extends Controller
         $uploadRequest->files->set('file', $request->file('file'));
         $uploadRequest->merge([
             'file_name' => $newFileName,
-            'carpeta' => $request->input('carpeta'),
+            'carpeta'   => $request->input('carpeta'),
         ]);
         $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
 
@@ -384,13 +384,13 @@ class DocumentOptionController extends Controller
 
         // Crear un nuevo registro en la base de datos
         $documentEmpleado = ExamEmpleado::create([
-            'creacion' => $request->input('creacion'),
-            'edicion' => $request->input('edicion'),
-            'employee_id' => $request->input('employee_id'),
-            'name' => $newFileName,
-            'id_opcion' => $idOpcion, // Aquí se usa el ID correcto
-            'description' => $request->input('description'),
-            'expiry_date' => $request->input('expiry_date'),
+            'creacion'        => $creacion,
+            'edicion'         => $creacion,
+            'employee_id'     => $request->input('employee_id'),
+            'name'            => $newFileName,
+            'id_opcion'       => $idOpcion, // Aquí se usa el ID correcto
+            'description'     => $request->input('description'),
+            'expiry_date'     => $request->input('expiry_date'),
             'expiry_reminder' => $request->input('expiry_reminder'),
         ]);
 
@@ -399,7 +399,7 @@ class DocumentOptionController extends Controller
 
         // Devolver una respuesta exitosa
         return response()->json([
-            'message' => 'Documento agregado exitosamente.',
+            'message'  => 'Documento agregado exitosamente.',
             'document' => $documentEmpleado,
         ], 201);
     }
@@ -407,7 +407,7 @@ class DocumentOptionController extends Controller
     public function getDocumentsByEmployeeId($employeeId)
     {
         // Validar el ID del empleado
-        if (!is_numeric($employeeId)) {
+        if (! is_numeric($employeeId)) {
             return response()->json(['error' => 'ID de empleado no válido.'], 422);
         }
 
@@ -424,15 +424,15 @@ class DocumentOptionController extends Controller
         // Mapear los documentos para incluir el nombre de la opción
         $documentosConOpciones = $documentos->map(function ($documento) {
             return [
-                'id' => $documento->id,
-                'nameDocument' => $documento->name,
-                'optionName' => $documento->documentOption ? $documento->documentOption->name : null,
-                'description' => $documento->description,
-                'upload_date' => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
-                'expiry_date' => $documento->expiry_date,
+                'id'              => $documento->id,
+                'nameDocument'    => $documento->name,
+                'optionName'      => $documento->documentOption ? $documento->documentOption->name : null,
+                'description'     => $documento->description,
+                'upload_date'     => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
+                'expiry_date'     => $documento->expiry_date,
                 'expiry_reminder' => $documento->expiry_reminder,
-                'nameAlterno' => $documento->nameDocument,
-                'status'      => $documento->status,
+                'nameAlterno'     => $documento->nameDocument,
+                'status'          => $documento->status,
                 // Agrega otros campos que necesites
             ];
         });
@@ -445,10 +445,10 @@ class DocumentOptionController extends Controller
     {
         // Validar la solicitud
         $request->validate([
-            'expiry_date' => 'required|date',
+            'expiry_date'     => 'required|date',
             'expiry_reminder' => 'nullable|integer|min:0',
-            'table' => 'required|string',
-            'status' => 'required|numeric',
+            'table'           => 'required|string',
+            'status'          => 'required|numeric',
         ]);
         $tabla = $request->input('table');
         // Encontrar el documento por ID
@@ -460,7 +460,7 @@ class DocumentOptionController extends Controller
             $document = ExamEmpleado::find($id);
         }
 
-        if (!$document) {
+        if (! $document) {
             return response()->json(['message' => 'Document not found'], 404);
         }
 
@@ -469,7 +469,7 @@ class DocumentOptionController extends Controller
 
         // Asignar expiry_reminder, se establecerá a null si no se proporciona
         $document->expiry_reminder = $request->input('expiry_reminder', null);
-        $document->status = $request->input('status');
+        $document->status          = $request->input('status');
         // Guardar los cambios
         $document->save();
 
@@ -482,7 +482,7 @@ class DocumentOptionController extends Controller
         // Determine the validation rules based on 'tabla'
         $rules = [
             'nameDocument' => 'required|string',
-            'tabla' => 'required|string',
+            'tabla'        => 'required|string',
         ];
 
         if ($request->tabla === 'examenes') {
@@ -507,7 +507,7 @@ class DocumentOptionController extends Controller
         // Find the document or examen by ID
         if ($request->tabla === 'examenes') {
             $model = ExamEmpleado::find($request->id); // Cambia 'Examen' por el nombre del modelo que necesites
-            if (!$model) {
+            if (! $model) {
                 return response()->json(['message' => 'Examen not found'], 404);
             }
 
@@ -522,7 +522,7 @@ class DocumentOptionController extends Controller
 
         } elseif ($request->tabla === 'cursos') {
             $document = CursoEmpleado::find($request->id);
-            if (!$document) {
+            if (! $document) {
                 return response()->json(['message' => 'Document not found'], 404);
             }
 
@@ -537,7 +537,7 @@ class DocumentOptionController extends Controller
 
         } elseif ($request->tabla === 'documentos') {
             $document = DocumentEmpleado::find($request->id);
-            if (!$document) {
+            if (! $document) {
                 return response()->json(['message' => 'Document not found'], 404);
             }
 
