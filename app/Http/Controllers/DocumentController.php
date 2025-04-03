@@ -53,12 +53,16 @@ class DocumentController extends Controller
         // Mover el archivo a la ruta de destino
         try {
             $file->move($destinationPath, $fileName);
-
-            Log::info('Archivo movido correctamente:', [
-            'file_name' => $fileName,
-            'destination_path' => $fileDestination,
+        
+            // 🔹 Ajustar permisos
+            chmod($fileDestination, 0664);
+            @chgrp($fileDestination, 'rodicomm'); // Opcional, si el grupo es el problema
+        
+            Log::info('Archivo movido correctamente y permisos ajustados:', [
+                'file_name' => $fileName,
+                'destination_path' => $fileDestination,
             ]);
-
+        
             return response()->json([
                 'status'  => 'success',
                 'message' => 'Documento guardado correctamente en ' . $fileDestination,
@@ -67,12 +71,13 @@ class DocumentController extends Controller
             Log::error('Error al mover el archivo', [
                 'exception' => $e->getMessage(),
             ]);
-
+        
             return response()->json([
                 'status'  => 'error',
                 'message' => 'Error al mover el archivo: ' . $e->getMessage(),
             ], 500);
         }
+        
     }
 
     public function uploadZip(Request $request)
