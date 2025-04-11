@@ -27,7 +27,7 @@ class FormerEmpleadoController extends Controller
         $validator = Validator::make($request->all(), [
             'creacion' => 'required|date',
             'id_empleado' => 'required|integer',
-            'titulo' => 'required|string|max:255',
+            'titulo' => 'required|max:255',
             'comentario' => 'required|string',
             'origen' => 'required|integer',
             'status' => 'sometimes|integer|in:1,2',
