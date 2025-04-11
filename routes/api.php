@@ -80,7 +80,7 @@ Route::middleware(['api'])->group(function () {
     // Ruta para la importación de empleados desde un archivo CSV o Excel
     Route::post('/empleados/importar', [CsvController::class, 'import']);
     // ruta para eliminar EMpleados
-    Route::delete('/empleados/{id}', [EmpleadoController::class, 'deleteEmpleado']);
+    Route::delete('/delempleados/{id}', [EmpleadoController::class, 'deleteEmpleado']);
 
     // Ruta para  los  laborales del empleado */
 
