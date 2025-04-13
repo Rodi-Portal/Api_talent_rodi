@@ -139,10 +139,12 @@ Route::middleware(['api'])->group(function () {
     Route::post('/upload-zip', [DocumentController::class, 'uploadZip']);
 
 /** Former Employe   endpoints */
+// enviar   empleado  a exempleados
     Route::post('/comentarios-former-empleado', [FormerEmpleadoController::class, 'storeComentarioFormer']);
     Route::get('empleados/{id_empleado}/documentos-y-cursos', [FormerEmpleadoController::class, 'getDocumentosYCursos']);
     Route::post('/documentos/former', [FormerEmpleadoController::class, 'storeDocumentos']);
     Route::get('/conclusions/{id_empleado}', [FormerEmpleadoController::class, 'getConclusionsByEmployeeId']);
+    // borrar comentario
     Route::delete('/comentarios-former-empleado/{id}', [FormerEmpleadoController::class, 'deleteComentario']);
 
 // ruta  para   enviar     de pre employment  a employment
@@ -150,7 +152,11 @@ Route::middleware(['api'])->group(function () {
 
 // ruta  para  guardar  y consultar  notificaciones Whats  y correo
     Route::post('/notificaciones/guardar', [NotificacionController::class, 'guardar']);
+    Route::post('/notificaciones/guardarex', [NotificacionController::class, 'guardarExempleados']);
+
     Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultar']);
+
+    Route::get('/notificaciones/consultarex/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultarExempleo']);
 });
 
 /*notificaciones  via  whatsapp modulo empleados*/
