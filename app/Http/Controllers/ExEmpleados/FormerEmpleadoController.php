@@ -40,7 +40,7 @@ class FormerEmpleadoController extends Controller
         if ($request->has('status')) {
             $empleado = Empleado::find($request->id_empleado); // Asegúrate de importar el modelo Empleado
             if ($empleado) {
-                $empleado->status = $request->status;
+gi                $empleado->status = $request->status;
                 $empleado->save(); // Guardar los cambios en el modelo empleado
             }
         }
