@@ -416,7 +416,7 @@ class EmpleadoController extends Controller
             'paterno'                    => 'required|string',
             'materno'                    => 'nullable|string',
             'puesto'                     => 'nullable|string',
-            'telefono'                   => 'required|string',
+            'telefono'                   => 'nullable|string',
 
             // Validación para domicilio_empleado
             'domicilio_empleado.calle'   => 'nullable|string',
