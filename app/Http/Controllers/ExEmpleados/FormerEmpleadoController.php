@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers\ExEmpleados;
 
 use App\Http\Controllers\Controller;
@@ -25,12 +24,12 @@ class FormerEmpleadoController extends Controller
     {
         // Validar los datos de entrada
         $validator = Validator::make($request->all(), [
-            'creacion' => 'required|date',
+            'creacion'    => 'required|date',
             'id_empleado' => 'required|integer',
-            'titulo' => 'required|string|max:255',
-            'comentario' => 'required|string',
-            'origen' => 'required|integer',
-            'status' => 'sometimes|integer|in:1,2',
+            'titulo'      => 'required|string|max:255',
+            'comentario'  => 'required|string',
+            'origen'      => 'required|integer',
+            'status'      => 'sometimes|integer|in:1,2',
         ]);
 
         if ($validator->fails()) {
@@ -55,75 +54,82 @@ class FormerEmpleadoController extends Controller
     {
         // Validar que el empleado existe
         $empleado = Empleado::find($id_empleado);
-        if (!$empleado) {
+        if (! $empleado) {
             return response()->json(['error' => 'Empleado no encontrado'], 404);
         }
-    
-        // Obtener documentos del empleado
-        $documentos = DocumentEmpleado::with('documentOption')
-            ->where('employee_id', $id_empleado)
-            ->get()
-            ->map(function ($documento) {
-                return [
-                    'id' => $documento->id,
-                    'creacion' => $documento->creacion,
-                    'description' => $documento->description,
-                    'name' => $documento->name,
-                    'nameDocument' => $documento->documentOption ? $documento->documentOption->name : $documento->nameDocument,
-                    'carpeta' => '_documentEmpleado/',
-                    'tipo' => 'Document',
-                ];
-            });
-    
+        // Obtener el parámetro status si existe
+        $status = request()->query('status');
+
+        // Construir la consulta
+        $query = DocumentEmpleado::with('documentOption')->where('employee_id', $id_empleado);
+
+        // Aplicar filtro por status si se proporciona
+        if ($status) {
+            $query->where('status', $status);
+        }
+
+        // Ejecutar la consulta y mapear resultados
+        $documentos = $query->get()->map(function ($documento) {
+            return [
+                'id'           => $documento->id,
+                'creacion'     => $documento->creacion,
+                'description'  => $documento->description,
+                'name'         => $documento->name,
+                'nameDocument' => $documento->documentOption ? $documento->documentOption->name : $documento->nameDocument,
+                'carpeta'      => '_documentEmpleado/',
+                'tipo'         => 'Document',
+            ];
+        });
+
         // Obtener cursos del empleado
         $cursos = CursoEmpleado::where('employee_id', $id_empleado)
             ->get()
             ->map(function ($curso) {
                 return [
-                    'id' => $curso->id,
-                    'creacion' => $curso->creacion,
-                    'description' => $curso->description,
-                    'name' => $curso->name,
+                    'id'            => $curso->id,
+                    'creacion'      => $curso->creacion,
+                    'description'   => $curso->description,
+                    'name'          => $curso->name,
                     'name_document' => $curso->name_document ?? 'Sin Nombre',
-                    'carpeta' => '_cursos/',
-                    'tipo' => 'Course or Training',
+                    'carpeta'       => '_cursos/',
+                    'tipo'          => 'Course or Training',
                 ];
             });
-    
+
         // Obtener exámenes del empleado
         $examenes = ExamEmpleado::with('examOption')
             ->where('employee_id', $id_empleado)
             ->get()
             ->map(function ($examen) {
                 return [
-                    'id' => $examen->id,
-                    'creacion' => $examen->creacion,
-                    'description' => $examen->description,
-                    'archivo' => $examen->name,
-                    'name' => $examen->examOption ? $examen->examOption->name : $examen->name,
+                    'id'           => $examen->id,
+                    'creacion'     => $examen->creacion,
+                    'description'  => $examen->description,
+                    'archivo'      => $examen->name,
+                    'name'         => $examen->examOption ? $examen->examOption->name : $examen->name,
                     'nameDocument' => $examen->examOption ? $examen->examOption->name : $examen->name,
-                    'carpeta' => '_examEmpleado/',
+                    'carpeta'      => '_examEmpleado/',
                     'id_candidato' => $examen->id_candidato,
                 ];
             });
-    
+
         // Comprobar si hay exámenes con id_candidato
         $idCandidatos = $examenes->pluck('id_candidato')->unique()->filter();
-    
+
         if ($idCandidatos->isNotEmpty()) {
             // Consultar CandidatoPruebas y Candidato para obtener los campos deseados
             $candidatosPruebas = CandidatoPruebas::whereIn('id_candidato', $idCandidatos)->get();
-            $candidatos = Candidato::with('medico', 'doping')->whereIn('id', $idCandidatos)->get();
-    
+            $candidatos        = Candidato::with('medico', 'doping')->whereIn('id', $idCandidatos)->get();
+
             // Mapear los exámenes para incluir los nuevos campos
             $examenesConOpciones = $examenes->map(function ($examen) use ($candidatosPruebas, $candidatos) {
                 // Obtener el candidato correspondiente
                 $candidatoPrueba = $candidatosPruebas->firstWhere('id_candidato', $examen['id_candidato']);
-                $candidato = $candidatos->firstWhere('id', $examen['id_candidato']);
-                $medico = $candidatoPrueba->medico ?? null;
-                $doping = $candidatoPrueba->tipo_antidoping ?? null;
-    
-                // Definir icono de resultado según status_bgc
+                $candidato       = $candidatos->firstWhere('id', $examen['id_candidato']);
+                $medico          = $candidatoPrueba->medico ?? null;
+                $doping          = $candidatoPrueba->tipo_antidoping ?? null;
+
+                                                             // Definir icono de resultado según status_bgc
                 $icono_resultado = 'icono_resultado_espera'; // Valor por defecto
                 if (isset($candidato->status_bgc)) {
                     switch ($candidato->status_bgc) {
@@ -139,52 +145,50 @@ class FormerEmpleadoController extends Controller
                             break;
                     }
                 }
-    
+
                 return [
-                    'id' => $examen['id'],
-                    'name' => $examen['name'],
-                    'description' => $examen['description'],
-                    'creacion' => $examen['creacion'],
-                    'id_candidato' => $examen['id_candidato'],
-                    'archivo' => $examen['archivo'], // Aquí se mantiene el archivo original
-                    'socioeconomico' => $candidatoPrueba->socioeconomico ?? null,
-                    'medico' => $medico,
-                    'doping' => $doping,
-                    'liberado' => $candidato->liberado ?? null,
-                    'status_bgc' => $candidato->status_bgc ?? null,
+                    'id'              => $examen['id'],
+                    'name'            => $examen['name'],
+                    'description'     => $examen['description'],
+                    'creacion'        => $examen['creacion'],
+                    'id_candidato'    => $examen['id_candidato'],
+                    'archivo'         => $examen['archivo'], // Aquí se mantiene el archivo original
+                    'socioeconomico'  => $candidatoPrueba->socioeconomico ?? null,
+                    'medico'          => $medico,
+                    'doping'          => $doping,
+                    'liberado'        => $candidato->liberado ?? null,
+                    'status_bgc'      => $candidato->status_bgc ?? null,
                     'icono_resultado' => $icono_resultado,
-                    'carpeta' => '_examEmpleado/',
-                    'tipo' => 'BGV or Test',
+                    'carpeta'         => '_examEmpleado/',
+                    'tipo'            => 'BGV or Test',
 
                 ];
             });
-    
+
             // Actualizar la colección de exámenes con la nueva información
             $examenes = $examenesConOpciones;
         }
-    
+
         // Formatear los resultados
         $resultados = [
             'documentos' => $documentos,
-            'cursos' => $cursos,
-            'examenes' => $examenes,
+            'cursos'     => $cursos,
+            'examenes'   => $examenes,
         ];
-    
+
         return response()->json($resultados, 200);
     }
-    
-    
 
     public function storeDocumentos(Request $request)
     {
         // Validar los datos de entrada
         $validator = Validator::make($request->all(), [
-            'id_empleado' => 'required|integer',
+            'id_empleado'  => 'required|integer',
             'nameDocument' => 'required|string|max:255',
-            'descripcion' => 'nullable|string|max:500',
-            'file' => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120',
-            'creacion' => 'required|date',
-            'edicion' => 'required|date',
+            'descripcion'  => 'nullable|string|max:500',
+            'file'         => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120',
+            'creacion'     => 'required|date',
+            'edicion'      => 'required|date',
         ]);
 
         if ($validator->fails()) {
@@ -196,21 +200,21 @@ class FormerEmpleadoController extends Controller
         // dd($request->all());
 
         // Preparar el nombre del archivo para la subida
-        $origen = 1;
-        $employeeId = $request->input('employee_id');
-        $randomString = $this->generateRandomString(); // Generar cadena aleatoria
+        $origen        = 1;
+        $employeeId    = $request->input('employee_id');
+        $randomString  = $this->generateRandomString();                        // Generar cadena aleatoria
         $fileExtension = $request->file('file')->getClientOriginalExtension(); // Obtener extensión del archivo
-        $newFileName = "{$employeeId}_{$randomString}_{$origen}.{$fileExtension}";
+        $newFileName   = "{$employeeId}_{$randomString}_{$origen}.{$fileExtension}";
 
         // Preparar la solicitud para la subida del archivo
         $uploadRequest = new Request();
         $uploadRequest->files->set('file', $request->file('file'));
         $uploadRequest->merge([
             'file_name' => $newFileName,
-            'carpeta' => '_documentEmpleado', // Cambia esto a tu carpeta deseada
+            'carpeta'   => '_documentEmpleado', // Cambia esto a tu carpeta deseada
         ]);
 
-        // Llamar a la función de upload
+                                                                                  // Llamar a la función de upload
         $uploadResponse = app(DocumentController::class)->upload($uploadRequest); // Asegúrate de cambiar el nombre del controlador
 
         // Verificar si la subida fue exitosa
@@ -220,12 +224,12 @@ class FormerEmpleadoController extends Controller
 
         // Crear un nuevo registro en la base de datos
         $cursoEmpleado = DocumentEmpleado::create([
-            'employee_id' => $request->input('id_empleado'),
-            'name' => $newFileName,
-            'nameDocument' => $request->input('nameDocument'),
-            'description' => $request->input('descripcion'),
-            'creacion' => $request->input('creacion'),
-            'edicion' => $request->input('edicion'),
+            'employee_id'     => $request->input('id_empleado'),
+            'name'            => $newFileName,
+            'nameDocument'    => $request->input('nameDocument'),
+            'description'     => $request->input('descripcion'),
+            'creacion'        => $request->input('creacion'),
+            'edicion'         => $request->input('edicion'),
             'id_opcion_exams' => $request->input('id_opcion_exams') ?? null, // Esto es opcional
         ]);
 
@@ -235,11 +239,9 @@ class FormerEmpleadoController extends Controller
         // Devolver una respuesta exitosa
         return response()->json([
             'message' => 'Curso agregado exitosamente.',
-            'curso' => $cursoEmpleado,
+            'curso'   => $cursoEmpleado,
         ], 201);
     }
-
-
 
     private function generateRandomString($length = 10)
     {
@@ -263,8 +265,8 @@ class FormerEmpleadoController extends Controller
     {
         // Buscar el comentario por ID
         $comentario = ComentarioFormerEmpleado::find($id);
-        
-        if (!$comentario) {
+
+        if (! $comentario) {
             return response()->json(['error' => 'Comentario no encontrado'], 404);
         }
 
@@ -273,6 +275,5 @@ class FormerEmpleadoController extends Controller
 
         return response()->json(['message' => 'Comentario eliminado exitosamente'], 200);
     }
-   
 
 }
