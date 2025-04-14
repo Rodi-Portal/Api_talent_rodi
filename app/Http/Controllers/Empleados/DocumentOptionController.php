@@ -410,12 +410,18 @@ class DocumentOptionController extends Controller
         if (! is_numeric($employeeId)) {
             return response()->json(['error' => 'ID de empleado no válido.'], 422);
         }
+        $status = request()->query('status'); // 👈 Captura el parámetro
 
-        // Buscar documentos del empleado junto con las opciones
-        $documentos = DocumentEmpleado::with('documentOption')->where('employee_id', $employeeId)->get();
+    
+
+        $query = DocumentEmpleado::with('documentOption')->where('employee_id', $employeeId);
+    
+        if ($status) {
+            $query->where('status', $status); // 👈 Aplica el filtro
+        }
 
         // Log para verificar los documentos encontrados
-
+        $documentos = $query->get();
         // Verificar si se encontraron documentos
         if ($documentos->isEmpty()) {
             return response()->json(['message' => 'No se encontraron documentos para el empleado.'], 404);
