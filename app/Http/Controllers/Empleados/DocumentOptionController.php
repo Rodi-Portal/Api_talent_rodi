@@ -294,8 +294,8 @@ class DocumentOptionController extends Controller
             'description'     => $request->input('description'),
             'expiry_date'     => $request->input('expiry_date'),
             'expiry_reminder' => $request->input('expiry_reminder'),
-            'status'          => $request->input('status', 1),
-        ]);
+
+            'status'          => intval($request->input('status', 1))]);
 
         // Log para verificar el documento registrado
         Log::info('Documento registrado:', ['document' => $documentEmpleado]);
@@ -315,7 +315,7 @@ class DocumentOptionController extends Controller
         // Validar los datos de entrada
         $validator = Validator::make($request->all(), [
             'employee_id'     => 'required|integer',
-            
+
             'name'            => 'required|string|max:255',
             'description'     => 'nullable|string|max:500',
             'expiry_date'     => 'nullable|date',
@@ -415,7 +415,7 @@ class DocumentOptionController extends Controller
     
 
         $query = DocumentEmpleado::with('documentOption')->where('employee_id', $employeeId);
-    
+
         if ($status) {
             $query->where('status', $status); // 👈 Aplica el filtro
         }
