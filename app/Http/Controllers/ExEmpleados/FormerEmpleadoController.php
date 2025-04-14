@@ -230,7 +230,8 @@ class FormerEmpleadoController extends Controller
             'description'     => $request->input('descripcion'),
             'creacion'        => $request->input('creacion'),
             'edicion'         => $request->input('edicion'),
-            'id_opcion_exams' => $request->input('id_opcion_exams') ?? null, // Esto es opcional
+            'id_opcion_exams' => $request->input('id_opcion_exams') ?? null,
+            'status' => 2,// Esto es opcional
         ]);
 
         // Log para verificar el curso registrado
