@@ -8,7 +8,6 @@ use App\Models\CandidatoPruebas;
 use App\Models\ComentarioFormerEmpleado;
 use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
-use App\Models\Doping;
 use App\Models\Empleado;
 use App\Models\ExamEmpleado;
 use App\Models\Medico;
@@ -40,7 +39,9 @@ class FormerEmpleadoController extends Controller
         if ($request->has('status')) {
             $empleado = Empleado::find($request->id_empleado); // Asegúrate de importar el modelo Empleado
             if ($empleado) {
-gi                $empleado->status = $request->status;
+                $empleado->edicion = $request->creacion;
+
+                $empleado->status = $request->status;
                 $empleado->save(); // Guardar los cambios en el modelo empleado
             }
         }
@@ -231,7 +232,7 @@ gi                $empleado->status = $request->status;
             'creacion'        => $request->input('creacion'),
             'edicion'         => $request->input('edicion'),
             'id_opcion_exams' => $request->input('id_opcion_exams') ?? null,
-            'status' => 2,// Esto es opcional
+            'status'          => 2, // Esto es opcional
         ]);
 
         // Log para verificar el curso registrado
