@@ -93,14 +93,14 @@ class EmpleadoController extends Controller
                 $statusExam = $this->checkDocumentStatus($examenes);
 
                 $statusPadecimientos = $this->evaluarPadecimientos($medico);
-                $statusDocuments  = $this->checkDocumentStatus($documentos);
-                $statusCursos     = $this->checkDocumentStatus($cursos);
-                $estadoDocumentos = $this->obtenerEstado($documentos);
-                $estadoExam       = $this->obtenerEstado($examenes);
+                $statusDocuments     = $this->checkDocumentStatus($documentos);
+                $statusCursos        = $this->checkDocumentStatus($cursos);
+                $estadoDocumentos    = $this->obtenerEstado($documentos);
+                $estadoExam          = $this->obtenerEstado($examenes);
 
                 // Convertir el empleado a un array y agregar el statusDocuments
-                $empleadoArray = $empleado->toArray();
-                $empleadoArray['statusMedico']      = $statusPadecimientos;
+                $empleadoArray                    = $empleado->toArray();
+                $empleadoArray['statusMedico']    = $statusPadecimientos;
                 $empleadoArray['statusDocuments'] = $statusDocuments;
                 $empleadoArray['statusExam']      = $statusExam;
                 $empleadoArray['estadoExam']      = $estadoExam;
@@ -116,7 +116,6 @@ class EmpleadoController extends Controller
     public function evaluarPadecimientos($medico)
     {
         // Obtener los datos del modelo MedicalInfo
-        
 
         // Recorrer cada fila (registro)
         foreach ($medico as $registro) {
@@ -126,8 +125,8 @@ class EmpleadoController extends Controller
 
             // Verificar si los campos tienen un valor distinto a los valores no deseados
             if (
-                !in_array(is_null($campo1) ? null : strtolower($campo1), [null, 'no aplica', 'no', '', 'ninguna', 'ninguno','n/a'], true) ||
-                !in_array(is_null($campo2) ? null : strtolower($campo2), [null, 'no aplica', 'no', '', 'ninguna', 'ninguno','n/a'], true)
+                ! in_array(is_null($campo1) ? null : strtolower($campo1), [null, 'no aplica', 'no', '', 'ninguna', 'ninguno', 'n/a'], true) ||
+                ! in_array(is_null($campo2) ? null : strtolower($campo2), [null, 'no aplica', 'no', '', 'ninguna', 'ninguno', 'n/a'], true)
             ) {
                 // Si alguno de los dos campos tiene un valor distinto a los permitidos, retorna 1
                 return 1;
@@ -437,6 +436,21 @@ class EmpleadoController extends Controller
             $fechaCreacion   = Carbon::parse($validatedData['creacion']);
             $edad            = $fechaCreacion->diffInYears($fechaNacimiento);
         }
+
+        $existeEmpleado = Empleado::where('nombre', $validatedData['nombre'])
+            ->where('paterno', $validatedData['paterno'])
+            ->where('id_portal', $validatedData['id_portal'])
+            ->where('id_cliente', $validatedData['id_cliente'])
+            ->where('eliminado', 0) // Si usas soft-delete lógico
+            ->first();
+
+        if ($existeEmpleado) {
+            return response()->json([
+                'message'            => 'El empleado ya existe en este portal y cliente.',
+                'empleado_existente' => $existeEmpleado,
+            ], 409);
+        }
+
         // Imprimir los datos en el log
         // Log::info('Datos recibidos para el registro de empleado: ' . print_r($validatedData, true));
         // Log::info('edad: ' . $edad);
@@ -477,7 +491,7 @@ class EmpleadoController extends Controller
                 'materno'               => $validatedData['materno'] ?? null,
                 'puesto'                => $validatedData['puesto'] ?? null,
                 'fecha_nacimiento'      => $validatedData['fecha_nacimiento'] ?? null,
-                'telefono'              => $validatedData['telefono'],
+                'telefono'              => $validatedData['telefono']?? null,
                 'id_domicilio_empleado' => $domicilio->id, // Asignar el ID del domicilio creado
                 'status'                => 1,
                 'eliminado'             => 0,
