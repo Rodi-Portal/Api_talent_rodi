@@ -82,8 +82,10 @@ class CsvController extends Controller
         ];
 
         try {
-            // Leer cabeceras del archivo
-            $headings         = array_map('strtolower', array_map('trim', Excel::toArray([], $file)[0][0] ?? []));
+            // Leer las cabeceras del archivo
+            $headings = array_map('strtolower', array_map('trim', Excel::toArray([], $file)[0][0] ?? []));
+
+            // Cabeceras esperadas definidas por el sistema
             $expectedHeadings = [
                 'nombre*',
                 'apellido paterno*',
@@ -105,9 +107,26 @@ class CsvController extends Controller
                 'código postal',
             ];
 
-            // Compara las cabeceras de forma flexible
-            if ($headings !== array_map('strtolower', array_map('trim', $expectedHeadings))) {
-                \Log::error('Cabeceras no coinciden con las esperadas.');
+            // Función para normalizar las cabeceras (eliminar espacios y poner en minúsculas)
+            $normalizeHeaders = function ($headers) {
+                return array_map(function ($header) {
+                    return strtolower(trim($header)); // Eliminar espacios y convertir a minúsculas
+                }, $headers);
+            };
+
+            // Normalizar tanto las cabeceras del archivo como las esperadas
+            $normalizedHeadings         = $normalizeHeaders($headings);
+            $normalizedExpectedHeadings = $normalizeHeaders($expectedHeadings);
+
+            // Filtrar las cabeceras adicionales que no deberían ser verificadas
+            $filteredHeadings = array_intersect($normalizedHeadings, $normalizedExpectedHeadings);
+
+            // Verificamos si las cabeceras filtradas coinciden con las esperadas
+            if ($filteredHeadings !== $normalizedExpectedHeadings) {
+                \Log::error('Cabeceras no coinciden con las esperadas.', [
+                    'headings_detectadas' => $headings,
+                    'headings_esperadas'  => $expectedHeadings,
+                ]);
                 return response()->json([
                     'success' => false,
                     'message' => 'El archivo no tiene las cabeceras esperadas.',
@@ -116,9 +135,8 @@ class CsvController extends Controller
             }
 
             // Importar los datos
-            
             $import = new EmpleadosImport($generalData);
-            
+
             Excel::import($import, $file);
 
             $duplicados      = $import->getDuplicados();
@@ -131,7 +149,6 @@ class CsvController extends Controller
                 'duplicados'       => $duplicados, // Puedes mostrar esto en el frontend
             ], 200);
         } catch (\Exception $e) {
-            // Registrar errores
             \Log::error('Error al importar el archivo:', ['mensaje' => $e->getMessage()]);
 
             return response()->json([
