@@ -7,6 +7,7 @@ use App\Models\ComentarioFormerEmpleado;
 use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\DomicilioEmpleado;
+use App\Models\EmpleadoCampoExtra;
 use App\Models\Empleado;
 use App\Models\Evaluacion;
 use App\Models\ExamEmpleado;
@@ -426,6 +427,11 @@ class EmpleadoController extends Controller
             'domicilio_empleado.estado'  => 'nullable|string',
             'domicilio_empleado.pais'    => 'nullable|string',
             'domicilio_empleado.cp'      => 'nullable|string',
+
+            // Validación para campos extra
+            'extraFields'                => 'nullable|array',
+            'extraFields.*.nombre'       => 'required|string',
+            'extraFields.*.valor'        => 'required|string',
         ]);
 
         $fechaNacimiento = '';
@@ -491,7 +497,7 @@ class EmpleadoController extends Controller
                 'materno'               => $validatedData['materno'] ?? null,
                 'puesto'                => $validatedData['puesto'] ?? null,
                 'fecha_nacimiento'      => $validatedData['fecha_nacimiento'] ?? null,
-                'telefono'              => $validatedData['telefono']?? null,
+                'telefono'              => $validatedData['telefono'] ?? null,
                 'id_domicilio_empleado' => $domicilio->id, // Asignar el ID del domicilio creado
                 'status'                => 1,
                 'eliminado'             => 0,
@@ -500,6 +506,16 @@ class EmpleadoController extends Controller
                                                          //Log::info('Insertando en Empleado:', $empleadoData); // Log antes de insertar
             $empleado = Empleado::create($empleadoData); // Guardar con create
 
+            // Crear los campos extra relacionados con el empleado, si existen
+            if (isset($validatedData['extraFields']) && count($validatedData['extraFields']) > 0) {
+                foreach ($validatedData['extraFields'] as $campoExtra) {
+                    EmpleadoCampoExtra::create([
+                        'id_empleado' => $empleado->id,
+                        'nombre'      => $campoExtra['nombre'],
+                        'valor'       => $campoExtra['valor'],
+                    ]);
+                }
+            }
             // Crear un registro vacío en MedicalInfo
             $medicalInfoData = [
                 'id_empleado' => $empleado->id,
