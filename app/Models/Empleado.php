@@ -28,6 +28,7 @@ class Empleado extends Model
         'rfc',
         'curp',
         'nss',
+        'departamento',
         'puesto',
         'foto',
         'fecha_nacimiento',
@@ -51,6 +52,10 @@ class Empleado extends Model
     public function preNominaEmpleados()
     {
         return $this->hasMany(PreNominaEmpleado::class, 'id_empleado');
+    }
+      public function camposExtra()
+    {
+        return $this->hasMany(EmpleadoCampoExtra::class, 'id_empleado');
     }
 
     /**
