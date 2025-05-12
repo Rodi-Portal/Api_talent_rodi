@@ -52,12 +52,12 @@ class EmpleadosImport implements ToModel, WithHeadingRow
     {
         return $this->insertados;
     }
- // Método fuzzyMatch para la comparación de cadenas
+    // Método fuzzyMatch para la comparación de cadenas
     public function fuzzyMatch($string1, $string2)
     {
         return levenshtein($string1, $string2) <= 2; // Ajusta el umbral según la tolerancia deseada
     }
-    
+
     public function model(array $row)
     {
         if ($this->rowNumber === 1) {
@@ -91,7 +91,7 @@ class EmpleadosImport implements ToModel, WithHeadingRow
         // Función para hacer una comparación difusa entre alias y cabeceras
         // Esto puede utilizar un algoritmo como Levenshtein para comprobar la similitud
         $this->fuzzyMatch = function ($string1, $string2) {
-            // Usamos la distancia de Levenshtein para determinar la similitud entre cadenas
+                                                         // Usamos la distancia de Levenshtein para determinar la similitud entre cadenas
             return levenshtein($string1, $string2) <= 2; // Ajusta el umbral según la tolerancia deseada
         };
 
@@ -123,15 +123,15 @@ class EmpleadosImport implements ToModel, WithHeadingRow
 
         // Validar y preparar los datos para el empleado
         $validatedData = [
-            'nombre'             => strtoupper($nombre),
-            'paterno'            => strtoupper($paterno),
-            'materno'            => strtoupper($get('materno')),
+            'nombre'             => mb_strtoupper($nombre, 'UTF-8'),
+            'paterno'            => mb_strtoupper($paterno, 'UTF-8'),
+            'materno'            => mb_strtoupper($get('materno'), 'UTF-8'),
             'telefono'           => $get('telefono'),
             'correo'             => $correo,
-            'puesto'             => strtoupper($get('puesto')),
-            'curp'               => strtoupper($get('curp')),
+            'puesto'             => mb_strtoupper($get('puesto'), 'UTF-8'),
+            'curp'               => mb_strtoupper($get('curp'), 'UTF-8'),
             'nss'                => $get('nss'),
-            'rfc'                => strtoupper($get('rfc')),
+            'rfc'                => mb_strtoupper($get('rfc'), 'UTF-8'),
             'id_empleado'        => $get('id_empleado'),
             'domicilio_empleado' => [
                 'calle'   => $get('calle'),
@@ -146,8 +146,11 @@ class EmpleadosImport implements ToModel, WithHeadingRow
         ];
 
         // Comprobar si el empleado ya existe para evitar duplicados
-        $existeEmpleado = Empleado::whereRaw('UPPER(nombre) = ?', [strtoupper($validatedData['nombre'])])
-            ->whereRaw('UPPER(paterno) = ?', [strtoupper($validatedData['paterno'])])
+        $nombre1  = mb_strtoupper($validatedData['nombre'], 'UTF-8');
+        $paterno1 = mb_strtoupper($validatedData['paterno'], 'UTF-8');
+
+        $existeEmpleado = Empleado::whereRaw('UPPER(nombre) = ?', [$nombre1])
+            ->whereRaw('UPPER(paterno) = ?', [$paterno1])
             ->where('id_cliente', $this->generalData['id_cliente'])
             ->where('id_portal', $this->generalData['id_portal'])
             ->exists();
@@ -192,6 +195,14 @@ class EmpleadosImport implements ToModel, WithHeadingRow
         ]);
 
         foreach ($camposExtras as $campo => $valor) {
+            $campoNormalizado = strtolower(trim($campo));
+
+            // Saltar si el nombre del campo es numérico o el valor es null
+            if (is_numeric($campoNormalizado) || is_null($valor) || trim($valor) === '') {
+                Log::warning("Campo extra inválido ignorado: campo=[$campo] valor=[" . var_export($valor, true) . "]");
+                continue;
+            }
+
             EmpleadoCampoExtra::create([
                 'id_empleado' => $empleado->id,
                 'nombre'      => $campo,
