@@ -45,7 +45,6 @@ class CsvController extends Controller
     {
         $errors = [];
 
-        // Validar que se haya subido un archivo y los datos generales
         $validator = Validator::make($request->all(), [
             'file'       => 'required|file|mimes:xlsx,csv',
             'creacion'   => 'required|date',
@@ -55,9 +54,7 @@ class CsvController extends Controller
             'id_cliente' => 'required|numeric',
         ]);
 
-        if ($request->hasFile('file')) {
-            $file = $request->file('file');
-        } else {
+        if (! $request->hasFile('file')) {
             \Log::error('No se detectó archivo en la solicitud.');
             return response()->json([
                 'success' => false,
@@ -73,6 +70,8 @@ class CsvController extends Controller
             ], 422);
         }
 
+        $file = $request->file('file');
+
         $generalData = [
             'creacion'   => $request->input('creacion'),
             'edicion'    => $request->input('edicion'),
@@ -83,9 +82,16 @@ class CsvController extends Controller
 
         try {
             // Leer las cabeceras del archivo
-            $headings = array_map('strtolower', array_map('trim', Excel::toArray([], $file)[0][0] ?? []));
+            $rawHeadings = Excel::toArray([], $file)[0][0] ?? [];
 
-            // Cabeceras esperadas definidas por el sistema
+            // Filtrar solo cabeceras que sean strings y no estén vacías
+            $filteredRawHeadings = array_filter($rawHeadings, function ($item) {
+                return is_string($item) && trim($item) !== '';
+            });
+
+            $headings = array_map('strtolower', array_map('trim', $filteredRawHeadings));
+
+            // Cabeceras esperadas
             $expectedHeadings = [
                 'nombre*',
                 'apellido paterno*',
@@ -107,26 +113,28 @@ class CsvController extends Controller
                 'código postal',
             ];
 
-            // Función para normalizar las cabeceras (eliminar espacios y poner en minúsculas)
             $normalizeHeaders = function ($headers) {
                 return array_map(function ($header) {
-                    return strtolower(trim($header)); // Eliminar espacios y convertir a minúsculas
+                    return strtolower(trim($header));
                 }, $headers);
             };
 
-            // Normalizar tanto las cabeceras del archivo como las esperadas
             $normalizedHeadings         = $normalizeHeaders($headings);
             $normalizedExpectedHeadings = $normalizeHeaders($expectedHeadings);
 
-            // Filtrar las cabeceras adicionales que no deberían ser verificadas
-            $filteredHeadings = array_intersect($normalizedHeadings, $normalizedExpectedHeadings);
+            // Detectar diferencias
+            $extraHeadings   = array_diff($normalizedHeadings, $normalizedExpectedHeadings);
+            $missingHeadings = array_diff($normalizedExpectedHeadings, $normalizedHeadings);
 
-            // Verificamos si las cabeceras filtradas coinciden con las esperadas
-            if ($filteredHeadings !== $normalizedExpectedHeadings) {
+            // Verificamos si hay diferencia
+            if (! empty($extraHeadings) || ! empty($missingHeadings)) {
                 \Log::error('Cabeceras no coinciden con las esperadas.', [
-                    'headings_detectadas' => $headings,
-                    'headings_esperadas'  => $expectedHeadings,
+                    'cabeceras_detectadas' => $headings,
+                    'cabeceras_esperadas'  => $expectedHeadings,
+                    'cabeceras_extra'      => $extraHeadings,
+                    'cabeceras_faltantes'  => $missingHeadings,
                 ]);
+
                 return response()->json([
                     'success' => false,
                     'message' => 'El archivo no tiene las cabeceras esperadas.',
@@ -136,7 +144,6 @@ class CsvController extends Controller
 
             // Importar los datos
             $import = new EmpleadosImport($generalData);
-
             Excel::import($import, $file);
 
             $duplicados      = $import->getDuplicados();
@@ -146,7 +153,7 @@ class CsvController extends Controller
                 'success'          => true,
                 'message'          => $totalInsertados . ' Empleados importados correctamente',
                 'total_duplicados' => count($duplicados),
-                'duplicados'       => $duplicados, // Puedes mostrar esto en el frontend
+                'duplicados'       => $duplicados,
             ], 200);
         } catch (\Exception $e) {
             \Log::error('Error al importar el archivo:', ['mensaje' => $e->getMessage()]);

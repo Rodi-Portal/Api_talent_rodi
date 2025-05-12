@@ -90,6 +90,8 @@ class EmpleadoController extends Controller
                 $cursos   = CursoEmpleado::where('employee_id', $empleado->id)->get();
                 $examenes = ExamEmpleado::where('employee_id', $empleado->id)->get();
                 $medico   = MedicalInfo::where('id_empleado', $empleado->id)->get();
+                $campoExtra   = EmpleadoCampoExtra ::where('id_empleado', $empleado->id)->get();
+
 
                 $statusExam = $this->checkDocumentStatus($examenes);
 
@@ -101,6 +103,7 @@ class EmpleadoController extends Controller
 
                 // Convertir el empleado a un array y agregar el statusDocuments
                 $empleadoArray                    = $empleado->toArray();
+                $empleadoArray['campoExtra']    = $campoExtra;
                 $empleadoArray['statusMedico']    = $statusPadecimientos;
                 $empleadoArray['statusDocuments'] = $statusDocuments;
                 $empleadoArray['statusExam']      = $statusExam;
@@ -114,6 +117,7 @@ class EmpleadoController extends Controller
 
         return response()->json($resultados);
     }
+    
     public function evaluarPadecimientos($medico)
     {
         // Obtener los datos del modelo MedicalInfo
