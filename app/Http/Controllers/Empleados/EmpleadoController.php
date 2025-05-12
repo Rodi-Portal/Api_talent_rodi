@@ -343,6 +343,7 @@ class EmpleadoController extends Controller
                 'materno',
                 'telefono',
                 'correo',
+                'departamento',
                 'puesto',
                 'rfc',
                 'nss',
@@ -442,6 +443,7 @@ class EmpleadoController extends Controller
             'nombre'                     => 'required|string',
             'paterno'                    => 'required|string',
             'materno'                    => 'nullable|string',
+            'departamento'               => 'nullable|string',
             'puesto'                     => 'nullable|string',
             'telefono'                   => 'nullable|string',
 
@@ -522,6 +524,7 @@ class EmpleadoController extends Controller
                 'rfc'                   => $validatedData['rfc'] ?? null,
                 'paterno'               => $validatedData['paterno'],
                 'materno'               => $validatedData['materno'] ?? null,
+                'departamento'          => $validatedData['departamento'] ?? null,
                 'puesto'                => $validatedData['puesto'] ?? null,
                 'fecha_nacimiento'      => $validatedData['fecha_nacimiento'] ?? null,
                 'telefono'              => $validatedData['telefono'] ?? null,
