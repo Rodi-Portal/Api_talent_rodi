@@ -7,8 +7,8 @@ use App\Models\ComentarioFormerEmpleado;
 use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\DomicilioEmpleado;
-use App\Models\EmpleadoCampoExtra;
 use App\Models\Empleado;
+use App\Models\EmpleadoCampoExtra;
 use App\Models\Evaluacion;
 use App\Models\ExamEmpleado;
 use App\Models\MedicalInfo;
@@ -87,11 +87,10 @@ class EmpleadoController extends Controller
                 // Obtener documentos del empleado
                 $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
                     ->get();
-                $cursos   = CursoEmpleado::where('employee_id', $empleado->id)->get();
-                $examenes = ExamEmpleado::where('employee_id', $empleado->id)->get();
-                $medico   = MedicalInfo::where('id_empleado', $empleado->id)->get();
-                $campoExtra   = EmpleadoCampoExtra ::where('id_empleado', $empleado->id)->get();
-
+                $cursos     = CursoEmpleado::where('employee_id', $empleado->id)->get();
+                $examenes   = ExamEmpleado::where('employee_id', $empleado->id)->get();
+                $medico     = MedicalInfo::where('id_empleado', $empleado->id)->get();
+                $campoExtra = EmpleadoCampoExtra::where('id_empleado', $empleado->id)->get();
 
                 $statusExam = $this->checkDocumentStatus($examenes);
 
@@ -103,7 +102,7 @@ class EmpleadoController extends Controller
 
                 // Convertir el empleado a un array y agregar el statusDocuments
                 $empleadoArray                    = $empleado->toArray();
-                $empleadoArray['campoExtra']    = $campoExtra;
+                $empleadoArray['campoExtra']      = $campoExtra;
                 $empleadoArray['statusMedico']    = $statusPadecimientos;
                 $empleadoArray['statusDocuments'] = $statusDocuments;
                 $empleadoArray['statusExam']      = $statusExam;
@@ -117,7 +116,7 @@ class EmpleadoController extends Controller
 
         return response()->json($resultados);
     }
-    
+
     public function evaluarPadecimientos($medico)
     {
         // Obtener los datos del modelo MedicalInfo
@@ -358,6 +357,30 @@ class EmpleadoController extends Controller
             // Actualizar el domicilio
             $domicilio = DomicilioEmpleado::findOrFail($request->domicilio_empleado['id']);
             $domicilio->update($request->domicilio_empleado);
+            if ($request->filled('campoExtra')) {
+                foreach ($request->campoExtra as $campo) {
+                    if (isset($campo['id'])) {
+                        // Actualizar campo existente
+                        $campoExistente = EmpleadoCampoExtra::where('id_empleado', $empleado->id)
+                            ->where('id', $campo['id'])
+                            ->first();
+
+                        if ($campoExistente) {
+                            $campoExistente->update([
+                                'nombre' => $campo['nombre'],
+                                'valor'  => $campo['valor'],
+                            ]);
+                        }
+                    } else {
+                        // Crear nuevo campo
+                        EmpleadoCampoExtra::create([
+                            'id_empleado' => $empleado->id,
+                            'nombre'      => $campo['nombre'],
+                            'valor'       => $campo['valor'],
+                        ]);
+                    }
+                }
+            }
 
             // Log de éxito
             //\Log::info('Empleado y domicilio actualizados correctamente.', ['empleado_id' => $empleado->id, 'domicilio_id' => $domicilio->id]);
@@ -620,5 +643,25 @@ class EmpleadoController extends Controller
 
         // Si no hay estado 3 ni 2, retornamos verde
         return 'verde';
+    }
+
+    public function eliminarCampoExtra($id)
+    {
+        try {
+                                                          // Buscar el campo extra por ID
+            $campo = EmpleadoCampoExtra::findOrFail($id); // Asegúrate de tener este modelo
+
+            // Eliminar el campo
+            $campo->delete();
+
+            return response()->json([
+                'message' => 'Campo extra eliminado correctamente.',
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Ocurrió un error al eliminar el campo extra.',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
     }
 }
