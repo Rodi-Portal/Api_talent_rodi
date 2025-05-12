@@ -97,8 +97,14 @@ Route::middleware(['api'])->group(function () {
     Route::get('/empleados/documentos', [EmpleadoController::class, 'getEmpleadosConDocumentos']);
     /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
     Route::get('/empleados/check-email', [EmpleadoController::class, 'checkEmail']);
+
+    //Ruta  para    eliminar campo extra  de los  empleados
+    Route::delete('/empleados/campo-extra/{id}', [EmpleadoController::class, 'eliminarCampoExtra']);
+    //Ruta  para  registrar  un empleado   desde el formulario
     Route::post('/empleados/register', [EmpleadoController::class, 'store']);
+    //Ruta  para  Actualizar   un empleado   desde el formulario
     Route::put('/empleados/update', [EmpleadoController::class, 'update']);
+
     Route::get('/medical-info/{id_empleado}', [MedicalInfoController::class, 'show']);
     Route::put('/medical-info/{id_empleado}', [MedicalInfoController::class, 'update']);
     Route::post('/documents', [DocumentOptionController::class, 'store']);
