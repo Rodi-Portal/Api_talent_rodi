@@ -127,18 +127,17 @@ class CsvController extends Controller
             $missingHeadings = array_diff($normalizedExpectedHeadings, $normalizedHeadings);
 
             // Verificamos si hay diferencia
-            if (! empty($extraHeadings) || ! empty($missingHeadings)) {
-                \Log::error('Cabeceras no coinciden con las esperadas.', [
+            if (! empty($missingHeadings)) {
+                \Log::error('Faltan cabeceras obligatorias.', [
                     'cabeceras_detectadas' => $headings,
                     'cabeceras_esperadas'  => $expectedHeadings,
-                    'cabeceras_extra'      => $extraHeadings,
                     'cabeceras_faltantes'  => $missingHeadings,
                 ]);
 
                 return response()->json([
                     'success' => false,
-                    'message' => 'El archivo no tiene las cabeceras esperadas.',
-                    'errors'  => ['file' => 'Las cabeceras del archivo no coinciden con el formato esperado.'],
+                    'message' => 'Faltan columnas obligatorias en el archivo.',
+                    'errors'  => ['file' => 'El archivo no contiene todas las columnas requeridas.'],
                 ], 422);
             }
 
