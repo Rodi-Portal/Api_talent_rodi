@@ -83,7 +83,7 @@ class EmpleadosImport implements ToModel, WithHeadingRow
                 }
 
                 // Luego intentar coincidencia difusa (solo si no es un campo crítico)
-                if (! in_array($key, ['paterno', 'materno'])) {
+                if (! in_array($key, ['paterno', 'materno', 'curp', 'cp', 'rfc', 'nss'])) {
                     foreach ($cabecerasDisponibles as $header) {
                         if ($this->fuzzyMatch($alias, strtolower(trim($header)))) {
                             return $row[$header];
