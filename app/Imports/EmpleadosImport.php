@@ -68,23 +68,30 @@ class EmpleadosImport implements ToModel, WithHeadingRow
 
         // Función para obtener el valor de una columna basada en su alias, con tolerancia a diferencias de formato
         $get = function ($key) use ($row) {
-            // Normalizamos el key (clave) de la columna
             $key = strtolower(trim($key));
 
-            // Iteramos sobre los alias en el mapeo de columnas
+            $cabecerasDisponibles = array_keys($row);
+
             foreach ($this->columnMap[$key] ?? [] as $alias) {
                 $alias = strtolower(trim($alias));
 
-                // Buscar la cabecera que más se parece a la actual
-                foreach ($row as $header => $value) {
-                    $header = strtolower(trim($header));
+                // Intentar coincidencia EXACTA primero
+                foreach ($cabecerasDisponibles as $header) {
+                    if (strtolower(trim($header)) === $alias) {
+                        return $row[$header];
+                    }
+                }
 
-                    // Intentamos hacer la comparación de manera más flexible, tolerando pequeñas diferencias
-                    if ($this->fuzzyMatch($alias, $header)) {
-                        return $value;
+                // Luego intentar coincidencia difusa (solo si no es un campo crítico)
+                if (! in_array($key, ['paterno', 'materno'])) {
+                    foreach ($cabecerasDisponibles as $header) {
+                        if ($this->fuzzyMatch($alias, strtolower(trim($header)))) {
+                            return $row[$header];
+                        }
                     }
                 }
             }
+
             return null;
         };
 
@@ -120,12 +127,13 @@ class EmpleadosImport implements ToModel, WithHeadingRow
                 $camposExtras[trim($key)] = $valor;
             }
         }
-
+        $materno = $get('materno');
+        $materno = $materno ? mb_strtoupper($materno, 'UTF-8') : null;
         // Validar y preparar los datos para el empleado
         $validatedData = [
             'nombre'             => mb_strtoupper($nombre, 'UTF-8'),
             'paterno'            => mb_strtoupper($paterno, 'UTF-8'),
-            'materno'            => mb_strtoupper($get('materno'), 'UTF-8'),
+            'materno'            => $materno,
             'telefono'           => $get('telefono'),
             'correo'             => $correo,
             'puesto'             => mb_strtoupper($get('puesto'), 'UTF-8'),
