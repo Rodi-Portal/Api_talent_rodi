@@ -54,7 +54,8 @@ class EmpleadoController extends Controller
 
                 // Obtener los documentos con status = 2
                 $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
-                    ->get();
+                              ->where('status', 2)
+                              ->get();
 
                 // Log de los documentos obtenidos
                 //Log::info('Documentos para empleado ' . $empleado->id . ': ', ['documentos' => $documentos]);
