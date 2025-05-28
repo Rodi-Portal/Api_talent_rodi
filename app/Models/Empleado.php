@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -8,8 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 class Empleado extends Model
 {
     use HasFactory;
-    public $timestamps = false;
-    protected $table = 'empleados';
+    public $timestamps    = false;
+    protected $table      = 'empleados';
     protected $connection = 'portal_main';
 
     protected $fillable = [
@@ -53,9 +52,14 @@ class Empleado extends Model
     {
         return $this->hasMany(PreNominaEmpleado::class, 'id_empleado');
     }
-      public function camposExtra()
+    public function camposExtra()
     {
         return $this->hasMany(EmpleadoCampoExtra::class, 'id_empleado');
+    }
+
+    public function cliente()
+    {
+        return $this->belongsTo(ClienteTalent::class, 'id_cliente');
     }
 
     /**
@@ -67,9 +71,9 @@ class Empleado extends Model
     public static function obtenerEmpleadoConRelacionados($id_empleado)
     {
         return self::with(['laborales', 'preNominaEmpleados' => function ($query) {
-                        $query->orderBy('id', 'desc')->first(); // Ordena por id descendente
-                    }])
-                    ->find($id_empleado);
+            $query->orderBy('id', 'desc')->first(); // Ordena por id descendente
+        }])
+            ->find($id_empleado);
     }
-    
+
 }
