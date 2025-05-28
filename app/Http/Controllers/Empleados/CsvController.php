@@ -2,10 +2,17 @@
 namespace App\Http\Controllers\Empleados;
 
 use App\Exports\CargaMasivaPlantillaExport;
+use App\Exports\EmpleadosMedicalExport;
 use App\Http\Controllers\Controller;
 use App\Imports\EmpleadosImport;
+use App\Imports\MedicalInfoImport;
+;
+
+use App\Models\Empleado;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -164,4 +171,69 @@ class CsvController extends Controller
         }
     }
 
+    public function downloadTemplateMedical(Request $request)
+    {
+        $empleadoId = $request->query('empleado_id');
+        // Log::info('ID recibido desde el frontend:', ['empleado_id' => $empleadoId]);
+
+        if (! $empleadoId) {
+            Log::warning('No se proporcionó ID de empleado en la solicitud');
+            return response()->json(['error' => 'ID de empleado no proporcionado'], 400);
+        }
+
+        $empleado = Empleado::with('cliente')->findOrFail($empleadoId);
+        // Log::info('Empleado encontrado:', $empleado->toArray());
+
+        $cliente = $empleado->cliente;
+        // Log::info('Cliente del empleado:', $cliente ? $cliente->toArray() : 'No encontrado');
+
+        if (! $cliente) {
+            return response()->json(['error' => 'Cliente no encontrado para el empleado'], 404);
+        }
+
+        // Obtener empleados del mismo cliente con la información médica
+        $empleados = DB::connection('portal_main')->table('empleados')
+            ->leftJoin('medical_info', 'empleados.id', '=', 'medical_info.id_empleado')
+            ->where('empleados.id_cliente', $cliente->id)
+            ->where('empleados.status', 1)
+            ->where('empleados.eliminado', 0)
+            ->select([
+                'empleados.id',
+                'empleados.id_empleado',
+                DB::raw("CONCAT_WS(' ', empleados.nombre, empleados.paterno, empleados.materno) as nombre_completo"),
+                // Campos de medical_info excepto creacion y edicion
+                'medical_info.id_empleado',
+                'medical_info.peso',
+                'medical_info.edad',
+                'medical_info.alergias_medicamentos',
+                'medical_info.alergias_alimentos',
+                'medical_info.enfermedades_cronicas',
+                'medical_info.cirugias',
+                'medical_info.tipo_sangre',
+                'medical_info.contacto_emergencia',
+                'medical_info.medicamentos_frecuentes',
+                'medical_info.lesiones',
+                'medical_info.otros_padecimientos',
+                'medical_info.otros_padecimientos2',
+            ])
+            ->get();
+        //Log::info('Datos médicos de empleados:', $empleados->toArray());
+
+        return Excel::download(new EmpleadosMedicalExport($empleados), 'plantilla_carga_masiva.xlsx');
+    }
+    public function uploadMedicalInfo(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|mimes:xlsx,xls',
+            'id_rol' => 'required|integer',
+        ]);
+
+        try {
+            Excel::import(new MedicalInfoImport, $request->file('file'));
+
+            return response()->json(['message' => 'Información médica actualizada correctamente.']);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Error al procesar el archivo: ' . $e->getMessage()], 500);
+        }
+    }
 }

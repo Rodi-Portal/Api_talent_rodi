@@ -77,6 +77,9 @@ Route::middleware(['api'])->group(function () {
     Route::get('/document-options', [DocumentOptionController::class, 'index']);
     //descargar plantilla Empleados Masivos
     Route::get('/download-template', [CsvController::class, 'downloadTemplate']);
+    Route::get('/download-template-medical', [CsvController::class, 'downloadTemplateMedical']);
+    Route::post('/upload-medical-info', [CsvController::class, 'uploadMedicalInfo']);
+
     // Ruta para la importación de empleados desde un archivo CSV o Excel
     Route::post('/empleados/importar', [CsvController::class, 'import']);
     // ruta para eliminar EMpleados
