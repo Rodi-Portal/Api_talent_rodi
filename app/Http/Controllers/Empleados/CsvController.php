@@ -2,12 +2,12 @@
 namespace App\Http\Controllers\Empleados;
 
 use App\Exports\CargaMasivaPlantillaExport;
+use App\Exports\EmpleadosGeneralExport;
 use App\Exports\EmpleadosMedicalExport;
 use App\Http\Controllers\Controller;
 use App\Imports\EmpleadosImport;
 use App\Imports\MedicalInfoImport;
-;
-
+use App\Imports\EmpleadosGeneralImport;
 use App\Models\Empleado;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -219,12 +219,83 @@ class CsvController extends Controller
             ->get();
         //Log::info('Datos médicos de empleados:', $empleados->toArray());
 
-        return Excel::download(new EmpleadosMedicalExport($empleados), 'plantilla_carga_masiva.xlsx');
+        return Excel::download(new EmpleadosMedicalExport($empleados), 'plantilla_informacion_medica.xlsx');
     }
+
+    public function downloadTemplateGeneral(Request $request)
+    {
+        $empleadoId = $request->query('empleado_id');
+
+        if (! $empleadoId) {
+            Log::warning('No se proporcionó ID de empleado en la solicitud');
+            return response()->json(['error' => 'ID de empleado no proporcionado'], 400);
+        }
+
+        $empleado = Empleado::with('cliente')->findOrFail($empleadoId);
+
+        $cliente = $empleado->cliente;
+
+        if (! $cliente) {
+            return response()->json(['error' => 'Cliente no encontrado para el empleado'], 404);
+        }
+
+        // Obtener empleados activos del mismo cliente
+        $empleados = Empleado::on('portal_main')
+            ->with([
+                'camposExtra'       => function ($query) {
+                    $query->select('id_empleado', 'nombre', 'valor');
+                },
+                'domicilioEmpleado' => function ($query) {
+                    $query->select([
+                        'id', 'pais', 'estado', 'ciudad', 'colonia', 'calle', 'num_int', 'num_ext',
+                          'cp',
+                    ]);
+                },
+            ])
+            ->where('id_cliente', $cliente->id)
+            ->where('status', 1)
+            ->where('eliminado', 0)
+            ->get([
+                'id',
+                'id_empleado',
+                'id_domicilio_empleado', // <- ¡necesario para la relación!
+                'nombre',
+                'paterno',
+                'materno',
+                'telefono',
+                'correo',
+                'rfc',
+                'curp',
+                'nss',
+                'departamento',
+                'puesto',
+                'fecha_nacimiento',
+
+            ]);
+        //Log::info('Datos médicos de empleados:', $empleados->toArray());
+        // exit;
+        return Excel::download(new EmpleadosGeneralExport($empleados), 'plantilla_general_info.xlsx');
+    }
+
+    public function importGeneralInfo(Request $request)
+    {
+        if (! $request->hasFile('file')) {
+            return response()->json(['error' => 'No se proporcionó un archivo'], 400);
+        }
+
+        try {
+            Excel::import(new EmpleadosGeneralImport, $request->file('file'));
+            return response()->json(['success' => 'Información actualizada correctamente']);
+        } catch (\Exception $e) {
+            Log::error('Error al importar archivo Excel: ' . $e->getMessage());
+            return response()->json(['error' => 'Error al procesar el archivo'], 500);
+        }
+    }
+
     public function uploadMedicalInfo(Request $request)
     {
         $request->validate([
-            'file' => 'required|mimes:xlsx,xls',
+            'file'   => 'required|mimes:xlsx,xls',
             'id_rol' => 'required|integer',
         ]);
 

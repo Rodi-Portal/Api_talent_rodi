@@ -76,9 +76,13 @@ Route::middleware(['api'])->group(function () {
     Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
     Route::get('/document-options', [DocumentOptionController::class, 'index']);
     //descargar plantilla Empleados Masivos
-    Route::get('/download-template', [CsvController::class, 'downloadTemplate']);
-    Route::get('/download-template-medical', [CsvController::class, 'downloadTemplateMedical']);
-    Route::post('/upload-medical-info', [CsvController::class, 'uploadMedicalInfo']);
+    Route::get('/download-template', [CsvController::class, 'downloadTemplate']); // plantilla para  carga   desde 0
+    Route::get('/download-template-medical', [CsvController::class, 'downloadTemplateMedical']);// plantilla  para   carga  y actualizacion de medical info
+    Route::post('/upload-medical-info', [CsvController::class, 'uploadMedicalInfo']);// cargar plantilla medical info
+    Route::get('/download-template-general', [CsvController::class, 'downloadTemplateGeneral']);// plantilla  para   carga  y actualizacion de general info
+    Route::post('/upload-general-info', [CsvController::class, 'importGeneralInfo']);// cargar plantilla general info
+
+
 
     // Ruta para la importación de empleados desde un archivo CSV o Excel
     Route::post('/empleados/importar', [CsvController::class, 'import']);
