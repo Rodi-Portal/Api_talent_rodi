@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,9 +18,10 @@ class LaboralesEmpleado extends Model
     public $incrementing = true;
 
     // Si la tabla no tiene timestamps, se debe poner false
-    public $timestamps = false;
-    protected $connection = 'portal_main';
+    public $timestamps    = false;
 
+    protected $connection = 'portal_main';
+  
     // Definir los campos que se pueden asignar masivamente
     protected $fillable = [
         'id_empleado',
@@ -34,8 +34,6 @@ class LaboralesEmpleado extends Model
         'periodicidad_pago',
         'tipo_nomina',
         'dias_descanso',
-        'imss',
-        'infonavit',
         'vacaciones_disponibles',
         'sueldo_diario',
         'sueldo_mes',
@@ -45,11 +43,11 @@ class LaboralesEmpleado extends Model
         'prima_vacacional',
         'descuento_ausencia',
     ];
+
     protected $hidden = [
-        
         'puesto',
-        
     ];
+
     // Definir la relación con la tabla empleados (asumiendo que existe un modelo Empleado)
     public function empleado()
     {
