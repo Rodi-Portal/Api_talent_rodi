@@ -80,7 +80,10 @@ Route::middleware(['api'])->group(function () {
     Route::get('/download-template-medical', [CsvController::class, 'downloadTemplateMedical']);// plantilla  para   carga  y actualizacion de medical info
     Route::post('/upload-medical-info', [CsvController::class, 'uploadMedicalInfo']);// cargar plantilla medical info
     Route::get('/download-template-general', [CsvController::class, 'downloadTemplateGeneral']);// plantilla  para   carga  y actualizacion de general info
-    Route::post('/upload-general-info', [CsvController::class, 'importGeneralInfo']);// cargar plantilla general info
+    Route::post('/upload-general-info', [CsvController::class, 'importGeneralInfo']);// cargar plantilla general info  uploadLaboralesInfo
+
+    Route::get('/download-template-laborales', [CsvController::class, 'downloadTemplateLaboral']);// cargar plantilla laborales 
+    Route::post('/upload-laborales-info', [CsvController::class, 'uploadLaboralesInfo']);
 
 
 
@@ -93,7 +96,7 @@ Route::middleware(['api'])->group(function () {
 
     Route::get('/empleado/{id_empleado}/laborales', [LaboralesController::class, 'obtenerDatosLaborales']);
     Route::post('/empleados/laborales', [LaboralesController::class, 'guardarDatosLaborales']);
-    Route::put('/empleados/laborales/{id_empleado}', [LaboralesController::class, 'actualizarDatosLaborales']);
+    Route::put('/empleados/laborales/{id_empleado}', [LaboralesController::class, 'actualizarDatosLaborales']); 
     Route::post('/empleados/registro_prenomina', [LaboralesController::class, 'guardarPrenomina']);
 
     // Fin para  los  laborales del empleado */
