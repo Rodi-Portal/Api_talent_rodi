@@ -3,11 +3,13 @@ namespace App\Http\Controllers\Empleados;
 
 use App\Exports\CargaMasivaPlantillaExport;
 use App\Exports\EmpleadosGeneralExport;
+use App\Exports\EmpleadosLaboralesExport;
 use App\Exports\EmpleadosMedicalExport;
 use App\Http\Controllers\Controller;
-use App\Imports\EmpleadosImport;
-use App\Imports\MedicalInfoImport;
 use App\Imports\EmpleadosGeneralImport;
+use App\Imports\EmpleadosImport;
+use App\Imports\EmpleadosLaboralesImport;
+use App\Imports\MedicalInfoImport;
 use App\Models\Empleado;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -248,7 +250,7 @@ class CsvController extends Controller
                 'domicilioEmpleado' => function ($query) {
                     $query->select([
                         'id', 'pais', 'estado', 'ciudad', 'colonia', 'calle', 'num_int', 'num_ext',
-                          'cp',
+                        'cp',
                     ]);
                 },
             ])
@@ -277,6 +279,49 @@ class CsvController extends Controller
         return Excel::download(new EmpleadosGeneralExport($empleados), 'plantilla_general_info.xlsx');
     }
 
+    public function downloadTemplateLaboral(Request $request)
+    {
+        $id_cliente = $request->query('id_cliente');
+
+        if (! $id_cliente) {
+            Log::warning('No se proporcionó ID del cliente');
+            return response()->json(['error' => 'ID de cliente no proporcionado'], 400);
+        }
+
+        // Obtener empleados del mismo cliente con la información laboral
+        $empleados = DB::connection('portal_main')->table('empleados')
+            ->leftJoin('laborales_empleado as LAB', 'empleados.id', '=', 'LAB.id_empleado')
+            ->where('empleados.id_cliente', $id_cliente)
+            ->where('empleados.status', 1)
+            ->where('empleados.eliminado', 0)
+            ->select([
+                'empleados.id',
+                'empleados.id_empleado',
+                DB::raw("CONCAT_WS(' ', empleados.nombre, empleados.paterno, empleados.materno) as nombre_completo"),
+
+                // Campos de LAB
+                'LAB.tipo_contrato',
+                'LAB.otro_tipo_contrato',
+                'LAB.tipo_regimen',
+                'LAB.tipo_jornada',
+                'LAB.horas_dia',
+                'LAB.grupo_nomina',
+                'LAB.periodicidad_pago',
+                'LAB.tipo_nomina',
+                'LAB.dias_descanso',
+                'LAB.vacaciones_disponibles',
+                'LAB.sueldo_diario',
+                'LAB.pago_dia_festivo',
+                'LAB.pago_hora_extra',
+                'LAB.dias_aguinaldo',
+                'LAB.prima_vacacional',
+                'LAB.descuento_ausencia',
+            ])
+            ->get();
+
+        return Excel::download(new EmpleadosLaboralesExport($empleados), 'plantilla_informacion_laboral.xlsx');
+    }
+
     public function importGeneralInfo(Request $request)
     {
         if (! $request->hasFile('file')) {
@@ -288,7 +333,7 @@ class CsvController extends Controller
             return response()->json(['success' => 'Información actualizada correctamente']);
         } catch (\Exception $e) {
             Log::error('Error al importar archivo Excel: ' . $e->getMessage());
-            return response()->json(['error' => 'Error al procesar el archivo'], 500);
+            return response()->json(['error' => 'Error al procesar el archivo: ' . $e->getMessage()], 500);
         }
     }
 
@@ -307,4 +352,20 @@ class CsvController extends Controller
             return response()->json(['error' => 'Error al procesar el archivo: ' . $e->getMessage()], 500);
         }
     }
+
+    public function uploadLaboralesInfo(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls,csv',
+        ]);
+
+        try {
+            Excel::import(new EmpleadosLaboralesImport, $request->file('file'));
+
+            return response()->json(['message' => 'Importación completada correctamente.'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Error al procesar el archivo: ' . $e->getMessage()], 500);
+        }
+    }
+
 }

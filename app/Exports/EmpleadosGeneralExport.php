@@ -141,6 +141,7 @@ class EmpleadosGeneralExport implements FromCollection, WithHeadings, WithStyles
                 $sheet         = $event->sheet->getDelegate();
                 $highestColumn = $sheet->getHighestColumn();
                 $highestRow    = $sheet->getHighestRow();
+                $sheet->freezePane('D2');
 
                 $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
 
@@ -158,6 +159,8 @@ class EmpleadosGeneralExport implements FromCollection, WithHeadings, WithStyles
                         break;
                     }
                 }
+                $sheet->getColumnDimension('A')->setVisible(false);
+
                 // Opcional: poner '--' en celdas vacías
                 for ($row = 2; $row <= $highestRow; $row++) {
                     for ($col = 1; $col <= $highestColumnIndex; $col++) {

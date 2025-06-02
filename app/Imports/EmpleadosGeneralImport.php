@@ -21,99 +21,97 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
     protected function normalizarCampo(string $campo): string
     {
         $campo = trim($campo);
-        $campo = strtolower($campo);
-        return str_replace(' ', '_', $campo);
+        $campo = mb_strtolower($campo, 'UTF-8');
+        $campo = preg_replace('/\s+/', '_', $campo);
+        $campo = preg_replace('/[^a-z0-9_]/', '', $campo);
+        return $campo;
+    }
+
+    protected function esValorParaEliminar($valor): bool
+    {
+        if ($valor === null) {
+            return true;
+        }
+
+        $str = trim((string) $valor);
+        $strSinEspacios = preg_replace('/\s+/', '', $str);
+        $strUpper = strtoupper($strSinEspacios);
+
+        $valoresEliminar = ['', '--', 'BORRAR'];
+
+        return in_array($strUpper, $valoresEliminar, true);
     }
 
     public function collection(Collection $rows)
     {
+        $cabecerasObligatorias = ['id', 'nombre', 'paterno', 'telefono', 'correo'];
+
+        $primeraFila = $rows->first();
+        $cabecerasArchivo = array_map(function ($campo) {
+            return $this->normalizarCampo($campo);
+        }, array_keys($primeraFila->toArray()));
+
+        foreach ($cabecerasObligatorias as $campoEsperado) {
+            $campoEsperadoNorm = $this->normalizarCampo($campoEsperado);
+            if (!in_array($campoEsperadoNorm, $cabecerasArchivo)) {
+              throw new \Exception(
+                "El archivo seleccionado no es válido para  actualizar Informacion General. Faltan campos clave. \n " .
+                "Por favor, tenga cuidado y asegúrese de cargar el archivo correcto con el formato esperado."
+            );
+            }
+        }
+
         $columnasFijasNorm = array_map([$this, 'normalizarCampo'], $this->columnasFijas);
+        Log::debug('Columnas fijas normalizadas: ' . json_encode($columnasFijasNorm));
 
         foreach ($rows as $row) {
             try {
-                $filaNorm          = [];
+                $filaNorm = [];
                 $valoresOriginales = [];
+
                 foreach ($row as $campo => $valor) {
-                    $campoNorm                 = $this->normalizarCampo($campo);
+                    $campoNorm = $this->normalizarCampo($campo);
                     $valoresOriginales[$campo] = $valor;
-                    $filaNorm[$campoNorm]      = $valor;
+                    $filaNorm[$campoNorm] = $valor;
                 }
 
-                // Buscar ID empleado para actualizar
-                $empleadoId = $filaNorm['id'] ?? ($filaNorm['id_empleado'] ?? null);
-
-                if (! $empleadoId) {
-                    //::warning("Fila ignorada por no tener ID o id_empleado.");
-                    continue;
-                }
+                $empleadoId = $filaNorm['id'] ?? null;
+                if (!$empleadoId) continue;
 
                 $empleado = Empleado::find($empleadoId);
+                if (!$empleado) continue;
 
-                if (! $empleado) {
-                    //Log::warning("Empleado con ID {$empleadoId} no encontrado, fila ignorada.");
-                    continue;
-                }
-
-                // Actualizar campos fijos (excepto id) con null si vienen vacíos o con '--'
                 $datosActualizar = [];
-                foreach ($columnasFijasNorm as $campoFijo) {
-                    if ($campoFijo === 'id') {
-                        continue;
-                    }
 
-                    // Manejar fecha_nacimiento con Carbon
+                foreach ($columnasFijasNorm as $campoFijo) {
+                    if ($campoFijo === 'id') continue;
 
                     if ($campoFijo === 'fecha_nacimiento') {
                         $fechaRaw = $filaNorm[$campoFijo] ?? null;
 
-                        if (empty($fechaRaw) || $fechaRaw === '--') {
+                        if ($this->esValorParaEliminar($fechaRaw)) {
                             $datosActualizar[$campoFijo] = null;
                         } else {
-                            // Log::info("Fecha raw para empleado {$empleado->id}: '{$fechaRaw}'");
-
                             try {
                                 if (is_numeric($fechaRaw)) {
-                                    // Convertir número Excel a fecha (si el número es razonable)
                                     if ($fechaRaw > 59) {
-                                        // Corregir bug excel para año bisiesto falso en 1900
                                         $fechaRaw -= 1;
                                     }
                                     $fecha = Carbon::createFromTimestamp(($fechaRaw - 25569) * 86400);
-                                    //Log::info("Fecha convertida desde número Excel para empleado {$empleado->id}: " . $fecha->toDateString());
                                 } else {
-                                    // Intentar parsear como d/m/Y, d-m-Y o Y-m-d, más flexible
-                                    $formatos = [
-                                        'd/m/Y', // 31/12/2020
-                                        'd-m-Y', // 31-12-2020
-                                        'Y-m-d', // 2020-12-31
-                                        'Y/m/d', // 2020/12/31
-                                        'm/d/Y', // 12/31/2020
-                                        'm-d-Y', // 12-31-2020
-                                        'd M Y', // 31 Dec 2020
-                                        'd-M-Y', // 31-Dec-2020
-                                        'd F Y', // 31 December 2020
-                                        'Ymd',   // 20201231
-                                        'd.m.Y', // 31.12.2020
-                                        'Y.m.d', // 2020.12.31
-                                    ];
-
+                                    $formatos = ['d/m/Y', 'd-m-Y', 'Y-m-d', 'Y/m/d', 'm/d/Y', 'm-d-Y', 'd M Y', 'd-M-Y', 'd F Y', 'Ymd', 'd.m.Y', 'Y.m.d'];
                                     $fecha = null;
                                     foreach ($formatos as $formato) {
                                         try {
                                             $fecha = Carbon::createFromFormat($formato, $fechaRaw);
-                                            if ($fecha) {
-                                                break;
-                                            }
-
+                                            if ($fecha) break;
                                         } catch (\Exception $e) {
-                                            // Intentar siguiente formato
+                                            continue;
                                         }
                                     }
-                                    if (! $fecha) {
-                                        throw new \Exception("Formato fecha no reconocido");
+                                    if (!$fecha) {
+                                        throw new \Exception("Formato de fecha no reconocido");
                                     }
-
-                                    //  Log::info("Fecha parseada desde texto para empleado {$empleado->id}: " . $fecha->toDateString());
                                 }
                                 $datosActualizar[$campoFijo] = $fecha->format('Y-m-d');
                             } catch (\Exception $e) {
@@ -124,61 +122,63 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                         continue;
                     }
 
-                    // Excluir los campos domicilio para actualizarlos por separado
                     if (in_array($campoFijo, ['pais', 'calle', 'num_int', 'num_ext', 'colonia', 'estado', 'cp', 'ciudad'])) {
                         continue;
                     }
 
-                    $valor                       = $filaNorm[$campoFijo] ?? null;
-                    $valorLimpio                 = ($valor === '' || $valor === '--') ? null : trim($valor);
-                    $datosActualizar[$campoFijo] = $valorLimpio;
+                    $valor = $filaNorm[$campoFijo] ?? null;
+                    $datosActualizar[$campoFijo] = $this->esValorParaEliminar($valor) ? null : trim((string) $valor);
                 }
 
-                // Actualizamos empleado
                 $empleado->update($datosActualizar);
 
-                // Ahora actualizamos domicilio si existe
+                // Actualiza domicilio si existe
                 if ($empleado->domicilioEmpleado) {
                     $datosDomicilio = [];
                     foreach (['pais', 'calle', 'num_int', 'num_ext', 'colonia', 'estado', 'cp', 'ciudad'] as $campoDomicilio) {
-                        $valor                           = $filaNorm[$campoDomicilio] ?? null;
-                        $valorLimpio                     = ($valor === '' || $valor === '--') ? null : trim($valor);
-                        $datosDomicilio[$campoDomicilio] = $valorLimpio;
+                        $valor = $filaNorm[$campoDomicilio] ?? null;
+                        $datosDomicilio[$campoDomicilio] = $this->esValorParaEliminar($valor) ? null : trim((string) $valor);
                     }
                     $empleado->domicilioEmpleado->update($datosDomicilio);
-                    //Log::info("Domicilio actualizado para empleado {$empleado->id}");
-                } else {
-                    // Log::info("Empleado {$empleado->id} no tiene domicilio asociado para actualizar.");
                 }
 
-                // Campos extra: actualizar o crear nuevos campos extra
+                // Campos extras
+                $camposExtraDelArchivo = [];
                 foreach ($valoresOriginales as $campoOriginal => $valorOriginal) {
                     $campoNorm = $this->normalizarCampo($campoOriginal);
+                    Log::debug("Revisando campo extra: original = {$campoOriginal}, normalizado = {$campoNorm}");
 
-                    if (in_array($campoNorm, $columnasFijasNorm)) {
-                        continue;
-                    }
-                    // no es campo extra
+                    if (in_array($campoNorm, $columnasFijasNorm)) continue;
 
-                    $valorLimpio = ($valorOriginal === '' || $valorOriginal === '--' || $valorOriginal === null) ? null : trim($valorOriginal);
+                    $valorLimpio = $this->esValorParaEliminar($valorOriginal) ? null : trim((string) $valorOriginal);
+                    $camposExtraDelArchivo[] = $campoNorm;
 
                     if ($valorLimpio === null) {
-                        // Eliminar campo extra para el empleado
-                        EmpleadoCampoExtra::where('id_empleado', $empleado->id)
-                            ->whereRaw("LOWER(REPLACE(TRIM(nombre), ' ', '_')) = ?", [$this->normalizarCampo($campoOriginal)])
-                            ->delete();
-                        Log::info("Campo extra eliminado: Empleado {$empleado->id}, Campo '{$campoOriginal}'");
+                        $campoExtra = EmpleadoCampoExtra::where('id_empleado', $empleado->id)
+                            ->get()
+                            ->first(function ($item) use ($campoOriginal) {
+                                return $this->normalizarCampo($item->nombre) === $this->normalizarCampo($campoOriginal);
+                            });
+
+                        if ($campoExtra) {
+                            $campoExtra->delete();
+                        }
                     } else {
-                        // Actualizar o crear campo extra
                         EmpleadoCampoExtra::updateOrCreate(
                             ['id_empleado' => $empleado->id, 'nombre' => $campoOriginal],
                             ['valor' => $valorLimpio]
                         );
-                        Log::info("Campo extra actualizado o creado: Empleado {$empleado->id}, Campo '{$campoOriginal}', Valor: {$valorLimpio}");
                     }
                 }
 
-                Log::info("Empleado {$empleado->id} actualizado correctamente.");
+                // Eliminar campos extra que no estén presentes en el archivo actual
+                $camposExtraBD = EmpleadoCampoExtra::where('id_empleado', $empleado->id)->get();
+                foreach ($camposExtraBD as $campoBD) {
+                    $nombreNorm = $this->normalizarCampo($campoBD->nombre);
+                    if (!in_array($nombreNorm, $camposExtraDelArchivo)) {
+                        $campoBD->delete();
+                    }
+                }
 
             } catch (\Exception $e) {
                 Log::error("Error importando fila con ID {$row['id']}: " . $e->getMessage());
