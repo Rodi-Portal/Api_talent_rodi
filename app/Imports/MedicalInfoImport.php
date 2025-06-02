@@ -4,40 +4,75 @@ namespace App\Imports;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Concerns\ToCollection;
+use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
-class MedicalInfoImport implements ToCollection
+class MedicalInfoImport implements ToCollection, WithHeadingRow
 {
     public function collection(Collection $rows)
     {
-        // Saltamos la primera fila (encabezados)
-        $rows->shift();
+        if ($rows->isEmpty()) {
+            throw new \Exception("El archivo está vacío.");
+        }
+
+        // Cabeceras obligatorias (normalizadas como aparecen en el Excel)
+        $cabecerasObligatorias = [
+            'id_empleado',
+            'peso',
+            'edad',
+            'tipo_sangre',
+        ];
+
+        // Obtenemos las cabeceras desde la primera fila
+        $cabecerasArchivo = array_keys($rows->first()->toArray());
+        //Log::info('Cabeceras recibidas desde Excel:', $cabecerasArchivo);
+
+        // Normalizamos las cabeceras del archivo
+        $cabecerasArchivoNorm = array_map(function ($val) {
+            return mb_strtolower(trim($val));
+        }, $cabecerasArchivo);
+
+        $cabecerasFaltantes = [];
+        foreach ($cabecerasObligatorias as $esperada) {
+            if (! in_array($esperada, $cabecerasArchivoNorm)) {
+                $cabecerasFaltantes[] = $esperada;
+            }
+        }
+
+        if (! empty($cabecerasFaltantes)) {
+            $faltantesStr = implode(", ", $cabecerasFaltantes);
+            throw new \Exception(
+                "El archivo seleccionado no es válido. Faltan campos clave. \n " .
+                "Por favor, tenga cuidado y asegúrese de cargar el archivo correcto con el formato esperado."
+            );
+        }
 
         foreach ($rows as $row) {
-            $idEmpleado = $row[0]; // Columna A (oculta)
+            $idEmpleado = $row['id'] ?? null;
+            if (! $idEmpleado) {
+                continue;
+            }
 
-            // Reemplazar "--" por null
-            $data = $row->map(function ($value) {
-                return trim($value) === '--' ? null : $value;
+            $data = collect($row)->map(function ($value) {
+                $value = is_string($value) ? trim($value) : $value;
+                return $value === '--' ? null : $value;
             });
-
             DB::connection('portal_main')->table('medical_info')->updateOrInsert(
                 ['id_empleado' => $idEmpleado],
                 [
-                    'peso'                    => $data[3] ?? null,
-                    'edad'                    => $data[4] ?? null,
-                    'alergias_medicamentos'   => $data[5] ?? null,
-                    'alergias_alimentos'      => $data[6] ?? null,
-                    'enfermedades_cronicas'   => $data[7] ?? null,
-                    'cirugias'                => $data[8] ?? null,
-                    'tipo_sangre'             => $data[9] ?? null,
-                    'contacto_emergencia'     => $data[10] ?? null,
-                    'medicamentos_frecuentes' => $data[11] ?? null,
-                    'lesiones'                => $data[12] ?? null,
-                    'otros_padecimientos'     => $data[13] ?? null,
-                    'otros_padecimientos2'    => $data[14] ?? null,
+                    'peso'                    => $data['peso'] ?? null,
+                    'edad'                    => $data['edad'] ?? null,
+                    'alergias_medicamentos'   => $data['alergias_medicamentos'] ?? null,
+                    'alergias_alimentos'      => $data['alergias_alimentos'] ?? null,
+                    'enfermedades_cronicas'   => $data['enfermedades_cronicas'] ?? null,
+                    'cirugias'                => $data['cirugias'] ?? null,
+                    'tipo_sangre'             => $data['tipo_sangre'] ?? null,
+                    'contacto_emergencia'     => $data['contacto_emergencia'] ?? null,
+                    'medicamentos_frecuentes' => $data['medicamentos_frecuentes'] ?? null,
+                    'lesiones'                => $data['lesiones'] ?? null,
+                    'otros_padecimientos'     => $data['otros_padecimientos'] ?? null,
+                    'otros_padecimientos2'    => $data['otros_padecimientos_2'] ?? null,
                 ]
             );
         }
     }
-
 }

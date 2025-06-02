@@ -79,6 +79,7 @@ class EmpleadosMedicalExport implements FromCollection, WithHeadings, WithStyles
                 $sheet         = $event->sheet->getDelegate();
                 $highestColumn = $sheet->getHighestColumn();
                 $highestRow    = $sheet->getHighestRow();
+                $sheet->freezePane('D2');
 
                 // 1. Ocultar columna A
                 $sheet->getColumnDimension('A')->setVisible(false);
@@ -115,6 +116,7 @@ class EmpleadosMedicalExport implements FromCollection, WithHeadings, WithStyles
                         }
                     }
                 }
+                $sheet->getColumnDimension('C')->setWidth(40); // Puedes ajustar el número según tu necesidad
 
                 // 5. Wrap text en columnas N y O (Otros Padecimientos)
                 $sheet->getStyle("N2:N{$highestRow}")->getAlignment()->setWrapText(true);
