@@ -166,7 +166,7 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
                 'dias_aguinaldo'         => $clean($row['dias_aguinaldo'] ?? null),
                 'prima_vacacional'       => $clean($row['prima_vacacional'] ?? null),
                 'descuento_ausencia'     => $clean($row['descuento_ausencia'] ?? null),
-                'dias_descanso'          => $diasDescanso, // 👈 Esto es suficiente si el cast a `array` existe
+                'dias_descanso'          => json_encode($diasDescanso),
 
                 // Días de descanso
             ]
