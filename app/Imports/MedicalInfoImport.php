@@ -8,6 +8,12 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
 class MedicalInfoImport implements ToCollection, WithHeadingRow
 {
+    protected $idCliente;
+
+    public function __construct($idCliente)
+    {
+        $this->idCliente = $idCliente;
+    }
     public function collection(Collection $rows)
     {
         if ($rows->isEmpty()) {
@@ -50,6 +56,19 @@ class MedicalInfoImport implements ToCollection, WithHeadingRow
             $idEmpleado = $row['id'] ?? null;
             if (! $idEmpleado) {
                 continue;
+            }
+// Validar que el empleado pertenezca al cliente
+            $empleado = DB::connection('portal_main')
+                ->table('empleados')
+                ->where('id', $idEmpleado)
+                ->where('id_cliente', $this->idCliente)
+                ->first();
+
+            if (! $empleado) {
+                throw new \Exception(
+                    "El archivo no se puede importar porque contiene empleados que no pertenecen a la sucursal actual. " .
+                    "Verifica que estás usando el archivo correcto para  esta  sucursal."
+                );
             }
 
             $data = collect($row)->map(function ($value) {

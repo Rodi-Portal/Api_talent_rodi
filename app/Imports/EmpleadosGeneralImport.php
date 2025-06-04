@@ -11,6 +11,12 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
 class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
 {
+    protected $idCliente;
+
+    public function __construct($idCliente)
+    {
+        $this->idCliente = $idCliente;
+    }
     protected $columnasFijas = [
         'id', 'id_empleado', 'nombre', 'paterno', 'materno',
         'telefono', 'correo', 'rfc', 'curp', 'nss',
@@ -33,9 +39,9 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
             return true;
         }
 
-        $str = trim((string) $valor);
+        $str            = trim((string) $valor);
         $strSinEspacios = preg_replace('/\s+/', '', $str);
-        $strUpper = strtoupper($strSinEspacios);
+        $strUpper       = strtoupper($strSinEspacios);
 
         $valoresEliminar = ['', '--', 'BORRAR'];
 
@@ -46,19 +52,43 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
     {
         $cabecerasObligatorias = ['id', 'nombre', 'paterno', 'telefono', 'correo'];
 
-        $primeraFila = $rows->first();
+        $primeraFila      = $rows->first();
         $cabecerasArchivo = array_map(function ($campo) {
             return $this->normalizarCampo($campo);
         }, array_keys($primeraFila->toArray()));
 
         foreach ($cabecerasObligatorias as $campoEsperado) {
             $campoEsperadoNorm = $this->normalizarCampo($campoEsperado);
-            if (!in_array($campoEsperadoNorm, $cabecerasArchivo)) {
-              throw new \Exception(
-                "El archivo seleccionado no es válido para  actualizar Informacion General. Faltan campos clave. \n " .
-                "Por favor, tenga cuidado y asegúrese de cargar el archivo correcto con el formato esperado."
-            );
+            if (! in_array($campoEsperadoNorm, $cabecerasArchivo)) {
+                throw new \Exception(
+                    "El archivo seleccionado no es válido para  actualizar Informacion General. Faltan campos clave. \n " .
+                    "Por favor, tenga cuidado y asegúrese de cargar el archivo correcto con el formato esperado."
+                );
             }
+        }
+        // Validación previa: todos los empleados deben existir y tener el mismo id_cliente
+        $idsInvalidos = [];
+
+        foreach ($rows as $row) {
+            $empleadoId = $row['id'] ?? null;
+
+            if (! $empleadoId) {
+                $idsInvalidos[] = '[sin ID]';
+                continue;
+            }
+
+            $empleado = Empleado::find($empleadoId);
+
+            if (! $empleado || $empleado->id_cliente != $this->idCliente) {
+                $idsInvalidos[] = $empleadoId;
+            }
+        }
+
+        if (count($idsInvalidos) > 0) {
+            throw new \Exception(
+                "El archivo no se puede importar porque contiene empleados que no pertenecen al cliente o sucursal actual. " .
+                "Verifica que estás usando el archivo correcto y que los datos corresponden a la sucursal seleccionada."
+            );
         }
 
         $columnasFijasNorm = array_map([$this, 'normalizarCampo'], $this->columnasFijas);
@@ -66,25 +96,26 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
 
         foreach ($rows as $row) {
             try {
-                $filaNorm = [];
+                $filaNorm          = [];
                 $valoresOriginales = [];
 
                 foreach ($row as $campo => $valor) {
-                    $campoNorm = $this->normalizarCampo($campo);
+                    $campoNorm                 = $this->normalizarCampo($campo);
                     $valoresOriginales[$campo] = $valor;
-                    $filaNorm[$campoNorm] = $valor;
+                    $filaNorm[$campoNorm]      = $valor;
                 }
 
-                $empleadoId = $filaNorm['id'] ?? null;
-                if (!$empleadoId) continue;
-
                 $empleado = Empleado::find($empleadoId);
-                if (!$empleado) continue;
+                if (! $empleado) {
+                    continue;
+                }
 
                 $datosActualizar = [];
 
                 foreach ($columnasFijasNorm as $campoFijo) {
-                    if ($campoFijo === 'id') continue;
+                    if ($campoFijo === 'id') {
+                        continue;
+                    }
 
                     if ($campoFijo === 'fecha_nacimiento') {
                         $fechaRaw = $filaNorm[$campoFijo] ?? null;
@@ -100,16 +131,19 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                                     $fecha = Carbon::createFromTimestamp(($fechaRaw - 25569) * 86400);
                                 } else {
                                     $formatos = ['d/m/Y', 'd-m-Y', 'Y-m-d', 'Y/m/d', 'm/d/Y', 'm-d-Y', 'd M Y', 'd-M-Y', 'd F Y', 'Ymd', 'd.m.Y', 'Y.m.d'];
-                                    $fecha = null;
+                                    $fecha    = null;
                                     foreach ($formatos as $formato) {
                                         try {
                                             $fecha = Carbon::createFromFormat($formato, $fechaRaw);
-                                            if ($fecha) break;
+                                            if ($fecha) {
+                                                break;
+                                            }
+
                                         } catch (\Exception $e) {
                                             continue;
                                         }
                                     }
-                                    if (!$fecha) {
+                                    if (! $fecha) {
                                         throw new \Exception("Formato de fecha no reconocido");
                                     }
                                 }
@@ -126,7 +160,7 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                         continue;
                     }
 
-                    $valor = $filaNorm[$campoFijo] ?? null;
+                    $valor                       = $filaNorm[$campoFijo] ?? null;
                     $datosActualizar[$campoFijo] = $this->esValorParaEliminar($valor) ? null : trim((string) $valor);
                 }
 
@@ -136,7 +170,7 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                 if ($empleado->domicilioEmpleado) {
                     $datosDomicilio = [];
                     foreach (['pais', 'calle', 'num_int', 'num_ext', 'colonia', 'estado', 'cp', 'ciudad'] as $campoDomicilio) {
-                        $valor = $filaNorm[$campoDomicilio] ?? null;
+                        $valor                           = $filaNorm[$campoDomicilio] ?? null;
                         $datosDomicilio[$campoDomicilio] = $this->esValorParaEliminar($valor) ? null : trim((string) $valor);
                     }
                     $empleado->domicilioEmpleado->update($datosDomicilio);
@@ -148,9 +182,11 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                     $campoNorm = $this->normalizarCampo($campoOriginal);
                     Log::debug("Revisando campo extra: original = {$campoOriginal}, normalizado = {$campoNorm}");
 
-                    if (in_array($campoNorm, $columnasFijasNorm)) continue;
+                    if (in_array($campoNorm, $columnasFijasNorm)) {
+                        continue;
+                    }
 
-                    $valorLimpio = $this->esValorParaEliminar($valorOriginal) ? null : trim((string) $valorOriginal);
+                    $valorLimpio             = $this->esValorParaEliminar($valorOriginal) ? null : trim((string) $valorOriginal);
                     $camposExtraDelArchivo[] = $campoNorm;
 
                     if ($valorLimpio === null) {
@@ -175,7 +211,7 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                 $camposExtraBD = EmpleadoCampoExtra::where('id_empleado', $empleado->id)->get();
                 foreach ($camposExtraBD as $campoBD) {
                     $nombreNorm = $this->normalizarCampo($campoBD->nombre);
-                    if (!in_array($nombreNorm, $camposExtraDelArchivo)) {
+                    if (! in_array($nombreNorm, $camposExtraDelArchivo)) {
                         $campoBD->delete();
                     }
                 }
