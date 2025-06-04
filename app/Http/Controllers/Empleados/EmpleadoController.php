@@ -87,7 +87,7 @@ class EmpleadoController extends Controller
             foreach ($empleados as $empleado) {
                 // Obtener documentos del empleado
                 $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
-                    ->where('status', 1)
+                   
                               ->get();
                 $cursos     = CursoEmpleado::where('employee_id', $empleado->id)->get();
                 $examenes   = ExamEmpleado::where('employee_id', $empleado->id)->get();
