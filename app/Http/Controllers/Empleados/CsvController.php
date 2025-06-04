@@ -327,9 +327,13 @@ class CsvController extends Controller
         if (! $request->hasFile('file')) {
             return response()->json(['error' => 'No se proporcionó un archivo'], 400);
         }
+        if (! $request->has('id_cliente')) {
+            return response()->json(['error' => 'No esta  asociado a una sucursal refresque la  pagina  e intentelo nuevamente'], 400);
+        }
 
+        $id_cliente = $request->input('id_cliente');
         try {
-            Excel::import(new EmpleadosGeneralImport, $request->file('file'));
+            Excel::import(new EmpleadosGeneralImport($id_cliente), $request->file('file'));
             return response()->json(['success' => 'Información actualizada correctamente']);
         } catch (\Exception $e) {
             Log::error('Error al importar archivo Excel: ' . $e->getMessage());
@@ -343,9 +347,16 @@ class CsvController extends Controller
             'file'   => 'required|mimes:xlsx,xls',
             'id_rol' => 'required|integer',
         ]);
+        if (! $request->hasFile('file')) {
+            return response()->json(['error' => 'No se proporcionó un archivo'], 400);
+        }
+        if (! $request->has('id_cliente')) {
+            return response()->json(['error' => 'No esta  asociado a una sucursal refresque la  pagina  e intentelo nuevamente'], 400);
+        }
+        $id_cliente = $request->input('id_cliente');
 
         try {
-            Excel::import(new MedicalInfoImport, $request->file('file'));
+            Excel::import(new MedicalInfoImport($id_cliente), $request->file('file'));
 
             return response()->json(['message' => 'Información médica actualizada correctamente.']);
         } catch (\Exception $e) {
@@ -358,9 +369,17 @@ class CsvController extends Controller
         $request->validate([
             'file' => 'required|file|mimes:xlsx,xls,csv',
         ]);
+         if (! $request->hasFile('file')) {
+            return response()->json(['error' => 'No se proporcionó un archivo'], 400);
+        }
+        if (! $request->has('id_cliente')) {
+            return response()->json(['error' => 'No esta  asociado a una sucursal refresque la  pagina  e intentelo nuevamente'], 400);
+        }
+
+     $id_cliente = $request->input('id_cliente');
 
         try {
-            Excel::import(new EmpleadosLaboralesImport, $request->file('file'));
+            Excel::import(new EmpleadosLaboralesImport($id_cliente), $request->file('file'));
 
             return response()->json(['message' => 'Importación completada correctamente.'], 200);
         } catch (\Exception $e) {

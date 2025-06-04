@@ -1,6 +1,7 @@
 <?php
 namespace App\Imports;
 
+use App\Models\Empleado;
 use App\Models\LaboralesEmpleado;
 use Maatwebsite\Excel\Concerns\OnEachRow;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
@@ -8,6 +9,12 @@ use Maatwebsite\Excel\Row;
 
 class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
 {
+    protected $idCliente;
+
+    public function __construct($idCliente)
+    {
+        $this->idCliente = $idCliente;
+    }
     protected $mapTipoContrato = [
         'Indefinido'                    => 'Indefinido',
         '1 mes de prueba'               => '1 mes de prueba',
@@ -113,6 +120,15 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
             return;
         }
 
+        $empleado = Empleado::find($empleadoId);
+
+        if (! $empleado || $empleado->id_cliente != $this->idCliente) {
+            throw new \Exception(
+                "No fue posible actualizar los datos. El archivo contiene información de empleados que no pertenecen a esta sucursal. " .
+                "Asegúrate de usar el archivo correcto que corresponde al sucursal donde  intentas  actualizar la informacion."
+            );
+        }
+
         // Limpieza de valores
         $tipoContratoRaw     = $clean($row['tipo_contrato'] ?? null);
         $tipoRegimenRaw      = $clean($row['tipo_regimen'] ?? null);
@@ -167,7 +183,6 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
                 'prima_vacacional'       => $clean($row['prima_vacacional'] ?? null),
                 'descuento_ausencia'     => $clean($row['descuento_ausencia'] ?? null),
                 'dias_descanso'          => json_encode($diasDescanso),
-
                 // Días de descanso
             ]
         );
