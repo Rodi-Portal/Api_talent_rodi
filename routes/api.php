@@ -21,6 +21,7 @@ use App\Http\Controllers\Empleados\MedicalInfoController;
 use App\Http\Controllers\Empleados\NotificacionController;
 use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
 use App\Http\Controllers\ImageController;
+use App\Http\Controllers\PeriodoNominaController;
 use App\Http\Controllers\PreEmpleado\PreEmpleadoController;
 use App\Http\Controllers\ProyectosHistorialController;
 use App\Http\Controllers\ReportController;
@@ -75,31 +76,39 @@ Route::middleware(['api'])->group(function () {
     Route::get('empleados', [ApiEmpleadoController::class, 'index']);
     Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
     Route::get('/document-options', [DocumentOptionController::class, 'index']);
-    //descargar plantilla Empleados Masivos
-    Route::get('/download-template', [CsvController::class, 'downloadTemplate']); // plantilla para  carga   desde 0
-    Route::get('/download-template-medical', [CsvController::class, 'downloadTemplateMedical']);// plantilla  para   carga  y actualizacion de medical info
-    Route::post('/upload-medical-info', [CsvController::class, 'uploadMedicalInfo']);// cargar plantilla medical info
-    Route::get('/download-template-general', [CsvController::class, 'downloadTemplateGeneral']);// plantilla  para   carga  y actualizacion de general info
-    Route::post('/upload-general-info', [CsvController::class, 'importGeneralInfo']);// cargar plantilla general info  uploadLaboralesInfo
+                                                                                                 //descargar plantilla Empleados Masivos
+    Route::get('/download-template', [CsvController::class, 'downloadTemplate']);                // plantilla para  carga   desde 0
+    Route::get('/download-template-medical', [CsvController::class, 'downloadTemplateMedical']); // plantilla  para   carga  y actualizacion de medical info
+    Route::post('/upload-medical-info', [CsvController::class, 'uploadMedicalInfo']);            // cargar plantilla medical info
+    Route::get('/download-template-general', [CsvController::class, 'downloadTemplateGeneral']); // plantilla  para   carga  y actualizacion de general info
+    Route::post('/upload-general-info', [CsvController::class, 'importGeneralInfo']);            // cargar plantilla general info  uploadLaboralesInfo
 
-    Route::get('/download-template-laborales', [CsvController::class, 'downloadTemplateLaboral']);// cargar plantilla laborales 
+    Route::get('/download-template-laborales', [CsvController::class, 'downloadTemplateLaboral']); // cargar plantilla laborales
     Route::post('/upload-laborales-info', [CsvController::class, 'uploadLaboralesInfo']);
-
-
 
     // Ruta para la importación de empleados desde un archivo CSV o Excel
     Route::post('/empleados/importar', [CsvController::class, 'import']);
     // ruta para eliminar EMpleados
     Route::delete('/delempleados/{id}', [EmpleadoController::class, 'deleteEmpleado']);
 
-    // Ruta para  los  laborales del empleado */
+    //***************  Ruta para  los  laborales del empleado ************************/
 
     Route::get('/empleado/{id_empleado}/laborales', [LaboralesController::class, 'obtenerDatosLaborales']);
     Route::post('/empleados/laborales', [LaboralesController::class, 'guardarDatosLaborales']);
-    Route::put('/empleados/laborales/{id_empleado}', [LaboralesController::class, 'actualizarDatosLaborales']); 
-    Route::post('/empleados/registro_prenomina', [LaboralesController::class, 'guardarPrenomina']);
+    Route::put('/empleados/laborales/{id_empleado}', [LaboralesController::class, 'actualizarDatosLaborales']);
 
-    // Fin para  los  laborales del empleado */
+    //peridodos_nomina
+    Route::get('/periodos-nomina', [PeriodoNominaController::class, 'index']);
+    Route::get('/periodos-nomina-con-datos', [PeriodoNominaController::class, 'periodosConPrenomina']);
+    Route::post('/periodos-nomina', [PeriodoNominaController::class, 'store']);
+    Route::put('/periodos-nomina/{id}', [PeriodoNominaController::class, 'update']);
+
+    //Pre Nomina Empleados //
+    Route::post('/empleados/registro_prenomina', [LaboralesController::class, 'guardarPrenomina']);
+    Route::get('/empleados/obtener_prenomina_masiva_ultima', [LaboralesController::class, 'empleadosMasivoPrenomina']);
+    Route::post('/empleados/registro_prenomina_masiva', [LaboralesController::class, 'guardarPrenominaMasiva']);
+
+    //***************  Fin para  los  laborales del empleado ********************/
 
     //  obtener  el status  de general  de los empleados
     Route::get('/empleados/status', [EmpleadoController::class, 'getEmpleadosStatus']);
