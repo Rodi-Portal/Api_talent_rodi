@@ -307,7 +307,6 @@ class CsvController extends Controller
                 'LAB.horas_dia',
                 'LAB.grupo_nomina',
                 'LAB.periodicidad_pago',
-                'LAB.tipo_nomina',
                 'LAB.dias_descanso',
                 'LAB.vacaciones_disponibles',
                 'LAB.sueldo_diario',
@@ -315,6 +314,7 @@ class CsvController extends Controller
                 'LAB.pago_hora_extra',
                 'LAB.dias_aguinaldo',
                 'LAB.prima_vacacional',
+                'LAB.prestamo_pendiente',
                 'LAB.descuento_ausencia',
             ])
             ->get();
@@ -369,14 +369,14 @@ class CsvController extends Controller
         $request->validate([
             'file' => 'required|file|mimes:xlsx,xls,csv',
         ]);
-         if (! $request->hasFile('file')) {
+        if (! $request->hasFile('file')) {
             return response()->json(['error' => 'No se proporcionó un archivo'], 400);
         }
         if (! $request->has('id_cliente')) {
             return response()->json(['error' => 'No esta  asociado a una sucursal refresque la  pagina  e intentelo nuevamente'], 400);
         }
 
-     $id_cliente = $request->input('id_cliente');
+        $id_cliente = $request->input('id_cliente');
 
         try {
             Excel::import(new EmpleadosLaboralesImport($id_cliente), $request->file('file'));

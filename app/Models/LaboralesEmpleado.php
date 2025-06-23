@@ -32,7 +32,6 @@ class LaboralesEmpleado extends Model
         'horas_dia',
         'grupo_nomina',
         'periodicidad_pago',
-        'tipo_nomina',
         'dias_descanso',
         'vacaciones_disponibles',
         'sueldo_diario',
@@ -41,6 +40,7 @@ class LaboralesEmpleado extends Model
         'pago_hora_extra',
         'dias_aguinaldo',
         'prima_vacacional',
+        'prestamo_pendiente',
         'descuento_ausencia',
     ];
 
