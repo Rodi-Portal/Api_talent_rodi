@@ -9,8 +9,8 @@ class ClienteTalent extends Model
     use HasFactory;
 
     protected $connection = 'portal_main';
-    protected $table = 'cliente';
-    public $timestamps = false;
+    protected $table      = 'cliente';
+    public $timestamps    = false;
 
     protected $fillable = [
         'id_portal',
@@ -42,5 +42,8 @@ class ClienteTalent extends Model
     {
         return $this->hasManyThrough(CursoEmpleado::class, Empleado::class, 'id_cliente', 'employee_id');
     }
+    public function cliente()
+    {
+        return $this->belongsTo(Cliente::class, 'id_cliente');
+    }
 }
-

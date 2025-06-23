@@ -80,12 +80,9 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
             '09' => 'Otra Periodicidad',
         ];
 
-        $tiposNomina = [
-            'O' => 'Ordinaria',
-            'E' => 'Extraordinaria',
-        ];
+       
 
-        return collect($this->empleados)->map(function ($item) use ($mapTipoContrato, $mapTipoRegimen, $mapTipoJornada, $periodicidades, $tiposNomina) {
+        return collect($this->empleados)->map(function ($item) use ($mapTipoContrato, $mapTipoRegimen, $mapTipoJornada, $periodicidades) {
             foreach ($item as $key => $value) {
                 if (is_null($value) || $value === '') {
                     $item->$key = '--';
@@ -96,7 +93,6 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
             $item->tipo_regimen = $mapTipoRegimen[$item->tipo_regimen ?? ''] ?? $item->tipo_regimen;
             $item->tipo_jornada = $mapTipoJornada[$item->tipo_jornada ?? ''] ?? $item->tipo_jornada;
             $item->periodicidad_pago = $periodicidades[$item->periodicidad_pago ?? ''] ?? $item->periodicidad_pago;
-            $item->tipo_nomina = $tiposNomina[$item->tipo_nomina ?? ''] ?? $item->tipo_nomina;
 
             // Días de descanso a columnas
             $dias = is_array($temp = json_decode($item->dias_descanso, true)) ? $temp : [];
@@ -124,13 +120,13 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
             'Horas Día',
             'Grupo Nómina',
             'Periodicidad Pago',
-            'Tipo Nómina',
             'Vacaciones Disponibles',
             'Sueldo Diario',
             'Pago Día Festivo',
             'Pago Hora Extra',
             'Días Aguinaldo',
             'Prima Vacacional',
+            'Prestamo pendiente',
             'Descuento Ausencia',
             'Descanso - Lunes',
             'Descanso - Martes',
@@ -196,7 +192,6 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
                         'Pensionados', 'Sueldos y Salarios',
                     ],
                     'tipo_jornada' => ['Ninguna', 'Diurna', 'Mixta', 'Nocturna', 'Otra'],
-                    'tipo_nomina' => ['Ordinaria', 'Extraordinaria'],
                     'periodicidad_pago' => [
                         'Diurna', 'Semanal', 'Quincenal', 'Mensual', 'Bimestral',
                         'Unidad obra', 'Comisión', 'Precio alzado', 'Otra Periodicidad',
@@ -234,7 +229,6 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
                     'D' => 'tipo_contrato',
                     'F' => 'tipo_regimen',
                     'G' => 'tipo_jornada',
-                    'K' => 'tipo_nomina',
                     'J' => 'periodicidad_pago',
                 ];
                 foreach ($columnMap as $col => $rangeName) {
