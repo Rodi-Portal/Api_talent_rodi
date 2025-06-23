@@ -70,10 +70,7 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
         '09' => 'Otra Periodicidad',
     ];
 
-    protected $tiposNomina = [
-        'O' => 'Ordinaria',
-        'E' => 'Extraordinaria',
-    ];
+
 
     public function onRow(Row $row)
     {
@@ -90,7 +87,6 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
                 'tipo_regimen',
                 'tipo_jornada',
                 'periodicidad_pago',
-                'tipo_nomina',
                 // Agrega los campos obligatorios que necesites validar
             ];
 
@@ -134,15 +130,11 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
         $tipoRegimenRaw      = $clean($row['tipo_regimen'] ?? null);
         $tipoJornadaRaw      = strtolower($clean($row['tipo_jornada'] ?? ''));
         $periodicidadPagoRaw = $clean($row['periodicidad_pago'] ?? null);
-        $tipoNominaRaw       = $clean($row['tipo_nomina'] ?? null);
-
         // Mapeo: obtener claves
         $tipoContrato     = $this->mapTipoContrato[$tipoContratoRaw] ?? null;
         $tipoRegimen      = array_search($tipoRegimenRaw, $this->mapTipoRegimen, true) ?? null;
         $tipoJornada      = array_search($tipoJornadaRaw, $this->mapTipoJornada, true) ?? null;
         $periodicidadPago = array_search($periodicidadPagoRaw, $this->periodicidades, true) ?? null;
-        $tipoNominaRaw    = ucfirst(strtolower($clean($row['tipo_nomina'] ?? null)));
-        $tipoNomina       = array_search($tipoNominaRaw, $this->tiposNomina, true) ?? null;
 
         // Este log muestra todas las claves de la fila importada
         $diasDescanso = [];
@@ -170,8 +162,6 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
                 'tipo_regimen'           => $tipoRegimen,
                 'tipo_jornada'           => $tipoJornada,
                 'periodicidad_pago'      => $periodicidadPago,
-                'tipo_nomina'            => $tipoNomina,
-
                 'otro_tipo_contrato'     => $clean($row['otro_tipo_contrato'] ?? null),
                 'horas_dia'              => $clean($row['horas_dia'] ?? null),
                 'grupo_nomina'           => $clean($row['grupo_nomina'] ?? null),
@@ -181,6 +171,7 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
                 'pago_hora_extra'        => $clean($row['pago_hora_extra'] ?? null),
                 'dias_aguinaldo'         => $clean($row['dias_aguinaldo'] ?? null),
                 'prima_vacacional'       => $clean($row['prima_vacacional'] ?? null),
+                'prestamo_pendiente'     => $clean($row['prestamo_pendiente'] ?? null),
                 'descuento_ausencia'     => $clean($row['descuento_ausencia'] ?? null),
                 'dias_descanso'          => json_encode($diasDescanso),
                 // Días de descanso
