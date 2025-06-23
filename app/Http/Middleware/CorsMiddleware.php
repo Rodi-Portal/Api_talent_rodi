@@ -11,7 +11,7 @@ class CorsMiddleware
     {
         // Obtener el origen de la solicitud
         $origin = $request->headers->get('Origin');
-
+        // cambio
         // Lista de orígenes permitidos
         $allowedOrigins = [
             'https://sandbox.talentsafecontrol.com',
