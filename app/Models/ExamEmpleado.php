@@ -26,6 +26,7 @@ class ExamEmpleado extends Model
         'expiry_date',
         'expiry_reminder',
         'id_candidato',
+        'nameDocument',
         'status',
     ];
 

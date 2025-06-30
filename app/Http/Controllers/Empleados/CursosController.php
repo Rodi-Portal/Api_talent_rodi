@@ -62,101 +62,179 @@ class CursosController extends Controller
 
     public function store(Request $request)
     {
-        // Validar los datos de entrada
-        $validator = Validator::make($request->all(), [
-            'employee_id'     => 'required|integer',
-            'name'            => 'required|string|max:255',
-            'description'     => 'nullable|string|max:500',
-            'expiry_date'     => 'required|date',
-            'expiry_reminder' => 'nullable|integer',
-            'file'            => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120',
-            'creacion'        => 'required|string',
-            'edicion'         => 'required|string',
-            'id_portal'       => 'required|integer',
-            'origen'          => 'required|integer',
-            'status'          => 'required|integer', // Asegúrate de usar este campo según lo necesites
-        ]);
+        try {
+            $now = Carbon::now('America/Mexico_City');
 
-        if ($validator->fails()) {
-            Log::error('Errores de validación:', $validator->errors()->toArray());
-            return response()->json($validator->errors(), 422);
+            Log::info('[CURSO] ⏱ Iniciando proceso de registro', [
+                'request' => $request->all(),
+            ]);
+            if ($request->has('file') && $request->input('file') === 'null') {
+                $request->request->remove('file');
+                Log::debug('[CURSO] 🧼 Campo file venía como "null" (string), eliminado antes de validar.');
+            }
+            // === [1] Validación de datos ===
+            $validator = Validator::make($request->all(), [
+                'employee_id'     => 'required|integer',
+                'name'            => 'required|string|max:255',
+                'description'     => 'nullable|string|max:500',
+                'expiry_date'     => 'nullable|date',
+                'expiry_reminder' => 'nullable|integer',
+                'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120',
+                'id_portal'       => 'required|integer',
+                'status'          => 'required|integer',
+                'carpeta'         => 'nullable|string|max:255',
+                'origen'          => 'required|integer',
+                'id_opcion'       => 'nullable|integer',
+            ]);
+
+            if ($validator->fails()) {
+                Log::warning('[CURSO] ❌ Validación fallida', $validator->errors()->toArray());
+                return response()->json($validator->errors(), 422);
+            }
+
+            // === [2] Procesar archivo si existe ===
+            $newFileName = null;
+
+            if ($request->hasFile('file') && $request->file('file')->isValid()) {
+                try {
+                    Log::info('[CURSO] 📎 Archivo detectado. Procesando...');
+
+                    $employeeId    = $request->input('employee_id');
+                    $origen        = $request->input('origen');
+                    $randomString  = $this->generateRandomString();
+                    $fileExtension = $request->file('file')->getClientOriginalExtension();
+                    $newFileName   = "{$employeeId}_{$randomString}_{$origen}.{$fileExtension}";
+
+                    Log::debug('[CURSO] 📝 Nombre generado para archivo', ['name' => $newFileName]);
+
+                    $uploadRequest = new Request();
+                    $uploadRequest->files->set('file', $request->file('file'));
+                    $uploadRequest->merge([
+                        'file_name' => $newFileName,
+                        'carpeta'   => $request->input('carpeta') ?? '_cursos',
+                    ]);
+
+                    $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
+
+                    if ($uploadResponse->getStatusCode() !== 200) {
+                        Log::error('[CURSO] 🚫 Fallo al subir archivo', ['response' => $uploadResponse->getContent()]);
+                        return response()->json(['error' => 'Error al subir el documento.'], 500);
+                    }
+
+                    Log::info('[CURSO] ✅ Archivo subido con éxito');
+                } catch (\Exception $e) {
+                    Log::error('[CURSO] ⚠️ Excepción durante subida de archivo', ['exception' => $e->getMessage()]);
+                    return response()->json(['error' => 'Ocurrió un error al subir el archivo.'], 500);
+                }
+            } else {
+                $newFileName = $request->input('employee_id').'_sin_curso_' . uniqid();
+                Log::info('[CURSO] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
+            }
+
+            // === [3] Crear registro en la base de datos ===
+            try {
+                Log::info('[CURSO] 💾 Insertando en base de datos...');
+                $cursoEmpleado = CursoEmpleado::create([
+                    'employee_id'     => $request->input('employee_id'),
+                    'name'            => $newFileName,
+                    'nameDocument'    => $request->input('name'),
+                    'description'     => $request->input('description'),
+                    'expiry_date'     => $request->input('expiry_date'),
+                    'expiry_reminder' => $request->input('expiry_reminder'),
+                    'origen'          => $request->input('origen'),
+                    'id_opcion'       => $request->input('id_opcion'),
+                    'status'          => $request->input('status'),
+                    'creacion'        => $now,
+                    'edicion'         => $now,
+                ]);
+
+                Log::info('[CURSO] ✅ Registro guardado', ['id' => $cursoEmpleado->id]);
+            } catch (\Exception $e) {
+                Log::error('[CURSO] ❌ Error al guardar en base de datos', ['exception' => $e->getMessage()]);
+                return response()->json(['error' => 'Error al guardar el curso.'], 500);
+            }
+
+            return response()->json([
+                'message' => 'Curso agregado exitosamente.',
+                'curso'   => $cursoEmpleado,
+            ], 201);
+
+        } catch (\Exception $e) {
+            Log::critical('[CURSO] 💥 Error inesperado', ['exception' => $e->getMessage()]);
+            return response()->json(['error' => 'Error inesperado al procesar la solicitud.'], 500);
         }
-
-        // Log de los datos recibidos
-        //Log::info('Datos recibidos en el store: ' . print_r($request->all(), true));
-        //dd($request->all());
-
-        $origen = $request->input('origen');
-        // Preparar el nombre del archivo para la subida
-        $employeeId    = $request->input('employee_id');
-        $randomString  = $this->generateRandomString();                        // Generar cadena aleatoria
-        $fileExtension = $request->file('file')->getClientOriginalExtension(); // Obtener extensión del archivo
-        $newFileName   = "{$employeeId}_{$randomString}_{$origen}.{$fileExtension}";
-
-        // Preparar la solicitud para la subida del archivo
-        $uploadRequest = new Request();
-        $uploadRequest->files->set('file', $request->file('file'));
-        $uploadRequest->merge([
-            'file_name' => $newFileName,
-            'carpeta'   => '_cursos', // Cambia esto a tu carpeta deseada
-        ]);
-
-                                                                                  // Llamar a la función de upload
-        $uploadResponse = app(DocumentController::class)->upload($uploadRequest); // Asegúrate de cambiar el nombre del controlador
-
-        // Verificar si la subida fue exitosa
-        if ($uploadResponse->getStatusCode() !== 200) {
-            return response()->json(['error' => 'Error al subir el documento.'], 500);
-        }
-
-        // Crear un nuevo registro en la base de datos
-        $cursoEmpleado = CursoEmpleado::create([
-            'employee_id'     => $request->input('employee_id'),
-            'name'            => $request->input('name'),
-            'name_document'   => $newFileName,
-            'description'     => $request->input('description'),
-            'expiry_date'     => $request->input('expiry_date'),
-            'expiry_reminder' => $request->input('expiry_reminder'),
-            'origen'          => $origen,
-            'creacion'        => $request->input('creacion'),
-            'edicion'         => $request->input('edicion'),
-            'id_opcion_exams' => $request->input('id_opcion_exams') ?? null,
-            'status'          => $request->input('status'), // Esto es opcional
-        ]);
-
-        // Log para verificar el curso registrado
-        Log::info('Curso registrado:', ['curso' => $cursoEmpleado]);
-
-        // Devolver una respuesta exitosa
-        return response()->json([
-            'message' => 'Curso agregado exitosamente.',
-            'curso'   => $cursoEmpleado,
-        ], 201);
     }
 
     public function obtenerCursosPorEmpleado(Request $request)
     {
-        // Obtener el ID del empleado y el origen del request
-        $employeeId = $request->input('employee_id');
-        $origen     = $request->input('origen');
-
-        // Validar que se proporcionen ambos parámetros
+        // Validar que se proporcionen los parámetros requeridos
         $request->validate([
             'employee_id' => 'required|integer',
             'origen'      => 'required|integer',
         ]);
-        if ($origen == 3) {
-            $cursos = CursoEmpleado::where('employee_id', $employeeId)
-                ->get();
-        } else {
-            $cursos = CursoEmpleado::where('employee_id', $employeeId)
-                ->where('origen', $origen)
-                ->get();
-        }
-        // Obtener cursos del empleado con el origen especificado
 
-        // Retornar los resultados
-        return response()->json($cursos);
+        $employeeId = $request->input('employee_id');
+        $origen     = $request->input('origen');
+        $status     = $request->query('status');
+
+        Log::info('📥 Recibida solicitud para obtener cursos', [
+            'employee_id' => $employeeId,
+            'origen'      => $origen,
+            'status'      => $status,
+        ]);
+
+        // Construir la consulta con relaciones
+        $query = CursoEmpleado::with('documentOption')
+            ->where('employee_id', $employeeId);
+
+        // Aplicar filtro por origen, excepto si es 3 (todos)
+        if ($origen != 3) {
+            // Log::debug('🧭 Aplicando filtro por origen', ['origen' => $origen]);
+            $query->where('origen', $origen);
+        } else {
+            // Log::debug('🧭 Mostrando todos los orígenes (origen == 3)');
+        }
+
+        // Aplicar filtro por status si se envía
+        if (! is_null($status)) {
+            Log::debug('🔎 Aplicando filtro por status', ['status' => $status]);
+            $query->where('status', $status);
+        }
+
+        // Ejecutar consulta
+        $cursos = $query->get();
+
+        //Log::info('📄 Cursos encontrados:', ['total' => $cursos->count()]);
+
+        // Si no hay resultados
+        if ($cursos->isEmpty()) {
+            Log::warning('⚠️ No se encontraron cursos para los criterios proporcionados.');
+            return response()->json(['message' => 'No se encontraron cursos para el empleado.'], 404);
+        }
+
+        // Transformar datos
+        $cursosTransformados = $cursos->map(function ($curso) {
+            return [
+                'id'              => $curso->id,
+                'employee_id'     => $curso->employee_id,
+                'nameDocument'    => $curso->name,
+                'optionName'      => $curso->documentOption ? $curso->documentOption->name : null,
+                'description'     => $curso->description,
+                'upload_date'     => $curso->edicion ? \Carbon\Carbon::parse($curso->edicion)->format('Y-m-d') : null,
+                'expiry_date'     => $curso->expiry_date,
+                'expiry_reminder' => $curso->expiry_reminder,
+                'status'          => $curso->status,
+                'origen'          => $curso->origen,
+                'name'            => $curso->name,
+                'nameAlterno'     => $curso->nameDocument,
+                'daysRemaining'   => $curso->daysRemaining ?? null,
+                'estado'          => $curso->estado ?? '',
+            ];
+        });
+
+        // Log::info('✅ Cursos procesados correctamente.', ['ejemplo' => $cursosTransformados->first()]);
+
+        return response()->json(['documentos' => $cursosTransformados], 200);
     }
 
     public function getEmpleadosConCursos(Request $request)
