@@ -6,6 +6,7 @@ use App\Http\Controllers\DocumentController;
 use App\Models\Candidato;
 use App\Models\CandidatoPruebas;
 use App\Models\CursoEmpleado;
+use App\Models\CursosOption;
 use App\Models\DocumentEmpleado;
 use App\Models\DocumentOption;
 use App\Models\Doping;
@@ -13,10 +14,11 @@ use App\Models\ExamEmpleado;
 use App\Models\ExamOption;
 use App\Models\Medico;
 use App\Models\Psicometrico;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Carbon\Carbon;
+
 class DocumentOptionController extends Controller
 {
 
@@ -72,10 +74,11 @@ class DocumentOptionController extends Controller
                 'id'              => $documento->id,
                 'nameDocument'    => $documento->name,
                 'optionName'      => $documento->examOption ? $documento->examOption->name : null,
-                'optionType'      => $documento->examOption ? $documento->examOption->type : null,
+                //'optionType'      => $documento->examOption ? $documento->examOption->type : null,
                 'description'     => $documento->description,
                 'upload_date'     => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
                 'expiry_date'     => $documento->expiry_date,
+                'nameAlterno'     => $documento->nameDocument,
                 'statusexm'       => $documento->status,
                 'expiry_reminder' => $documento->expiry_reminder,
                 'id_candidato'    => $documento->id_candidato,
@@ -118,9 +121,15 @@ class DocumentOptionController extends Controller
         // Verificar si se recibió id_portal
         $id_portal = $request->input('id_portal');
         $tabla     = $request->input('tabla');
+        Log::info('📥 Tabla recibida:', ['tabla' => $tabla]);
 
         // Determinar el modelo a utilizar
-        $model = $tabla === 'documentos' ? DocumentOption::class : ($tabla === 'examenes' ? ExamOption::class : null);
+        $model = match ($tabla) {
+            '_documentEmpleado' => DocumentOption::class,
+            '_examEmpleado' => ExamOption::class,
+            '_cursos' => CursosOption::class,
+            default => null,
+        };
 
         if (! $model) {
             return response()->json(['error' => 'Tabla no válida'], 400);
@@ -160,56 +169,169 @@ class DocumentOptionController extends Controller
     // verificar  si existe  la opcion
     public function buscar_insertar_opcion(Request $request)
     {
-        // Obtener los parámetros de la solicitud
         $id_portal = $request->input('id_portal');
         $name      = $request->input('name');
         $tabla     = $request->input('tabla');
 
-        // Verificar los datos recibidos
+        // Validar parámetros requeridos
+        if (! $name || ! $tabla) {
+            return response()->json(['error' => 'Faltan parámetros necesarios.'], 400);
+        }
 
-        // Determinar el modelo a utilizar
-        $model = $tabla === 'documentos' ? DocumentOption::class : ($tabla === 'examenes' ? ExamOption::class : null);
+        // Mapeo tabla → modelo
+        $modelMap = [
+            'documentos' => \App\Models\DocumentOption::class,
+            'examenes'   => \App\Models\ExamOption::class,
+            'cursos'     => \App\Models\CursosOption::class,
+        ];
 
-        // Verifica el modelo seleccionado
+        $modelClass = $modelMap[$tabla] ?? null;
 
-        if (! $model) {
+        if (! $modelClass) {
             return response()->json(['error' => 'Tabla no válida'], 400);
         }
 
-        // Buscar el nombre del documento existente
-        $documentOption = $model::where(function ($query) use ($id_portal) {
+        // Buscar opción existente
+        $documentOption = $modelClass::where(function ($query) use ($id_portal) {
             $query->where('id_portal', $id_portal)
-                ->orWhere('id_portal', null);
+                ->orWhereNull('id_portal');
         })
             ->where('name', $name)
             ->first();
 
-        // Verifica si se encontró un documento
-
-        // Si existe, devolver su ID
         if ($documentOption) {
             return response()->json(['id_opciones' => $documentOption->id], 200);
         }
 
-        // Si no existe, crear un nuevo registro
+        // Insertar nueva opción si no existe
         try {
-            $newDocumentOption = $model::create([
+            $newOption = $modelClass::create([
                 'name'      => $name,
-                'type'      => 'default_type', // Ajusta según sea necesario
                 'id_portal' => $id_portal,
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
 
-        // Verifica si se creó el nuevo registro
+        return response()->json(['id_opciones' => $newOption->id], 201);
+    }
 
-        // Devolver el ID del nuevo registro
-        return response()->json(['id_opciones' => $newDocumentOption->id], 201);
+    public function store(Request $request)
+    {
+        try {
+            $now = Carbon::now('America/Mexico_City');
+
+            // Log de entrada
+            Log::info('[DOCUMENTO] ⏱ Iniciando registro', ['payload' => $request->all()]);
+
+            // Normalizar campo "file" si viene como texto "null"
+            if ($request->has('file') && $request->input('file') === 'null') {
+                Log::debug('[DOCUMENTO] 🧼 El campo "file" venía como string "null". Eliminado para evitar errores de validación.');
+                $request->request->remove('file');
+            }
+
+            // === [1] Validación de datos ===
+            $validator = Validator::make($request->all(), [
+                'employee_id'     => 'required|integer',
+                'name'            => 'required|string|max:255',
+                'description'     => 'nullable|string|max:500',
+                'expiry_date'     => 'nullable|date',
+                'expiry_reminder' => 'nullable|integer',
+                'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120',
+                'id_portal'       => 'required|integer',
+                'status'          => 'required|integer',
+                'carpeta'         => 'nullable|string|max:255',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json($validator->errors(), 422);
+            }
+
+            // === [2] Buscar coincidencia en DocumentOption ===
+            $idOpcion = null;
+
+            $documentOption = DocumentOption::where(function ($query) use ($request) {
+                $query->where('id_portal', $request->input('id_portal'))
+                    ->orWhereNull('id_portal');
+            })
+                ->where('name', $request->input('name'))
+                ->first();
+
+            if ($documentOption) {
+                $idOpcion = $documentOption->id;
+            }
+            if ($idOpcion == null) {
+                $nameDocument = $request->input('name');
+            } else {
+                $nameDocument = null;
+            }
+
+            // === [3] Procesar archivo si existe ===
+            $newFileName = null;
+
+            if ($request->hasFile('file') && $request->file('file')->isValid()) {
+                try {
+                    $employeeId    = $request->input('employee_id');
+                    $randomString  = $this->generateRandomString();
+                    $fileExtension = $request->file('file')->getClientOriginalExtension();
+                    $newFileName   = "{$employeeId}_{$randomString}.{$fileExtension}";
+
+                    $uploadRequest = new Request();
+                    $uploadRequest->files->set('file', $request->file('file'));
+                    $uploadRequest->merge([
+                        'file_name' => $newFileName,
+                        'carpeta'   => $request->input('carpeta'),
+                    ]);
+
+                    $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
+
+                    if ($uploadResponse->getStatusCode() !== 200) {
+                        Log::error('Error al subir el archivo.', ['response' => $uploadResponse->getContent()]);
+                        return response()->json(['error' => 'Error al subir el documento.'], 500);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Excepción al subir el archivo.', ['exception' => $e->getMessage()]);
+                    return response()->json(['error' => 'Ocurrió un error al subir el archivo.'], 500);
+                }
+            } else {
+                $newFileName = $request->input('employee_id') . '_sin_documento_' . uniqid();
+                Log::info('[CURSO] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
+            }
+
+            // === [4] Crear registro en la base de datos ===
+            try {
+                $documentEmpleado = DocumentEmpleado::create([
+                    'creacion'        => $now,
+                    'edicion'         => $now,
+                    'employee_id'     => $request->input('employee_id'),
+                    'name'            => $newFileName,  // nombre físico del archivo
+                    'nameDocument'    => $nameDocument, // nombre real del documento
+                    'id_opcion'       => $idOpcion,     // solo si existe opción
+                    'description'     => $request->input('description'),
+                    'expiry_date'     => $request->input('expiry_date'),
+                    'expiry_reminder' => $request->input('expiry_reminder'),
+                    'status'          => $request->input('status', 1),
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error al crear el documento en BD.', ['exception' => $e->getMessage()]);
+                return response()->json(['error' => 'Error al guardar el documento.'], 500);
+            }
+
+            Log::info('Documento registrado exitosamente.', ['document' => $documentEmpleado]);
+
+            return response()->json([
+                'message'  => 'Documento agregado exitosamente.',
+                'document' => $documentEmpleado,
+            ], 201);
+
+        } catch (\Exception $e) {
+            Log::critical('Error inesperado.', ['exception' => $e->getMessage()]);
+            return response()->json(['error' => 'Error inesperado al procesar la solicitud.'], 500);
+        }
     }
 
     //  registrar  nuevos  documentos
-    public function store(Request $request)
+    /*public function store(Request $request)
     {
         $creacion = Carbon::now('America/Mexico_City')->format('Y-m-d H:i:s');
         $edicion  = Carbon::now('America/Mexico_City')->format('Y-m-d H:i:s');
@@ -306,101 +428,122 @@ class DocumentOptionController extends Controller
             'document' => $documentEmpleado,
         ], 201);
     }
+    */
 
     //  registrar  nuevos  examenes
     public function storeExams(Request $request)
     {
         $creacion = Carbon::now('America/Mexico_City')->format('Y-m-d H:i:s');
-        $edicion  = Carbon::now('America/Mexico_City')->format('Y-m-d H:i:s');
-        // Validar los datos de entrada
+        $edicion  = $creacion;
+
+        Log::info('[EXAMEN] ⏱ Iniciando registro', ['payload' => $request->all()]);
+
+        // Sanitizar "file" si viene como string "null"
+        if ($request->has('file') && $request->input('file') === 'null') {
+            Log::debug('[EXAMEN] 🧼 El campo "file" venía como string "null". Eliminado.');
+            $request->request->remove('file');
+        }
+
+        // Validación
         $validator = Validator::make($request->all(), [
             'employee_id'     => 'required|integer',
-            
             'name'            => 'required|string|max:255',
             'description'     => 'nullable|string|max:500',
             'expiry_date'     => 'nullable|date',
             'expiry_reminder' => 'nullable|integer',
-            'file'            => 'required|file|mimes:jpg,jpeg,png,pdf|max:2048',
+            'file'            => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'id_portal'       => 'required|integer',
+            'carpeta'         => 'nullable|string|max:255',
+
         ]);
 
         if ($validator->fails()) {
+            Log::warning('[EXAMEN] ❌ Validación fallida', $validator->errors()->toArray());
             return response()->json($validator->errors(), 422);
         }
 
-        // Log de los datos recibidos
-        //Log::info('Datos recibidos en el store:', $request->all());
-
-        // Verificar si se recibió un archivo
-        if (! $request->hasFile('file')) {
-            //Log::error('No se recibió ningún archivo en la solicitud.');
-            return response()->json(['error' => 'No se recibió ningún archivo.'], 400);
-        }
-
-        // Asegurarse de que el archivo es válido
-        if (! $request->file('file')->isValid()) {
-            //Log::error('El archivo recibido no es válido.');
-            return response()->json(['error' => 'El archivo recibido no es válido.'], 400);
-        }
-
-        // Llamar a buscar_insertar_opcion para obtener el id_opciones
+        // === [2] Obtener o insertar opción ===
         $opcionRequest = new Request([
             'id_portal' => $request->input('id_portal'),
             'name'      => $request->input('name'),
             'creacion'  => $creacion,
             'tabla'     => 'examenes',
         ]);
+        $idOpcion = null;
 
-        $opcionResponse = $this->buscar_insertar_opcion($opcionRequest);
-        $idOpcion       = json_decode($opcionResponse->getContent())->id_opciones;
+        $documentOption = ExamOption::where(function ($query) use ($request) {
+            $query->where('id_portal', $request->input('id_portal'))
+                ->orWhereNull('id_portal');
+        })
+            ->where('name', $request->input('name'))
+            ->first();
 
-        // Log para verificar el ID obtenido
-        // Log::info('ID de opción obtenido:', ['id_opcion' => $idOpcion]);
-
-        // Preparar la solicitud para la subida del archivo
-        $employeeId    = $request->input('employee_id');
-        $randomString  = $this->generateRandomString();                        // Generar la cadena aleatoria
-        $fileExtension = $request->file('file')->getClientOriginalExtension(); // Obtener la extensión del archivo
-
-        // Crear el nuevo nombre de archivo
-        $newFileName = "{$employeeId}_{$randomString}.{$fileExtension}";
-
-        // Preparar la solicitud para la subida del archivo
-        $uploadRequest = new Request();
-        $uploadRequest->files->set('file', $request->file('file'));
-        $uploadRequest->merge([
-            'file_name' => $newFileName,
-            'carpeta'   => $request->input('carpeta'),
-        ]);
-        $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
-
-        // Verificar si la subida fue exitosa
-        if ($uploadResponse->getStatusCode() !== 200) {
-            return response()->json(['error' => 'Error al subir el documento.'], 500);
+        if ($documentOption) {
+            $idOpcion = $documentOption->id;
+        }
+        if ($idOpcion == null) {
+            $nameDocument = $request->input('name');
+        } else {
+            $nameDocument = null;
         }
 
-        // Log para verificar el ID antes de la creación
-        //   Log::info('Preparándose para crear ExamenEmpleado con id_opcion:', ['id_opcion' => $idOpcion]);
+        // === [3] Procesar archivo (si existe) ===
+        $newFileName = null;
 
-        // Crear un nuevo registro en la base de datos
-        $documentEmpleado = ExamEmpleado::create([
-            'creacion'        => $creacion,
-            'edicion'         => $creacion,
-            'employee_id'     => $request->input('employee_id'),
-            'name'            => $newFileName,
-            'id_opcion'       => $idOpcion, // Aquí se usa el ID correcto
-            'description'     => $request->input('description'),
-            'expiry_date'     => $request->input('expiry_date'),
-            'expiry_reminder' => $request->input('expiry_reminder'),
-        ]);
+        if ($request->hasFile('file') && $request->file('file')->isValid()) {
+            try {
+                $employeeId    = $request->input('employee_id');
+                $randomString  = $this->generateRandomString();
+                $fileExtension = $request->file('file')->getClientOriginalExtension();
+                $newFileName   = "{$employeeId}_{$randomString}.{$fileExtension}";
 
-        // Log para verificar el documento registrado
-        // Log::info('Documento registrado:', ['document' => $documentEmpleado]);
+                $uploadRequest = new Request();
+                $uploadRequest->files->set('file', $request->file('file'));
+                $uploadRequest->merge([
+                    'file_name' => $newFileName,
+                    'carpeta'   => $request->input('carpeta') ?? 'examenes',
+                ]);
 
-        // Devolver una respuesta exitosa
+                $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
+
+                if ($uploadResponse->getStatusCode() !== 200) {
+                    Log::error('[EXAMEN] ❌ Error al subir el archivo.', ['response' => $uploadResponse->getContent()]);
+                    return response()->json(['error' => 'Error al subir el documento.'], 500);
+                }
+            } catch (\Exception $e) {
+                Log::error('[EXAMEN] ⚠️ Excepción al subir archivo.', ['exception' => $e->getMessage()]);
+                return response()->json(['error' => 'Ocurrió un error al subir el archivo.'], 500);
+            }
+        } else {
+            $newFileName = $request->input('employee_id') . '_sin_examen_' . uniqid();
+            Log::info('[CURSO] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
+        }
+
+        // === [4] Crear registro en BD ===
+        try {
+            $examEmpleado = ExamEmpleado::create([
+                'creacion'        => $creacion,
+                'edicion'         => $edicion,
+                'employee_id'     => $request->input('employee_id'),
+                'name'            => $newFileName,
+                'nameDocument'    => $nameDocument,
+                'id_opcion'       => $idOpcion,
+                'description'     => $request->input('description'),
+                'expiry_date'     => $request->input('expiry_date'),
+                'expiry_reminder' => $request->input('expiry_reminder'),
+                'status'          => $request->input('status'),
+
+            ]);
+        } catch (\Exception $e) {
+            Log::error('[EXAMEN] ❌ Error al guardar en BD.', ['exception' => $e->getMessage()]);
+            return response()->json(['error' => 'Error al guardar el examen.'], 500);
+        }
+
+        Log::info('[EXAMEN] ✅ Examen registrado correctamente.', ['exam' => $examEmpleado]);
+
         return response()->json([
-            'message'  => 'Documento agregado exitosamente.',
-            'document' => $documentEmpleado,
+            'message'  => 'Examen agregado exitosamente.',
+            'document' => $examEmpleado,
         ], 201);
     }
 
@@ -412,10 +555,8 @@ class DocumentOptionController extends Controller
         }
         $status = request()->query('status'); // 👈 Captura el parámetro
 
-    
-
         $query = DocumentEmpleado::with('documentOption')->where('employee_id', $employeeId);
-    
+
         if ($status) {
             $query->where('status', $status); // 👈 Aplica el filtro
         }
@@ -447,115 +588,186 @@ class DocumentOptionController extends Controller
         return response()->json(['documentos' => $documentosConOpciones], 200);
     }
 
-    public function updateExpiration(Request $request, $id)
+    public function updateDocuments(Request $request, $id)
     {
-        // Validar la solicitud
-        $request->validate([
-            'expiry_date'     => 'required|date',
-            'expiry_reminder' => 'nullable|integer|min:0',
-            'table'           => 'required|string',
-            'status'          => 'required|numeric',
+        Log::info('🔁 Entró a updateDocuments', [
+            'id'      => $id,
+            'request' => $request->all(),
         ]);
-        $tabla = $request->input('table');
-        // Encontrar el documento por ID
-        if ($tabla == 'documents_empleado') {
-            $document = DocumentEmpleado::find($id);
-        } elseif ($tabla == 'cursos_empleados') {
-            $document = CursoEmpleado::find($id);
-        } elseif ($tabla == 'exams_empleados') {
-            $document = ExamEmpleado::find($id);
+
+        if (count($request->except(['id', '_method'])) === 0) {
+            Log::warning('⚠️ No se enviaron datos útiles');
+            return response()->json([
+                'message' => 'No se enviaron datos, considera eliminar el documento.',
+            ], 400);
         }
+
+        $carpeta     = $request->input('carpeta');
+        $docAnterior = $request->input('doc_anterior');
+        $file        = $request->file('file');
+
+        $mapaCarpetas = [
+            '_documentEmpleado' => \App\Models\DocumentEmpleado::class,
+            '_cursos'           => \App\Models\CursoEmpleado::class,
+            '_examEmpleado'     => \App\Models\ExamEmpleado::class,
+        ];
+
+        $carpetaATabla = [
+            '_documentEmpleado' => 'documentos',
+            '_examEmpleado'     => 'examenes',
+            '_cursos'           => 'cursos',
+        ];
+
+        $modelClass = $mapaCarpetas[$carpeta] ?? null;
+
+        if (! $modelClass) {
+            Log::error("❌ Carpeta no reconocida: [$carpeta]");
+            return response()->json(['message' => 'Carpeta no reconocida.'], 400);
+        }
+
+        $document = $modelClass::find($id);
 
         if (! $document) {
-            return response()->json(['message' => 'Document not found'], 404);
+            Log::error("❌ Documento no encontrado en modelo [$modelClass] con ID [$id]");
+            return response()->json(['message' => 'Documento no encontrado.'], 404);
         }
 
-        // Actualizar los campos necesarios
-        $document->expiry_date = $request->input('expiry_date');
+        // Eliminar archivo anterior y subir nuevo
+        if ($file && $docAnterior) {
+            $docController = new DocumentController();
 
-        // Asignar expiry_reminder, se establecerá a null si no se proporciona
-        $document->expiry_reminder = $request->input('expiry_reminder', null);
-        $document->status          = $request->input('status');
-        // Guardar los cambios
+            Log::info("📤 Eliminando archivo anterior: $docAnterior");
+            $deleteReq = new Request([
+                'file_name' => $docAnterior,
+                'carpeta'   => $carpeta,
+            ]);
+            $docController->deleteFile($deleteReq);
+
+            // Si contiene "_sin_", se genera un nuevo nombre
+            if (str_contains($docAnterior, '_sin_')) {
+                $extension   = $file->getClientOriginalExtension();
+                $nuevoNombre = time() . '_' . uniqid() . '.' . $extension;
+                Log::info("✏️ Se detectó '_sin_' en el nombre. Nuevo nombre generado: $nuevoNombre");
+            } else {
+                $nuevoNombre = $docAnterior;
+                Log::info("📎 Se conservará el nombre anterior: $nuevoNombre");
+            }
+
+            Log::info("📥 Subiendo nuevo archivo: $nuevoNombre");
+
+            $uploadReq = new Request([
+                'file_name' => $nuevoNombre,
+                'carpeta'   => $carpeta,
+            ]);
+            $uploadReq->files->set('file', $file);
+
+            $uploadResponse = $docController->upload($uploadReq);
+
+            if ($uploadResponse->getStatusCode() !== 200) {
+                Log::error("❌ Falló la carga del archivo nuevo.");
+                return $uploadResponse;
+            }
+
+            $document->name = $nuevoNombre;
+        }
+
+        // Si no hay nuevo archivo pero sí doc anterior
+        if (! $file && $docAnterior) {
+            Log::info("📎 Se conservará el documento anterior: $docAnterior");
+            $document->name = $docAnterior;
+        }
+
+        // Procesar nombre del documento (tipo o nombre libre)
+        if ($request->filled('name') && isset($carpetaATabla[$carpeta])) {
+            $name      = $request->input('name');
+            $id_portal = $request->input('id_portal');
+            $tabla     = $carpetaATabla[$carpeta];
+
+            $response = $this->buscar_insertar_opcion(new Request([
+                'id_portal' => $id_portal,
+                'name'      => $name,
+                'tabla'     => $tabla,
+            ]));
+
+            $data = json_decode($response->getContent(), true);
+            Log::info("🚀 Respuesta de buscar_insertar_opcion:", $data);
+
+            if (isset($data['id_opciones'])) {
+                $document->id_opcion    = $data['id_opciones'];
+                $document->nameDocument = null;
+                Log::info("📝 Se asignó id_opcion = {$data['id_opciones']} y se limpió nameDocument");
+            } else {
+                $document->nameDocument = $name;
+                Log::info("📝 No se encontró opción, se asignó nameDocument = $name");
+            }
+        }
+
+        // Campos adicionales actualizables
+        $fields = ['expiry_date', 'expiry_reminder', 'status', 'description'];
+        foreach ($fields as $field) {
+            if ($request->filled($field)) {
+                $valor            = $request->input($field);
+                $document->$field = $valor;
+                Log::info("📝 Campo actualizado [$field]: $valor");
+            }
+        }
+
         $document->save();
 
-        // Retornar una respuesta de éxito
-        return response()->json(['message' => 'Document updated successfully'], 200);
+        Log::info("✅ Documento actualizado correctamente", ['id' => $id]);
+
+        return response()->json(['message' => 'Documento actualizado correctamente.'], 200);
     }
 
     public function deleteDocument(Request $request)
     {
-        // Determine the validation rules based on 'tabla'
+        // Reglas dinámicas por tabla
         $rules = [
-            'nameDocument' => 'required|string',
-            'tabla'        => 'required|string',
+            'tabla' => 'required|string',
+            'id'    => 'required|integer',
         ];
 
-        if ($request->tabla === 'examenes') {
-            $rules['id'] = 'required|integer|exists:portal_main.exams_empleados,id';
+        $request->validate($rules);
 
-        } elseif ($request->tabla === 'documentos') {
-            $rules['id'] = 'required|integer|exists:portal_main.documents_empleado,id';
+        $tabla = $request->tabla;
+        $id    = $request->id;
 
-        } elseif ($request->tabla === 'cursos') {
-            $rules['id'] = 'required|integer|exists:portal_main.cursos_empleados,id';
+        // Determinar modelo y carpeta
+        $tablaModelo = [
+            'examenes'   => [ExamEmpleado::class, '_examEmpleado/'],
+            'documentos' => [DocumentEmpleado::class, '_documentEmpleado/'],
+            'cursos'     => [CursoEmpleado::class, '_cursos/'],
+        ];
 
-        } else {
+        if (! isset($tablaModelo[$tabla])) {
             return response()->json(['message' => 'Invalid table specified'], 400);
         }
 
-        // Validate the request with the dynamic rules
-        $request->validate($rules);
+        [$modelClass, $carpeta] = $tablaModelo[$tabla];
 
-        // Determine the base path depending on the environment
-        $basePath = env('APP_ENV') === 'local' ? env('LOCAL_IMAGE_PATH') : env('PROD_IMAGE_PATH');
-
-        // Find the document or examen by ID
-        if ($request->tabla === 'examenes') {
-            $model = ExamEmpleado::find($request->id); // Cambia 'Examen' por el nombre del modelo que necesites
-            if (! $model) {
-                return response()->json(['message' => 'Examen not found'], 404);
-            }
-
-            // Construct the file path for examenes
-            $filePath = $basePath . '_examEmpleado/' . $request->nameDocument;
-            if (file_exists($filePath)) {
-                unlink($filePath);
-            }
-
-            // Delete the examen from the database (si es necesario)
-            $model->delete();
-
-        } elseif ($request->tabla === 'cursos') {
-            $document = CursoEmpleado::find($request->id);
-            if (! $document) {
-                return response()->json(['message' => 'Document not found'], 404);
-            }
-
-            // Construct the file path for documentos
-            $filePath = $basePath . '_cursos/' . $request->nameDocument;
-            if (file_exists($filePath)) {
-                unlink($filePath);
-            }
-
-            // Delete the document from the database
-            $document->delete();
-
-        } elseif ($request->tabla === 'documentos') {
-            $document = DocumentEmpleado::find($request->id);
-            if (! $document) {
-                return response()->json(['message' => 'Document not found'], 404);
-            }
-
-            // Construct the file path for documentos
-            $filePath = $basePath . '_documentEmpleado/' . $request->nameDocument;
-            if (file_exists($filePath)) {
-                unlink($filePath);
-            }
-
-            // Delete the document from the database
-            $document->delete();
+        // Buscar registro
+        $document = $modelClass::find($id);
+        if (! $document) {
+            return response()->json(['message' => 'Record not found'], 404);
         }
+
+        // Construir path base
+        $basePath = env('APP_ENV') === 'local'
+        ? env('LOCAL_IMAGE_PATH')
+        : env('PROD_IMAGE_PATH');
+
+        $fileName = $document->nameDocument ?? null;
+
+        // Intentar eliminar archivo si existe nombre
+        if ($fileName) {
+            $filePath = $basePath . $carpeta . $fileName;
+            if (file_exists($filePath)) {
+                unlink($filePath);
+            }
+        }
+
+        // Eliminar registro de la base de datos
+        $document->delete();
 
         return response()->json(['message' => 'Record deleted successfully'], 200);
     }

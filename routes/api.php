@@ -7,7 +7,7 @@ use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
-use App\Http\Controllers\AvanceController;
+//use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CsvController;
@@ -131,7 +131,7 @@ Route::middleware(['api'])->group(function () {
     Route::get('/documents/{id}', [DocumentOptionController::class, 'getDocumentsByEmployeeId']);
     Route::get('/exam/{id}', [DocumentOptionController::class, 'getExamsByEmployeeId']);
     // Ruta para actualizar la expiración del documento, cursos y examanes
-    Route::put('/documents/{id}', [DocumentOptionController::class, 'updateExpiration']);
+    Route::put('documents/{id}', [DocumentOptionController::class, 'updateDocuments']);
     Route::get('/empleados/{id_empleado}/documentos', [EmpleadoController::class, 'getDocumentos']);
     //eliminar Documentos  del empleado
     Route::delete('/documents', [DocumentOptionController::class, 'deleteDocument']);
@@ -189,7 +189,7 @@ Route::middleware(['api'])->group(function () {
 Route::post('/send-notification', [WhatsAppController::class, 'sendMessage_notificacion_talentsafe']);
 
 /*Este  endpoint  es para   mostrar  avances  de los  candidatos  en pre empleo  */
-Route::get('/check-avances', [AvanceController::class, 'checkAvances']);
+//Route::get('/check-avances', [AvanceController::class, 'checkAvances']);
 Route::post('/preempleados/proceso-candidato', [PreEmpleadoController::class, 'verProcesoCandidato'])->name('preempleados.procesoCandidato');
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
