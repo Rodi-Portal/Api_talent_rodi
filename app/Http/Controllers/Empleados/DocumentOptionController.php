@@ -115,6 +115,88 @@ class DocumentOptionController extends Controller
         // Devolver los documentos
         return response()->json(['documentos' => $examConOpciones], 200);
     }
+    public function guardarOpcion(Request $request)
+    {
+        $id_portal = $request->input('id_portal');
+        $tabla     = $request->input('tabla');
+        $opciones  = $request->input('opciones', []); // array de opciones con id y name
+
+        Log::info('Guardando opciones', ['tabla' => $tabla, 'id_portal' => $id_portal, 'opciones' => $opciones]);
+    
+
+        // Determinar el modelo a utilizar según la tabla
+        $model = match ($tabla) {
+            '_documentEmpleado' => DocumentOption::class,
+            '_examEmpleado' => ExamOption::class,
+            '_cursos' => CursosOption::class,
+            default => null,
+        };
+
+        if (! $model) {
+            return response()->json(['error' => 'Tabla no válida'], 400);
+        }
+
+        // Validar que opciones sea array
+        if (! is_array($opciones)) {
+            return response()->json(['error' => 'Opciones inválidas'], 400);
+        }
+
+        foreach ($opciones as $opcion) {
+            // Validar estructura mínima
+            if (! isset($opcion['name'])) {
+                continue; // O puedes devolver error si prefieres
+            }
+
+            if (isset($opcion['id'])) {
+                // Actualizar opción existente
+                $registro = $model::where('id', $opcion['id'])
+                    ->where(function ($q) use ($id_portal) {
+                        $q->where('id_portal', $id_portal)->orWhereNull('id_portal');
+                    })->first();
+
+                if ($registro) {
+                    $registro->name = $opcion['name'];
+                    $registro->save();
+                }
+            } else {
+                // Crear nueva opción
+                $model::create([
+                    'name'      => $opcion['name'],
+                    'id_portal' => $id_portal,
+                    // Otros campos si los hay...
+                ]);
+            }
+        }
+
+        return response()->json(['message' => 'Opciones guardadas correctamente']);
+    }
+
+    public function eliminarOpcion(Request $request)
+    {
+        $id    = $request->input('id');
+        $tabla = $request->input('tabla');
+
+        $model = match ($tabla) {
+            '_documentEmpleado' => DocumentOption::class,
+            '_examEmpleado' => ExamOption::class,
+            '_cursos' => CursosOption::class,
+            default => null,
+        };
+
+        if (! $model) {
+            return response()->json(['error' => 'Tabla no válida'], 400);
+        }
+
+        $opcion = $model::find($id);
+
+        if (! $opcion) {
+            return response()->json(['error' => 'Opción no encontrada'], 404);
+        }
+
+        $opcion->delete();
+
+        return response()->json(['message' => 'Opción eliminada correctamente']);
+    }
 
     public function index(Request $request)
     {
