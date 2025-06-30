@@ -75,8 +75,13 @@ Route::middleware(['api'])->group(function () {
 // Emdpoints Empleados
     Route::get('empleados', [ApiEmpleadoController::class, 'index']);
     Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
+    
+    // ----- opciones  documentos, examenes y cursos ----- //
     Route::get('/document-options', [DocumentOptionController::class, 'index']);
-                                                                                                 //descargar plantilla Empleados Masivos
+    Route::post('/document-options/save', [DocumentOptionController::class, 'guardarOpcion']);    
+    Route::delete('/document-options/delete', [DocumentOptionController::class, 'eliminarOpcion']);
+    // ----- opciones  documentos, examenes y cursos ---- //
+
     Route::get('/download-template', [CsvController::class, 'downloadTemplate']);                // plantilla para  carga   desde 0
     Route::get('/download-template-medical', [CsvController::class, 'downloadTemplateMedical']); // plantilla  para   carga  y actualizacion de medical info
     Route::post('/upload-medical-info', [CsvController::class, 'uploadMedicalInfo']);            // cargar plantilla medical info
