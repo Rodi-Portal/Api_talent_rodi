@@ -382,7 +382,7 @@ class WhatsAppController extends Controller
             $sucursales = $validated['sucursales'];
 
             // Define el URL del endpoint de la API de Facebook
-            $url = 'https://graph.facebook.com/v21.0/489913347545729/messages';
+            $url = 'https://graph.facebook.com/v22.0/648027118401660/messages';
 
             // Define el token de autorización (se recomienda almacenarlo en .env)
           
