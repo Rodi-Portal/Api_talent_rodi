@@ -307,15 +307,21 @@ class CsvController extends Controller
                 'LAB.horas_dia',
                 'LAB.grupo_nomina',
                 'LAB.periodicidad_pago',
+                'LAB.sindicato',
                 'LAB.dias_descanso',
                 'LAB.vacaciones_disponibles',
                 'LAB.sueldo_diario',
+                'LAB.sueldo_asimilado',
                 'LAB.pago_dia_festivo',
+                'LAB.pago_dia_festivo_a',
                 'LAB.pago_hora_extra',
+                'LAB.pago_hora_extra_a',
                 'LAB.dias_aguinaldo',
                 'LAB.prima_vacacional',
                 'LAB.prestamo_pendiente',
                 'LAB.descuento_ausencia',
+                'LAB.descuento_ausencia_a',
+
             ])
             ->get();
 
