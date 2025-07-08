@@ -70,8 +70,6 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
         '09' => 'Otra Periodicidad',
     ];
 
-
-
     public function onRow(Row $row)
     {
 
@@ -94,6 +92,7 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
                 fn($val) => mb_strtolower(trim($val)),
                 array_keys($rowArray)
             );
+            \Log::debug('Cabeceras detectadas:', $headersFromFile);
 
             $missingHeaders = array_filter($requiredHeaders, fn($header) => ! in_array($header, $headersFromFile));
 
@@ -155,6 +154,10 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
             }
         }
 
+        $valorSindicato = strtolower($clean($row['pertenece_sindicato'] ?? ''));
+
+        // Si es "sí", "si", o "SI", entonces es "SI", todo lo demás es "NO"
+        $sindicato = in_array($valorSindicato, ['sí', 'si', 'SI']) ? 'SI' : 'NO';
         LaboralesEmpleado::updateOrCreate(
             ['id_empleado' => $empleadoId],
             [
@@ -165,14 +168,19 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
                 'otro_tipo_contrato'     => $clean($row['otro_tipo_contrato'] ?? null),
                 'horas_dia'              => $clean($row['horas_dia'] ?? null),
                 'grupo_nomina'           => $clean($row['grupo_nomina'] ?? null),
+                'sindicato'              => $sindicato,
                 'vacaciones_disponibles' => $clean($row['vacaciones_disponibles'] ?? null),
                 'sueldo_diario'          => $clean($row['sueldo_diario'] ?? null),
+                'sueldo_asimilado'       => $clean($row['sueldo_diario_asimilado'] ?? null),
                 'pago_dia_festivo'       => $clean($row['pago_dia_festivo'] ?? null),
+                'pago_dia_festivo_a'     => $clean($row['pago_dia_festivo_asimilado'] ?? null),
                 'pago_hora_extra'        => $clean($row['pago_hora_extra'] ?? null),
+                'pago_hora_extra_a'      => $clean($row['pago_hora_extra_asimilado'] ?? null),
                 'dias_aguinaldo'         => $clean($row['dias_aguinaldo'] ?? null),
                 'prima_vacacional'       => $clean($row['prima_vacacional'] ?? null),
                 'prestamo_pendiente'     => $clean($row['prestamo_pendiente'] ?? null),
                 'descuento_ausencia'     => $clean($row['descuento_ausencia'] ?? null),
+                'descuento_ausencia_a'   => $clean($row['descuento_ausencia_asimilado'] ?? null),
                 'dias_descanso'          => json_encode($diasDescanso),
                 // Días de descanso
             ]
