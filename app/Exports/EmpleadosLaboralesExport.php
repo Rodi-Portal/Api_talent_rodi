@@ -110,31 +110,36 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
     public function headings(): array
     {
         return [
-            'ID',
-            'ID Empleado',
-            'Nombre Completo',
-            'Tipo Contrato',
-            'Otro Tipo Contrato',
-            'Tipo Régimen',
-            'Tipo Jornada',
-            'Horas Día',
-            'Grupo Nómina',
-            'Periodicidad Pago',
-            'Vacaciones Disponibles',
-            'Sueldo Diario',
-            'Pago Día Festivo',
-            'Pago Hora Extra',
-            'Días Aguinaldo',
-            'Prima Vacacional',
-            'Prestamo pendiente',
-            'Descuento Ausencia',
-            'Descanso - Lunes',
-            'Descanso - Martes',
-            'Descanso - Miércoles',
-            'Descanso - Jueves',
-            'Descanso - Viernes',
-            'Descanso - Sábado',
-            'Descanso - Domingo',
+            'ID',          //A
+            'ID Empleado',   //B
+            'Nombre Completo', // C
+            'Tipo Contrato', //D
+            'Otro Tipo Contrato',//E
+            'Tipo Régimen',//F
+            'Tipo Jornada',//G
+            'Horas Día',//H
+            'Grupo Nómina',//I
+            'Periodicidad Pago',//J
+            'Pertenece Sindicato',//K
+            'Vacaciones Disponibles',//L
+            'Sueldo Diario',//M
+            'Sueldo Diario Asimilado',//N
+            'Pago Día Festivo',//O
+            'Pago Día Festivo Asimilado',//P
+            'Pago Hora Extra',//Q
+            'Pago Hora Extra Asimilado',// R
+            'Días Aguinaldo', // S
+            'Prima Vacacional',// T
+            'Prestamo pendiente',// U
+            'Descuento Ausencia',//V
+            'Descuento Ausencia Asimilado',//W
+            'Descanso - Lunes',//X
+            'Descanso - Martes',//Y
+            'Descanso - Miércoles',//Z
+            'Descanso - Jueves',//AA
+            'Descanso - Viernes',//AB
+            'Descanso - Sábado',//AC
+            'Descanso - Domingo',//AD
         ];
     }
 
@@ -192,6 +197,8 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
                         'Pensionados', 'Sueldos y Salarios',
                     ],
                     'tipo_jornada' => ['Ninguna', 'Diurna', 'Mixta', 'Nocturna', 'Otra'],
+                    'sindicato' => ['SI', 'NO'],
+
                     'periodicidad_pago' => [
                         'Diurna', 'Semanal', 'Quincenal', 'Mensual', 'Bimestral',
                         'Unidad obra', 'Comisión', 'Precio alzado', 'Otra Periodicidad',
@@ -215,8 +222,8 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
 
                 // Validación para días de descanso
                 $columnasDias = [
-                    'Lunes' => 'U', 'Martes' => 'V', 'Miércoles' => 'W',
-                    'Jueves' => 'X', 'Viernes' => 'Y', 'Sábado' => 'Z', 'Domingo' => 'AA',
+                    'Lunes' => 'X', 'Martes' => 'Y', 'Miércoles' => 'Z',
+                    'Jueves' => 'AA', 'Viernes' => 'AB', 'Sábado' => 'AC', 'Domingo' => 'AD',
                 ];
                 foreach ($columnasDias as $dia => $col) {
                     for ($row = 2; $row <= $highestRow; $row++) {
@@ -230,6 +237,7 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
                     'F' => 'tipo_regimen',
                     'G' => 'tipo_jornada',
                     'J' => 'periodicidad_pago',
+                    'K' => 'sindicato',
                 ];
                 foreach ($columnMap as $col => $rangeName) {
                     for ($row = 2; $row <= $highestRow; $row++) {

@@ -35,13 +35,18 @@ class LaboralesEmpleado extends Model
         'dias_descanso',
         'vacaciones_disponibles',
         'sueldo_diario',
+        'sueldo_asimilado',
         'sueldo_mes',
         'pago_dia_festivo',
+        'pago_dia_festivo_a',
         'pago_hora_extra',
+        'pago_hora_extra_a',
         'dias_aguinaldo',
         'prima_vacacional',
         'prestamo_pendiente',
         'descuento_ausencia',
+        'descuento_ausencia_a',
+        'sindicato',
     ];
 
     protected $hidden = [
