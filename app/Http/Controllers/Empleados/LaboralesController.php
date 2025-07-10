@@ -255,9 +255,9 @@ class LaboralesController extends Controller
             $registro->prestamos             = $validated['prestamos'];
             $registro->deducciones_extra     = $validated['deduccionesExtras'];
             $registro->prestaciones_extra    = $validated['prestacionesExtras'];
-            $registro->sueldo_total        = $validated['totalPagar']; // O ajusta si usas otro campo
+            $registro->sueldo_total          = $validated['totalPagar'];  // O ajusta si usas otro campo
             $registro->sueldo_total_a        = $validated['totalPagarA']; // O ajusta si usas otro campo
-            $registro->sueldo_total_t          = $validated['totalPagarT'];
+            $registro->sueldo_total_t        = $validated['totalPagarT'];
 
             $registro->save();
 
@@ -330,32 +330,55 @@ class LaboralesController extends Controller
                 'l.horas_dia',
                 'l.vacaciones_disponibles',
                 'l.sueldo_diario',
+                'l.sueldo_asimilado',
                 'l.periodicidad_pago',
                 'l.pago_dia_festivo',
                 'l.dias_aguinaldo',
                 'l.pago_hora_extra',
+                'l.pago_hora_extra_a',
                 'l.pago_dia_festivo',
+                'l.pago_dia_festivo_a',
                 'l.prima_vacacional',
                 'l.prestamo_pendiente',
                 'l.descuento_ausencia',
+                'l.descuento_ausencia_a',
                 'p.horas_extras',
                 'p.prestamos',
                 'p.dias_festivos',
                 'p.dias_ausencia',
                 'p.dias_vacaciones',
                 'p.prestaciones_extra',
-                'p.deducciones_extra'
+                'p.deducciones_extra',
+                'p.prestaciones_extra_a',
+                'p.deducciones_extra_a',
             )
             ->get();
+        //Log::info('Empleados:', $empleados->toArray());
+        $empleados = collect(json_decode(json_encode($empleados), false));
 
         // Procesamiento y cálculo
         $empleados = $empleados->map(function ($empleado) {
-            $empleado->prestaciones_extra = json_decode($empleado->prestaciones_extra ?? '[]');
-            $empleado->deducciones_extra  = json_decode($empleado->deducciones_extra ?? '[]');
 
-            $sueldoDiario = floatval($empleado->sueldo_diario);
-            $periodicidad = $empleado->periodicidad_pago;
-            $sueldoBase   = 0;
+            // Decodificar los campos si son strings (a veces llegan ya como arrays)
+            foreach (['prestaciones_extra', 'deducciones_extra', 'prestaciones_extra_a', 'deducciones_extra_a'] as $campo) {
+                $valor = $empleado->$campo ?? '[]';
+
+                if (is_string($valor)) {
+                    $empleado->$campo = json_decode($valor, true) ?? [];
+                } elseif (is_array($valor)) {
+                    $empleado->$campo = $valor;
+                } else {
+                    $empleado->$campo = [];
+                }
+            }
+
+            // Realiza los cálculos y campos extra como sueldo_base, sueldo_asim
+            $sueldoDiario    = floatval($empleado->sueldo_diario);
+            $sueldoAsimilado = floatval($empleado->sueldo_asimilado);
+            $periodicidad    = $empleado->periodicidad_pago;
+
+            $sueldoBase = 0;
+            $sueldoAsim = 0;
 
             switch ($periodicidad) {
                 case '01': // Diario
@@ -363,29 +386,37 @@ class LaboralesController extends Controller
                 case '08': // Asimilados
                 case '09': // Otros
                     $sueldoBase = $sueldoDiario;
+                    $sueldoAsim = $sueldoAsimilado;
                     break;
                 case '02': // Semanal
                     $sueldoBase = $sueldoDiario * 7;
+                    $sueldoAsim = $sueldoAsimilado * 7;
                     break;
                 case '03': // Quincenal
                     $sueldoBase = $sueldoDiario * 15;
+                    $sueldoAsim = $sueldoAsimilado * 15;
                     break;
                 case '04': // Mensual
                     $sueldoBase = $sueldoDiario * 30;
+                    $sueldoAsim = $sueldoAsimilado * 30;
                     break;
                 case '05': // Bimestral
                     $sueldoBase = $sueldoDiario * 60;
+                    $sueldoAsim = $sueldoAsimilado * 60;
                     break;
                 default:
                     $sueldoBase = 0;
+                    $sueldoAsim = 0;
             }
 
             $empleado->sueldo_base = round($sueldoBase, 2);
+            $empleado->sueldo_asim = round($sueldoAsim, 2);
 
             return $empleado;
         });
+        Log::info('Empleados:', $empleados->map(fn($e) => (array) $e)->values()->all());
 
-        return response()->json($empleados);
+        return response()->json($empleados->toArray());
     }
 
     public function guardarPrenominaMasiva(Request $request)
@@ -397,12 +428,13 @@ class LaboralesController extends Controller
 
         // Validación inicial
         $validator = Validator::make($request->all(), [
-            'id_periodo_nomina'    => 'required|integer|exists:portal_main.periodos_nomina,id',
-            'datos'                => 'required|array|min:1',
-            'datos.*.id'           => 'required|integer', // ID del empleado como string
-            'datos.*.sueldo_base'  => 'required|numeric|min:0',
-            'datos.*.sueldo_total' => 'required|numeric|min:0',
-            'datos.*.sueldo_neto'  => 'required|numeric|min:0',
+            'id_periodo_nomina'      => 'required|integer|exists:portal_main.periodos_nomina,id',
+            'datos'                  => 'required|array|min:1',
+            'datos.*.id'             => 'required|integer', // ID del empleado como string
+            'datos.*.sueldo_base'    => 'required|numeric|min:0',
+            'datos.*.sueldo_total'   => 'required|numeric|min:0',
+            'datos.*.sueldo_total_a' => 'required|numeric|min:0',
+            'datos.*.sueldo_total_t' => 'required|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -434,29 +466,32 @@ class LaboralesController extends Controller
 
                 // Mapear campos del request al modelo
                 $datosEmpleado = [
-                    'id_empleado'         => $item['id'],
-                    'id_periodo_nomina'   => $idPeriodoNomina,
-                    'sueldo_base'         => $item['sueldo_base'] ?? 0,
-                    'horas_extras'        => $item['horas_extras'] ?? 0,
-                    'pago_horas_extra'    => $item['pago_hora_extra'] ?? 0,
-                    'dias_festivos'       => $item['dias_festivos'] ?? 0,
-                    'pago_dias_festivos'  => $item['pago_dia_festivo'] ?? 0,
-                    'dias_ausencia'       => $item['dias_ausencia'] ?? 0,
-                    'descuento_ausencias' => $item['descuento_ausencias'] ?? 0, // Ya viene correcto
-                    'pago_vacaciones'     => $item['pago_vacaciones'] ?? 0,
-                    'dias_vacaciones'     => $item['dias_vacaciones'] ?? 0,
-                    'aguinaldo'           => $item['aguinaldo'] ?? 0,
-                    'prestamos'           => $item['prestamo'] ?? 0,
-                    'prestaciones_extra'  => $item['prestaciones_extra'] ?? '{}',
-                    'deducciones_extra'   => $item['deducciones_extra'] ?? '{}',
-                    'creacion'            => now(),
-                    'edicion'             => now(),
+                    'id_empleado'          => $item['id'],
+                    'id_periodo_nomina'    => $idPeriodoNomina,
+                    'sueldo_base'          => $item['sueldo_base'] ?? 0,
+                    'horas_extras'         => $item['horas_extras'] ?? 0,
+                    'pago_horas_extra'     => $item['pago_hora_extra'] ?? 0,
+                    'dias_festivos'        => $item['dias_festivos'] ?? 0,
+                    'pago_dias_festivos'   => $item['pago_dia_festivo'] ?? 0,
+                    'dias_ausencia'        => $item['dias_ausencia'] ?? 0,
+                    'descuento_ausencias'  => $item['descuento_ausencias'] ?? 0, // Ya viene correcto
+                    'pago_vacaciones'      => $item['pago_vacaciones'] ?? 0,
+                    'dias_vacaciones'      => $item['dias_vacaciones'] ?? 0,
+                    'aguinaldo'            => $item['aguinaldo'] ?? 0,
+                    'prestamos'            => $item['prestamo'] ?? 0,
+                    'prestaciones_extra'   => is_string($item['prestaciones_extra']) ? $item['prestaciones_extra'] : json_encode($item['prestaciones_extra'] ?? []),
+                    'deducciones_extra'    => is_string($item['deducciones_extra']) ? $item['deducciones_extra'] : json_encode($item['deducciones_extra'] ?? []),
+                    'prestaciones_extra_a' => is_string($item['prestaciones_extra_a']) ? $item['prestaciones_extra_a'] : json_encode($item['prestaciones_extra_a'] ?? []),
+                    'deducciones_extra_a'  => is_string($item['deducciones_extra_a']) ? $item['deducciones_extra_a'] : json_encode($item['deducciones_extra_a'] ?? []),
+
+                    'creacion'             => now(),
+                    'edicion'              => now(),
                 ];
 
                 // Los cálculos ya vienen hechos desde el frontend
-                $datosEmpleado['sueldo_total'] = $item['sueldo_total'] ?? 0;
-                $datosEmpleado['sueldo_neto']  = $item['sueldo_neto'] ?? 0;
-
+                $datosEmpleado['sueldo_total']   = $item['sueldo_total'] ?? 0;
+                $datosEmpleado['sueldo_total_a'] = $item['sueldo_total_a'] ?? 0;
+                $datosEmpleado['sueldo_total_t'] = $item['sueldo_total_t'] ?? 0;
                 try {
                     // Verificar si ya existe un registro para este empleado y período
                     $existente = PreNominaEmpleado::where('id_empleado', $item['id'])
