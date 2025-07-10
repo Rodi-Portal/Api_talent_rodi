@@ -36,8 +36,11 @@ class PreNominaEmpleado extends Model
         'prestamos',
         'deducciones_extra',  // jason
         'prestaciones_extra', // jason
+        'deducciones_extra_a',  // jason
+        'prestaciones_extra_a', // jason
         'sueldo_total',
-        'sueldo_neto',
+        'sueldo_total_a',
+        'sueldo_total_t',
     ];
 
     // Definir la relación con el modelo de Empleado
