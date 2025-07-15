@@ -1,0 +1,60 @@
+<!-- resources/views/emails/plantillas/moderna.blade.php -->
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <style>
+  body {
+    background-color: #f5f9ff;
+    font-family: 'Segoe UI', sans-serif;
+    padding: 40px;
+    color: #333;
+  }
+
+  .container {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 30px;
+    max-width: 600px;
+    margin: auto;
+    box-shadow: 0 5px 25px rgba(0, 123, 255, 0.15);
+  }
+
+  .header {
+    border-bottom: 3px solid #007bff;
+    margin-bottom: 20px;
+  }
+
+
+
+  .footer {
+    margin-top: 30px;
+    font-size: 0.9em;
+    color: #555;
+    text-align: right;
+    border-top: 1px dashed #ccc;
+    padding-top: 20px;
+  }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+  {{-- Logo inline --}}
+    @if (!empty($logo_src))
+    <img src="{{ $logo_src }}" alt="Logo" width="200" style="display:block; height:auto; margin:0 auto 20px;" />
+    @endif
+    <div class="header">
+      <h1>{{ $titulo ?? 'Título predeterminado' }}</h1>
+    </div>
+    <div class="content">
+      {!! $cuerpo !!}
+    </div>
+    @if(isset($saludo))
+    <div class="footer">{{ $saludo }}</div>
+    @endif
+  </div>
+</body>
+
+</html>

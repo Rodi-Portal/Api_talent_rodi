@@ -8,6 +8,7 @@ use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 //use App\Http\Controllers\AvanceController;
+use App\Http\Controllers\ConfiguracionColumnasController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CsvController;
@@ -18,10 +19,12 @@ use App\Http\Controllers\Empleados\EvaluacionController;
 use App\Http\Controllers\Empleados\EviarEmpleadoRodi;
 use App\Http\Controllers\Empleados\LaboralesController;
 use App\Http\Controllers\Empleados\MedicalInfoController;
+use App\Http\Controllers\Empleados\MensajeriaController;
 use App\Http\Controllers\Empleados\NotificacionController;
 use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\PeriodoNominaController;
+use App\Http\Controllers\Plantillas\PlantillaController;
 use App\Http\Controllers\PreEmpleado\PreEmpleadoController;
 use App\Http\Controllers\ProyectosHistorialController;
 use App\Http\Controllers\ReportController;
@@ -75,10 +78,10 @@ Route::middleware(['api'])->group(function () {
 // Emdpoints Empleados
     Route::get('empleados', [ApiEmpleadoController::class, 'index']);
     Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
-    
+
     // ----- opciones  documentos, examenes y cursos ----- //
     Route::get('/document-options', [DocumentOptionController::class, 'index']);
-    Route::post('/document-options/save', [DocumentOptionController::class, 'guardarOpcion']);    
+    Route::post('/document-options/save', [DocumentOptionController::class, 'guardarOpcion']);
     Route::delete('/document-options/delete', [DocumentOptionController::class, 'eliminarOpcion']);
     // ----- opciones  documentos, examenes y cursos ---- //
 
@@ -115,6 +118,25 @@ Route::middleware(['api'])->group(function () {
 
     //***************  Fin para  los  laborales del empleado ********************/
 
+    //***************  Ruta para  los  Mensajeria del empleado ************************/
+    Route::get('/plantillas', [PlantillaController::class, 'listar']);
+    Route::post('/plantillas/vista-previa', [PlantillaController::class, 'vistaPrevia']);
+
+    Route::get('/mensajeria/empleados', [MensajeriaController::class, 'obtenerEmpleados']);
+    Route::post('/mensajeria/enviar-correos', [MensajeriaController::class, 'enviarCorreos']);
+
+    Route::post('/mensajeria/plantillas', [PlantillaController::class, 'store']);
+    Route::get('/mensajeria/plantillas', [PlantillaController::class, 'index']);
+    Route::get('/descargar-adjunto/{id}', [PlantillaController::class, 'descargarAdjunto']);
+
+    //***************  Ruta para  los  Mensajeria del empleado ************************/
+
+    //***************  Ruta para  los  Configuracion Columnas  del empleado ****************/
+
+    Route::get('/configuracion/columnas', [ConfiguracionColumnasController::class, 'obtener']);
+    Route::post('/configuracion/columnas', [ConfiguracionColumnasController::class, 'guardar']);
+
+    //***************  Ruta para  los  Configuracion Columnas del empleado ******************/
     //  obtener  el status  de general  de los empleados
     Route::get('/empleados/status', [EmpleadoController::class, 'getEmpleadosStatus']);
     /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
@@ -187,6 +209,9 @@ Route::middleware(['api'])->group(function () {
     Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultar']);
 
     Route::get('/notificaciones/consultarex/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultarExempleo']);
+
+
+
 });
 
 /*notificaciones  via  whatsapp modulo empleados*/
