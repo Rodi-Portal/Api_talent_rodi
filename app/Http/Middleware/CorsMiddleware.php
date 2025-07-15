@@ -18,7 +18,7 @@ class CorsMiddleware
             'https://dev.rodi.com.mx',
             'http://localhost',
             'http://localhost:8080',
-         
+          'http://localhost:5173',
         ];
 
         //\Log::info("CORS Middleware - Origin received: $origin");
