@@ -12,7 +12,7 @@
     padding: 40px 20px;
   }
 
-  .container {
+  .containerPlantilla {
     max-width: 600px;
     margin: auto;
     border: 1px solid #ddd;
@@ -30,12 +30,12 @@
     margin-bottom: 30px;
   }
 
-  .content {
+  .contentPlantilla {
     font-size: 15px;
     line-height: 1.6;
   }
 
-  .footer {
+  .footerPlantilla {
     margin-top: 40px;
     text-align: right;
     font-style: italic;
@@ -46,17 +46,17 @@
 </head>
 
 <body>
-  <div class="container">
+  <div class="containerPlantilla">
   {{-- Logo inline --}}
     @if (!empty($logo_src))
     <img src="{{ $logo_src }}" alt="Logo" width="200" style="display:block; height:auto; margin:0 auto 20px;" />
     @endif
     <h1>{{ $titulo ?? 'Título' }}</h1>
-    <div class="content">
+    <div class="contentPlantilla">
       {!! $cuerpo !!}
     </div>
     @if(isset($saludo))
-    <div class="footer">{{ $saludo }}</div>
+    <div class="footerPlantilla">{{ $saludo }}</div>
     @endif
   </div>
 </body>

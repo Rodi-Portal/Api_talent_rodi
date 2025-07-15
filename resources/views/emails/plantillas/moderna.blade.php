@@ -12,7 +12,7 @@
     color: #333;
   }
 
-  .container {
+  .containerPlantilla {
     background: #ffffff;
     border-radius: 12px;
     padding: 30px;
@@ -21,14 +21,17 @@
     box-shadow: 0 5px 25px rgba(0, 123, 255, 0.15);
   }
 
-  .header {
+  .headerPlantilla {
     border-bottom: 3px solid #007bff;
     margin-bottom: 20px;
   }
 
+  .contentPlantilla {
+    font-size: 15px;
+    line-height: 1.6;
+  }
 
-
-  .footer {
+  .footerPlantilla {
     margin-top: 30px;
     font-size: 0.9em;
     color: #555;
@@ -40,19 +43,19 @@
 </head>
 
 <body>
-  <div class="container">
-  {{-- Logo inline --}}
+  <div class="containerPlantilla">
+    {{-- Logo inline --}}
     @if (!empty($logo_src))
     <img src="{{ $logo_src }}" alt="Logo" width="200" style="display:block; height:auto; margin:0 auto 20px;" />
     @endif
-    <div class="header">
+    <div class="headerPlantilla">
       <h1>{{ $titulo ?? 'Título predeterminado' }}</h1>
     </div>
-    <div class="content">
+    <div class="contentPlantilla">
       {!! $cuerpo !!}
     </div>
     @if(isset($saludo))
-    <div class="footer">{{ $saludo }}</div>
+    <div class="footerPlantilla">{{ $saludo }}</div>
     @endif
   </div>
 </body>
