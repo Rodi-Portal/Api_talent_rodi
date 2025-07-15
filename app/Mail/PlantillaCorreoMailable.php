@@ -27,6 +27,8 @@ class PlantillaCorreoMailable extends Mailable
         $logoPathFs   = env('LOCAL_IMAGE_PATH') . '/_plantillas/_logos/' . $logoFilename;
         $logoUrl      = env('LOCAL_IMAGE_PATHA') . '/_plantillas/_logos/' . $logoFilename;
 
+        logger('Ruta FS del logo: ' . $logoPathFs);
+        logger('URL del logo: ' . $logoUrl);
         // 2) Reemplazo de nombre en el cuerpo
         $cuerpoProcesado = str_replace('{{$nombre}}', $this->nombreDestinatario, $this->plantilla->cuerpo);
 
