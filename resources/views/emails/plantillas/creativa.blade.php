@@ -12,7 +12,7 @@
     color: #333;
   }
 
-  .container {
+  .containerPlantilla {
     background: #fff;
     border-radius: 20px;
     padding: 35px;
@@ -22,25 +22,25 @@
     border: 3px solid #ffa07a;
   }
 
-  .logo {
+  .logoPlantilla {
     max-height: 70px;
     display: block;
     margin: 0 auto 20px;
   }
 
-  .titulo {
+  .tituloPlantilla {
     text-align: center;
     color: #ff5722;
     font-size: 26px;
     margin-bottom: 20px;
   }
 
-  .contenido {
+  .contenidoPlantilla {
     line-height: 1.7;
     font-size: 16px;
   }
 
-  .saludo {
+  .saludoPlantilla {
     margin-top: 30px;
     text-align: right;
     color: #555;
@@ -52,17 +52,17 @@
 </head>
 
 <body>
-  <div class="container">
+  <div class="containerPlantilla">
   {{-- Logo inline --}}
     @if (!empty($logo_src))
     <img src="{{ $logo_src }}" alt="Logo" width="200" style="display:block; height:auto; margin:0 auto 20px;" />
     @endif
-    <div class="titulo">{{ $titulo ?? 'Mensaje Creativo' }}</div>
-    <div class="contenido">
+    <div class="tituloPlantilla">{{ $titulo ?? 'Mensaje Creativo' }}</div>
+    <div class="contenidoPlantilla">
       {!! $cuerpo !!}
     </div>
     @if(isset($saludo))
-    <div class="saludo">{{ $saludo }}</div>
+    <div class="saludoPlantilla">{{ $saludo }}</div>
     @endif
   </div>
 </body>

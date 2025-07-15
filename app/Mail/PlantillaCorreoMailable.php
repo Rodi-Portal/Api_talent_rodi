@@ -27,10 +27,12 @@ class PlantillaCorreoMailable extends Mailable
         $logoPathFs   = env('LOCAL_IMAGE_PATH') . '/_plantillas/_logos/' . $logoFilename;
         $logoUrl      = env('LOCAL_IMAGE_PATHA') . '/_plantillas/_logos/' . $logoFilename;
 
+       // logger('Ruta FS del logo: ' . $logoPathFs);
+        //logger('URL del logo: ' . $logoUrl);
         // 2) Reemplazo de nombre en el cuerpo
         $cuerpoProcesado = str_replace('{{$nombre}}', $this->nombreDestinatario, $this->plantilla->cuerpo);
 
-        Log::info("📧 Generando correo para {$this->nombreDestinatario}");
+        //Log::info("📧 Generando correo para {$this->nombreDestinatario}");
 
         // 3) Datos que recibe la vista
         $viewData = [
@@ -49,16 +51,16 @@ class PlantillaCorreoMailable extends Mailable
                     'as'   => $adjunto->nombre_original,
                     'mime' => mime_content_type($path),
                 ]);
-                Log::info('📎 Adjunto agregado', ['nombre' => $adjunto->nombre_original]);
+          //      Log::info('📎 Adjunto agregado', ['nombre' => $adjunto->nombre_original]);
             } else {
-                Log::warning('⚠️ Adjunto no encontrado', ['path' => $path]);
+            //    Log::warning('⚠️ Adjunto no encontrado', ['path' => $path]);
             }
         }
 
         // 5) Debug en local/testing
         if (app()->environment(['local', 'testing'])) {
             $html = view('emails.plantillas.' . $this->plantilla->nombre_plantilla, $viewData)->render();
-            Log::info("📝 Vista HTML generada:\n" . $html);
+           // Log::info("📝 Vista HTML generada:\n" . $html);
         }
 
         // 6) Devuelve el mailable
