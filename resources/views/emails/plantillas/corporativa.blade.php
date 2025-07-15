@@ -20,7 +20,11 @@
     margin: auto;
     box-shadow: 0 5px 20px rgba(255, 255, 255, 0.1);
   }
-
+  .content {
+    line-height: 1.7;
+    font-size: 16px;
+    color: #ffffff !important;
+}
   .logo {
     max-height: 50px;
     margin-bottom: 20px;
