@@ -55,7 +55,7 @@ class PlantillaController extends Controller
             'titulo'   => $request->input('titulo', ''),
             'cuerpo'   => $request->input('cuerpo', ''),
             'saludo'   => $request->input('saludo', ''),
-            'logo_url' => $request->input('logo_url', ''),
+            'logo_src' => $request->input('logo_url', ''),
         ])->render();
 
         return response()->json(['html' => $html]);
