@@ -34,6 +34,7 @@
     border-left: 5px solid #00bcd4;
     padding-left: 15px;
     margin-bottom: 20px;
+    color: #ffffff !important;
   }
 
   .footerPlantilla {
