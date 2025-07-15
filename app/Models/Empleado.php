@@ -75,5 +75,9 @@ class Empleado extends Model
         }])
             ->find($id_empleado);
     }
+    public function informacionMedica()
+    {
+        return $this->hasOne(MedicalInfo::class, 'id_empleado');
+    }
 
 }
