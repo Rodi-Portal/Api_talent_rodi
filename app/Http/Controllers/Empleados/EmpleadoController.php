@@ -72,7 +72,7 @@ class EmpleadoController extends Controller
                     foreach ($empleadoArray['domicilio_empleado'] as $campo => $valor) {
                         $empleadoArray[$campo] = $valor;
                     }
-                    unset($empleadoArray['domicilio_empleado']); // opcional
+                    //unset($empleadoArray['domicilio_empleado']); // opcional
                 }
                 // Agregar el campo 'fecha_salida' si existe
                 $empleadoArray['fecha_salida']    = $comentario ? $comentario->creacion : null;
@@ -114,7 +114,6 @@ class EmpleadoController extends Controller
                             $empleadoArray[$campo] = $valor;
                         }
                     }
-                    unset($empleadoArray['domicilio_empleado']);
                 }
 
                 $empleadoArray['campoExtra']      = $campoExtra;
