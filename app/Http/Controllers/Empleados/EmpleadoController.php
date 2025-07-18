@@ -17,6 +17,7 @@ use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class EmpleadoController extends Controller
@@ -68,11 +69,15 @@ class EmpleadoController extends Controller
 
                 // Convertir el empleado a un array
                 $empleadoArray = $empleado->toArray();
+
                 if (isset($empleadoArray['domicilio_empleado']) && is_array($empleadoArray['domicilio_empleado'])) {
+                    $camposPermitidos = ['pais', 'estado', 'ciudad', 'colonia', 'calle', 'cp', 'num_int', 'num_ext'];
+
                     foreach ($empleadoArray['domicilio_empleado'] as $campo => $valor) {
-                        $empleadoArray[$campo] = $valor;
+                        if (in_array($campo, $camposPermitidos)) {
+                            $empleadoArray[$campo] = $valor;
+                        }
                     }
-                    //unset($empleadoArray['domicilio_empleado']); // opcional
                 }
                 // Agregar el campo 'fecha_salida' si existe
                 $empleadoArray['fecha_salida']    = $comentario ? $comentario->creacion : null;
@@ -108,9 +113,12 @@ class EmpleadoController extends Controller
 
                 // Convertir el empleado a un array y agregar el statusDocuments
                 $empleadoArray = $empleado->toArray();
+
                 if (isset($empleadoArray['domicilio_empleado']) && is_array($empleadoArray['domicilio_empleado'])) {
+                    $camposPermitidos = ['pais', 'estado', 'ciudad', 'colonia', 'calle', 'cp', 'num_int', 'num_ext'];
+
                     foreach ($empleadoArray['domicilio_empleado'] as $campo => $valor) {
-                        if (! array_key_exists($campo, $empleadoArray)) {
+                        if (in_array($campo, $camposPermitidos)) {
                             $empleadoArray[$campo] = $valor;
                         }
                     }
@@ -135,7 +143,7 @@ class EmpleadoController extends Controller
             $prioridadB = $controller->obtenerPrioridad($b);
             return $prioridadA <=> $prioridadB;
         });
-
+      
         return response()->json([
             'empleados' => $resultados,
             'columnas'  => $this->extraerColumnasUnicas($resultados),

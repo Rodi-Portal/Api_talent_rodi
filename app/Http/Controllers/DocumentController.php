@@ -20,7 +20,7 @@ class DocumentController extends Controller
         $fileName = $request->input('file_name');
         $carpeta  = $request->input('carpeta');
 
-        Log::info('Archivo recibido:', ['file' => $file, 'file_name' => $fileName]);
+       // Log::info('Archivo recibido:', ['file' => $file, 'file_name' => $fileName]);
 
         if (! $file) {
             return response()->json(['error' => 'No se recibió ningún archivo.'], 400);
@@ -33,7 +33,7 @@ class DocumentController extends Controller
             mkdir($destinationPath, 0755, true);
         } // Cambia el separador de directorios
 
-        Log::info('Ruta de destino:', ['destination_path' => $destinationPath]);
+        //Log::info('Ruta de destino:', ['destination_path' => $destinationPath]);
 
         // Asegúrate de que el directorio existe
         if (! file_exists($destinationPath)) {
@@ -43,10 +43,10 @@ class DocumentController extends Controller
         // Construir la ruta completa del archivo
         $fileDestination = $destinationPath . DIRECTORY_SEPARATOR . $fileName;
 
-        Log::info('Moviendo archivo:', [
+       /* Log::info('Moviendo archivo:', [
             'file_name'        => $fileName,
             'destination_path' => $fileDestination,
-        ]);
+        ]);*/
 
         // Mover el archivo a la ruta de destino
         try {
@@ -56,11 +56,11 @@ class DocumentController extends Controller
             chmod($fileDestination, 0664);
             @chgrp($fileDestination, 'rodicomm'); // Opcional, si el grupo es el problema
 
-            Log::info('Archivo movido correctamente y permisos ajustados:', [
+      /*      Log::info('Archivo movido correctamente y permisos ajustados:', [
                 'file_name'        => $fileName,
                 'destination_path' => $fileDestination,
             ]);
-
+*/
             return response()->json([
                 'status'  => 'success',
                 'message' => 'Documento guardado correctamente en ' . $fileDestination,
