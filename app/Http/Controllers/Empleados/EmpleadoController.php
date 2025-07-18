@@ -17,7 +17,6 @@ use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class EmpleadoController extends Controller
@@ -69,7 +68,12 @@ class EmpleadoController extends Controller
 
                 // Convertir el empleado a un array
                 $empleadoArray = $empleado->toArray();
-
+                if (isset($empleadoArray['domicilio_empleado']) && is_array($empleadoArray['domicilio_empleado'])) {
+                    foreach ($empleadoArray['domicilio_empleado'] as $campo => $valor) {
+                        $empleadoArray[$campo] = $valor;
+                    }
+                    unset($empleadoArray['domicilio_empleado']); // opcional
+                }
                 // Agregar el campo 'fecha_salida' si existe
                 $empleadoArray['fecha_salida']    = $comentario ? $comentario->creacion : null;
                 $empleadoArray['statusDocuments'] = $statusDocuments;
@@ -103,7 +107,16 @@ class EmpleadoController extends Controller
                 $estadoExam          = $this->obtenerEstado($examenes);
 
                 // Convertir el empleado a un array y agregar el statusDocuments
-                $empleadoArray                    = $empleado->toArray();
+                $empleadoArray = $empleado->toArray();
+                if (isset($empleadoArray['domicilio_empleado']) && is_array($empleadoArray['domicilio_empleado'])) {
+                    foreach ($empleadoArray['domicilio_empleado'] as $campo => $valor) {
+                        if (! array_key_exists($campo, $empleadoArray)) {
+                            $empleadoArray[$campo] = $valor;
+                        }
+                    }
+                    unset($empleadoArray['domicilio_empleado']);
+                }
+
                 $empleadoArray['campoExtra']      = $campoExtra;
                 $empleadoArray['statusMedico']    = $statusPadecimientos;
                 $empleadoArray['statusDocuments'] = $statusDocuments;
@@ -118,24 +131,11 @@ class EmpleadoController extends Controller
 
         $controller = $this;
 
-        Log::info('Antes de ordenar empleados por prioridad', array_map(function ($e) use ($controller) {
-            return [
-                'id'        => $e['id'] ?? null,
-                'prioridad' => $controller->obtenerPrioridad($e),
-            ];
-        }, $resultados));
-
         usort($resultados, function ($a, $b) use ($controller) {
             $prioridadA = $controller->obtenerPrioridad($a);
             $prioridadB = $controller->obtenerPrioridad($b);
             return $prioridadA <=> $prioridadB;
         });
-        Log::info('Después de ordenar empleados por prioridad', array_map(function ($e) use ($controller) {
-            return [
-                'id'        => $e['id'] ?? null,
-                'prioridad' => $controller->obtenerPrioridad($e),
-            ];
-        }, $resultados));
 
         return response()->json([
             'empleados' => $resultados,
@@ -149,7 +149,7 @@ class EmpleadoController extends Controller
             'foto', 'statusMedico', 'statusDocuments', 'statusExam',
             'estadoExam', 'statusCursos', 'estadoDocumento',
             'id_domicilio_empleado', 'creacion', 'edicion',
-            'id_portal', 'id_cliente', 'id_usuario', 'id', 'campoExtra', 'eliminado', 'status', 'paterno', 'materno',
+            'id_portal', 'id_cliente', 'id_usuario', 'id', 'Id', 'campoExtra', 'eliminado', 'status', 'paterno', 'materno', 'nombre',
         ];
 
         foreach ($empleados as $empleado) {
@@ -168,15 +168,15 @@ class EmpleadoController extends Controller
                     }
                 }
 
-                // Relación: domicilio_empleado
+// Relación: domicilio_empleado (aplanado al nivel superior)
                 if ($clave === 'domicilio_empleado' && is_array($valor)) {
                     foreach ($valor as $subclave => $subvalor) {
-                        $columna = $subclave;
-                        if (! in_array($columna, $columnas)) {
-                            $columnas[] = $columna;
+                        if (! in_array($subclave, $excluir) && ! in_array($subclave, $columnas)) {
+                            $columnas[] = $subclave; // 👈 sin prefijo
                         }
                     }
                 }
+
             }
         }
 
