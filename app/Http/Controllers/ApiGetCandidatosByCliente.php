@@ -236,7 +236,7 @@ class ApiGetCandidatosByCliente extends Controller
                         'id_candidato' => $candidate->id ?? null,
                     ]);
             
-                    Log::info('Insertando en Empleado:', ['examEmpleado' => $examEmpleado->toArray()]);
+                   // Log::info('Insertando en Empleado:', ['examEmpleado' => $examEmpleado->toArray()]);
             
                     $examEmpleado->save();
                 } else {
