@@ -17,6 +17,7 @@ use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class EmpleadoController extends Controller
@@ -35,7 +36,7 @@ class EmpleadoController extends Controller
         $status     = $request->input('status');
 
         // Obtener todos los empleados con sus domicilios
-        $empleados = Empleado::with('domicilioEmpleado')
+        $empleados = Empleado::with('domicilioEmpleado', 'camposExtra', )
             ->where('id_portal', $id_portal)
             ->where('id_cliente', $id_cliente)
             ->where('status', $status)
@@ -54,8 +55,8 @@ class EmpleadoController extends Controller
 
                 // Obtener los documentos con status = 2
                 $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
-                              ->where('status', 2)
-                              ->get();
+                    ->where('status', 2)
+                    ->get();
 
                 // Log de los documentos obtenidos
                 //Log::info('Documentos para empleado ' . $empleado->id . ': ', ['documentos' => $documentos]);
@@ -87,8 +88,7 @@ class EmpleadoController extends Controller
             foreach ($empleados as $empleado) {
                 // Obtener documentos del empleado
                 $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
-                   
-                              ->get();
+                    ->get();
                 $cursos     = CursoEmpleado::where('employee_id', $empleado->id)->get();
                 $examenes   = ExamEmpleado::where('employee_id', $empleado->id)->get();
                 $medico     = MedicalInfo::where('id_empleado', $empleado->id)->get();
@@ -116,9 +116,97 @@ class EmpleadoController extends Controller
             }
         }
 
-        return response()->json($resultados);
-    }
+        $controller = $this;
 
+        Log::info('Antes de ordenar empleados por prioridad', array_map(function ($e) use ($controller) {
+            return [
+                'id'        => $e['id'] ?? null,
+                'prioridad' => $controller->obtenerPrioridad($e),
+            ];
+        }, $resultados));
+
+        usort($resultados, function ($a, $b) use ($controller) {
+            $prioridadA = $controller->obtenerPrioridad($a);
+            $prioridadB = $controller->obtenerPrioridad($b);
+            return $prioridadA <=> $prioridadB;
+        });
+        Log::info('Después de ordenar empleados por prioridad', array_map(function ($e) use ($controller) {
+            return [
+                'id'        => $e['id'] ?? null,
+                'prioridad' => $controller->obtenerPrioridad($e),
+            ];
+        }, $resultados));
+
+        return response()->json([
+            'empleados' => $resultados,
+            'columnas'  => $this->extraerColumnasUnicas($resultados),
+        ]);
+    }
+    private function extraerColumnasUnicas(array $empleados): array
+    {
+        $columnas = [];
+        $excluir  = [
+            'foto', 'statusMedico', 'statusDocuments', 'statusExam',
+            'estadoExam', 'statusCursos', 'estadoDocumento',
+            'id_domicilio_empleado', 'creacion', 'edicion',
+            'id_portal', 'id_cliente', 'id_usuario', 'id', 'campoExtra', 'eliminado', 'status', 'paterno', 'materno',
+        ];
+
+        foreach ($empleados as $empleado) {
+            foreach ($empleado as $clave => $valor) {
+                // Campos directos
+                if (! in_array($clave, $columnas) && ! in_array($clave, $excluir) && ! is_array($valor)) {
+                    $columnas[] = $clave;
+                }
+
+                // Campos personalizados desde campoExtra
+                if ($clave === 'campoExtra' && is_iterable($valor)) {
+                    foreach ($valor as $campo) {
+                        if (isset($campo['nombre']) && ! in_array($campo['nombre'], $columnas)) {
+                            $columnas[] = $campo['nombre'];
+                        }
+                    }
+                }
+
+                // Relación: domicilio_empleado
+                if ($clave === 'domicilio_empleado' && is_array($valor)) {
+                    foreach ($valor as $subclave => $subvalor) {
+                        $columna = $subclave;
+                        if (! in_array($columna, $columnas)) {
+                            $columnas[] = $columna;
+                        }
+                    }
+                }
+            }
+        }
+
+        return $columnas;
+    }
+    public function obtenerPrioridad(array $empleado): int
+    {
+        $statusDocuments = $empleado['statusDocuments'] ?? 'verde';
+        $statusExam      = $empleado['statusExam'] ?? 'verde';
+
+        if ($statusDocuments === 'rojo') {
+            return 1;
+        }
+
+        if ($statusDocuments === 'amarillo') {
+            return 2;
+        }
+
+        if ($statusDocuments === 'verde') {
+            if ($statusExam === 'rojo') {
+                return 3;
+            }
+
+            if ($statusExam === 'amarillo') {
+                return 4;
+            }
+        }
+
+        return 5; // todo verde o sin datos
+    }
     public function evaluarPadecimientos($medico)
     {
         // Obtener los datos del modelo MedicalInfo
@@ -184,7 +272,6 @@ class EmpleadoController extends Controller
 
         return 'verde'; // Si no hay documentos en rojo o amarillo
     }
-
     private function calcularDiferenciaDias($fechaActual, $fechaExpiracion)
     {
         $fechaActual     = \Carbon\Carbon::parse($fechaActual);
@@ -196,7 +283,6 @@ class EmpleadoController extends Controller
         // Ajustamos la diferencia para que sea negativa si la fecha de expiración ya ha pasado
         return $fechaExpiracion < $fechaActual ? -$diferenciaDias : $diferenciaDias;
     }
-
     public function getEmpleadosStatus(Request $request)
     {
         $request->validate([
@@ -309,7 +395,6 @@ class EmpleadoController extends Controller
 
         return response()->json($resultado);
     }
-
     public function update(Request $request)
     {
 
@@ -398,7 +483,6 @@ class EmpleadoController extends Controller
             return response()->json(['error' => 'Ocurrió un error al actualizar los datos.'], 500);
         }
     }
-
     public function show($id_empleado)
     {
         $medicalInfo = MedicalInfo::where('id_empleado', $id_empleado)->first();
@@ -409,7 +493,6 @@ class EmpleadoController extends Controller
 
         return response()->json($medicalInfo, 200);
     }
-
     public function getDocumentos($id_empleado)
     {
         $documentos = DocumentEmpleado::where('employee_id', $id_empleado)->get();
