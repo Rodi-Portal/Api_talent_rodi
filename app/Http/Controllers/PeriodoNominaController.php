@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 use App\Models\ClienteTalent;
 use App\Models\PeriodoNomina;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+// asegúrate de importar esto
 
 class PeriodoNominaController extends Controller
 {
@@ -150,42 +152,71 @@ class PeriodoNominaController extends Controller
 
     public function periodosConPrenomina(Request $request)
     {
-        $request->validate([
-            'id_cliente' => [
-                'required',
-                'integer',
-                function ($attribute, $value, $fail) {
-                    if (! ClienteTalent::where('id', $value)->exists()) {
-                        $fail("El cliente con id {$value} no existe en la base de datos.");
-                    }
-                },
-            ],
-        ]);
+        Log::debug('Request recibido en periodosConPrenomina:', $request->all());
 
-        $query = PeriodoNomina::with('prenominaEmpleados') // opcional, solo si quieres los datos también
+        // Obtener el parámetro
+        $clientes = $request->input('id_cliente');
+
+        // Log para ver cómo llegó id_cliente
+        Log::debug('Valor inicial de id_cliente:', ['id_cliente' => $clientes]);
+
+        // Asegurarse de que sea array
+        if (! is_array($clientes)) {
+            Log::debug('id_cliente no es array, se convierte a array.');
+            $clientes = [$clientes];
+        }
+
+        // Validar manualmente
+        foreach ($clientes as $clienteId) {
+            Log::debug('Validando cliente_id:', ['clienteId' => $clienteId]);
+
+            if (! is_numeric($clienteId)) {
+                Log::warning('id_cliente no numérico:', ['clienteId' => $clienteId]);
+                return response()->json([
+                    'message' => "El id_cliente debe ser numérico.",
+                ], 422);
+            }
+
+            if (! ClienteTalent::where('id', $clienteId)->exists()) {
+                Log::warning('Cliente no encontrado:', ['clienteId' => $clienteId]);
+                return response()->json([
+                    'message' => "El cliente con id {$clienteId} no existe.",
+                ], 422);
+            }
+        }
+
+        // Construcción del query
+        Log::debug('Todos los clientes son válidos. Construyendo query...');
+
+        $query = PeriodoNomina::with('prenominaEmpleados')
             ->where('id_portal', $request->id_portal)
-            ->where('id_cliente', $request->id_cliente)
-            ->whereHas('prenominaEmpleados'); // 🔥 Solo los periodos que tienen registros en PreNominaEmpleado
+            ->whereIn('id_cliente', $clientes);
 
         if ($request->filled('estatus')) {
+            Log::debug('Filtrando por estatus:', ['estatus' => $request->estatus]);
             $query->where('estatus', $request->estatus);
         }
 
         if ($request->filled('tipo_nomina')) {
+            Log::debug('Filtrando por tipo_nomina:', ['tipo_nomina' => $request->tipo_nomina]);
             $query->where('tipo_nomina', $request->tipo_nomina);
         }
 
         if ($request->filled('fecha_inicio')) {
+            Log::debug('Filtrando por fecha_inicio >=', ['fecha_inicio' => $request->fecha_inicio]);
             $query->whereDate('fecha_inicio', '>=', $request->fecha_inicio);
         }
 
         if ($request->filled('fecha_fin')) {
+            Log::debug('Filtrando por fecha_fin <=', ['fecha_fin' => $request->fecha_fin]);
             $query->whereDate('fecha_fin', '<=', $request->fecha_fin);
         }
 
-        return response()->json(
-            $query->orderBy('fecha_inicio', 'desc')->get()
-        );
+        $resultados = $query->orderBy('fecha_inicio', 'desc')->get();
+
+        Log::debug('Consulta finalizada. Resultados obtenidos:', ['total' => $resultados->count()]);
+
+        return response()->json($resultados);
     }
 
 }
