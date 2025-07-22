@@ -107,7 +107,7 @@ Route::middleware(['api'])->group(function () {
 
     //peridodos_nomina
     Route::get('/periodos-nomina', [PeriodoNominaController::class, 'index']);
-    Route::get('/periodos-nomina-con-datos', [PeriodoNominaController::class, 'periodosConPrenomina']);
+    Route::post('/periodos-nomina-con-datos', [PeriodoNominaController::class, 'periodosConPrenomina']);
     Route::post('/periodos-nomina', [PeriodoNominaController::class, 'store']);
     Route::put('/periodos-nomina/{id}', [PeriodoNominaController::class, 'update']);
 
@@ -209,8 +209,8 @@ Route::middleware(['api'])->group(function () {
     Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultar']);
 
     Route::get('/notificaciones/consultarex/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultarExempleo']);
-
-
+//*****************Modulo Comunicacion  Calendario */ */
+    Route::get('/colaboradores-por-sucursal', [EmpleadoController::class, 'obtenerColaboradoresParaCalendario']);
 
 });
 

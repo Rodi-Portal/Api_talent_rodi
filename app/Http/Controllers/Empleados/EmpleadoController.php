@@ -17,8 +17,8 @@ use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
 
 class EmpleadoController extends Controller
 {
@@ -48,7 +48,7 @@ class EmpleadoController extends Controller
 
             foreach ($empleados as $empleado) {
                 // Obtener el campo 'creacion' de ComentarioFormerEmpleado
-                $comentario = ComentarioFormerEmpleado::where('id_empleado', $empleado->id)->first(['creacion']);
+                $comentario = ComentarioFormerEmpleado::where('id', $empleado->id)->first(['creacion']);
 
                 // Log de lo que trae el comentario
                 //Log::info('Comentario para empleado ' . $empleado->id . ': ', ['comentario' => $comentario]);
@@ -143,7 +143,11 @@ class EmpleadoController extends Controller
             $prioridadB = $controller->obtenerPrioridad($b);
             return $prioridadA <=> $prioridadB;
         });
-      
+       // Log::info("Resultados ordenados:\n" . json_encode($resultados, JSON_PRETTY_PRINT));
+
+// O también puedes loguear las columnas si quieres
+       // Log::info("Columnas únicas:\n" . json_encode($this->extraerColumnasUnicas($resultados), JSON_PRETTY_PRINT));
+
         return response()->json([
             'empleados' => $resultados,
             'columnas'  => $this->extraerColumnasUnicas($resultados),
@@ -175,7 +179,7 @@ class EmpleadoController extends Controller
                     }
                 }
 
-// Relación: domicilio_empleado (aplanado al nivel superior)
+                // Relación: domicilio_empleado (aplanado al nivel superior)
                 if ($clave === 'domicilio_empleado' && is_array($valor)) {
                     foreach ($valor as $subclave => $subvalor) {
                         if (! in_array($subclave, $excluir) && ! in_array($subclave, $columnas)) {
@@ -759,4 +763,37 @@ class EmpleadoController extends Controller
             ], 500);
         }
     }
+
+    public function obtenerColaboradoresParaCalendario(Request $request)
+    {
+        $request->validate([
+            'id_cliente' => 'required|integer',
+        ]);
+
+        $idCliente = $request->input('id_cliente');
+
+        $empleados = Empleado::where('id_cliente', $idCliente)
+            ->where('eliminado', 0)
+            ->where('status', 1)
+            ->get(['id', 'nombre', 'paterno', 'materno', 'correo', 'puesto', 'departamento', 'id_empleado']);
+
+        $colaboradores = $empleados->map(function ($empleado) {
+            $nombreCompleto = trim("{$empleado->nombre} {$empleado->paterno} {$empleado->materno}");
+
+            return [
+                'nombre_completo' => $nombreCompleto,
+                'id'              => $empleado->id ?? '',
+                'id_empleado'     => $empleado->id_empleado ?? '',
+                'correo'          => $empleado->correo ?? '',
+                'puesto'          => $empleado->puesto ?? '',
+                'departamento'    => $empleado->departamento ?? '',
+            ];
+        });
+
+        return response()->json([
+            'success'       => true,
+            'colaboradores' => $colaboradores,
+        ]);
+    }
+
 }
