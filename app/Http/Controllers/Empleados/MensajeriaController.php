@@ -19,20 +19,20 @@ class MensajeriaController extends Controller
      */
     public function obtenerEmpleados(Request $request)
     {
-        $id_cliente = $request->input('id_cliente');
+        $ids_cliente = $request->input('id_cliente');
 
-        if (! $id_cliente) {
-            return response()->json(['error' => 'Falta el parámetro id_cliente'], 400);
+        if (! is_array($ids_cliente) || empty($ids_cliente)) {
+            return response()->json(['error' => 'El parámetro id_cliente debe ser un arreglo con al menos un elemento.'], 400);
         }
 
-        // Cargar empleados con relaciones
+        // Cargar empleados con relaciones, incluyendo cliente
         $empleados = Empleado::with([
             'domicilioEmpleado',
             'camposExtra',
-            // Descomenta esta línea si tienes esta relación definida
-            // 'informacionMedica'
+            'cliente', // Importante: para obtener el nombre del cliente
+                       // 'informacionMedica' // Si se desea incluir
         ])
-            ->where('id_cliente', $id_cliente)
+            ->whereIn('id_cliente', $ids_cliente)
             ->where('eliminado', 0)
             ->get()
             ->map(function ($empleado) {
@@ -40,6 +40,7 @@ class MensajeriaController extends Controller
                     'id'                   => $empleado->id_empleado,
                     'nombre'               => trim("{$empleado->nombre} {$empleado->paterno} {$empleado->materno}"),
                     'email'                => $empleado->correo,
+                    'sucursal'              => optional($empleado->cliente)->nombre ?? 'Sin nombre',
                     'camposPersonalizados' => array_merge(
                         [
                             'telefono' => $empleado->telefono,
@@ -101,7 +102,7 @@ class MensajeriaController extends Controller
         /*$correos = $data['correos'] ?? [
             'luisjorgeti@rodicontrol.com',
             'sistemas@rodicontrol.com',
-        ]; 
+        ];
         */
         // $destinatarios = $data['destinatarios'];
 
