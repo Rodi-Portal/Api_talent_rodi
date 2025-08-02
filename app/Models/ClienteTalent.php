@@ -46,4 +46,8 @@ class ClienteTalent extends Model
     {
         return $this->belongsTo(Cliente::class, 'id_cliente');
     }
+    public function periodos()
+    {
+        return $this->hasMany(PeriodoNomina::class, 'id_cliente');
+    }
 }

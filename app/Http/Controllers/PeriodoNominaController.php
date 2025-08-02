@@ -5,54 +5,118 @@ use App\Models\ClienteTalent;
 use App\Models\PeriodoNomina;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+
 // asegúrate de importar esto
 
 class PeriodoNominaController extends Controller
 {
     public function index(Request $request)
     {
+        // Normalizar id_cliente
+        $idClientesRaw = $request->input('id_cliente');
+        $idClientes    = [];
+
+        if (is_string($idClientesRaw)) {
+            $decoded = json_decode($idClientesRaw, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $idClientes = $decoded;
+            } elseif (! empty($idClientesRaw)) {
+                $idClientes = [$idClientesRaw];
+            }
+        } elseif (is_array($idClientesRaw)) {
+            $idClientes = $idClientesRaw;
+        }
+
+        $idClientes = array_filter(array_map('intval', $idClientes));
+        $request->merge(['id_cliente' => $idClientes]);
+        $request->merge(['id_portal' => (int) $request->input('id_portal')]);
+
+        // Validación
         $request->validate([
-            'id_cliente' => [
-                'required',
-                'integer',
-                function ($attribute, $value, $fail) {
-                    if (! ClienteTalent::where('id', $value)->exists()) {
-                        $fail("El cliente con id {$value} no existe en la base de datos.");
-                    }
-                },
-            ],
-            // otras validaciones...
+            'id_cliente'   => ['array'],
+            'id_cliente.*' => ['integer', function ($attribute, $value, $fail) {
+                if (! ClienteTalent::where('id', $value)->exists()) {
+                    $fail("El cliente con id {$value} no existe.");
+                }
+            }],
+            'estatus'      => ['nullable', 'string'],
+            'tipo_nomina'  => ['nullable', 'string'],
+            'fecha_inicio' => ['nullable', 'date'],
+            'fecha_fin'    => ['nullable', 'date'],
+            'id_portal'    => ['required', 'integer'],
         ]);
-        $query = PeriodoNomina::where('id_portal', $request->id_portal)
-            ->where('id_cliente', $request->id_cliente);
 
-        if ($request->filled('estatus')) {
-            $query->where('estatus', $request->estatus);
+        // Filtros base para periodos
+        $aplicarFiltros = function ($query) use ($request) {
+            $query->where('id_portal', $request->id_portal);
+
+            if ($request->filled('estatus')) {
+                $query->where('estatus', $request->estatus);
+            }
+            if ($request->filled('tipo_nomina')) {
+                $query->where('tipo_nomina', $request->tipo_nomina);
+            }
+            if ($request->filled('fecha_inicio')) {
+                $query->whereDate('fecha_inicio', '>=', $request->fecha_inicio);
+            }
+            if ($request->filled('fecha_fin')) {
+                $query->whereDate('fecha_fin', '<=', $request->fecha_fin);
+            }
+
+            $query->orderBy('fecha_inicio', 'desc');
+        };
+
+        $clientes = collect();
+
+        if (! empty($idClientes)) {
+            // Clientes seleccionados con periodos filtrados
+            $clientes = ClienteTalent::whereIn('id', $idClientes)
+                ->select('id', 'nombre')
+                ->with(['periodos' => function ($query) use ($aplicarFiltros) {
+                    $aplicarFiltros($query);
+                    $query->select('*')->without('creacion'); // no necesario pero ilustrativo
+                }])
+                ->get();
         }
 
-        if ($request->filled('tipo_nomina')) {
-            $query->where('tipo_nomina', $request->tipo_nomina);
+        // Periodos generales (id_cliente = null)
+        $periodosGenerales = PeriodoNomina::whereNull('id_cliente')
+            ->where('id_portal', $request->id_portal)
+            ->when($request->filled('estatus'), fn($q) => $q->where('estatus', $request->estatus))
+            ->when($request->filled('tipo_nomina'), fn($q) => $q->where('tipo_nomina', $request->tipo_nomina))
+            ->when($request->filled('fecha_inicio'), fn($q) => $q->whereDate('fecha_inicio', '>=', $request->fecha_inicio))
+            ->when($request->filled('fecha_fin'), fn($q) => $q->whereDate('fecha_fin', '<=', $request->fecha_fin))
+            ->orderBy('fecha_inicio', 'desc')
+            ->get()
+            ->map(function ($periodo) {
+                unset($periodo->creacion);
+                return $periodo;
+            });
+
+        // Incluir cliente virtual 'General' si hay periodos generales
+        if ($periodosGenerales->isNotEmpty()) {
+            $clientes->push([
+                'id'       => null,
+                'nombre'   => 'General',
+                'periodos' => $periodosGenerales,
+            ]);
         }
 
-        if ($request->filled('fecha_inicio')) {
-            $query->whereDate('fecha_inicio', '>=', $request->fecha_inicio);
-        }
-
-        if ($request->filled('fecha_fin')) {
-            $query->whereDate('fecha_fin', '<=', $request->fecha_fin);
-        }
-
-        return response()->json($query->orderBy('fecha_inicio', 'desc')->get());
+        return response()->json($clientes);
     }
 
     public function store(Request $request)
     {
+        //Log::debug('Request recibido en periodosConPrenomina:', $request->all());
+
         $request->validate([
-            'id_cliente'   => [
-                'required',
+            'id_portal'    => 'required|integer',
+            'id_cliente'   => 'present|array',
+            'id_cliente.*' => [
+                'nullable', // puede ser null (para el caso de periodo general)
                 'integer',
                 function ($attribute, $value, $fail) {
-                    if (! ClienteTalent::where('id', $value)->exists()) {
+                    if (! is_null($value) && ! ClienteTalent::where('id', $value)->exists()) {
                         $fail("El cliente con id {$value} no existe en la base de datos.");
                     }
                 },
@@ -64,42 +128,58 @@ class PeriodoNominaController extends Controller
             'estatus'      => 'required|in:pendiente,cerrado,cancelado',
         ]);
 
-        if ($request->tipo_nomina !== 'extraordinaria') {
-            $existe = PeriodoNomina::where('id_cliente', $request->id_cliente)
-                ->where('id_portal', $request->id_portal)
-                ->where('tipo_nomina', $request->tipo_nomina)
-                ->where(function ($query) use ($request) {
-                    $query->whereBetween('fecha_inicio', [$request->fecha_inicio, $request->fecha_fin])
-                        ->orWhereBetween('fecha_fin', [$request->fecha_inicio, $request->fecha_fin])
-                        ->orWhere(function ($q) use ($request) {
-                            $q->where('fecha_inicio', '<=', $request->fecha_inicio)
-                                ->where('fecha_fin', '>=', $request->fecha_fin);
-                        });
-                })
-                ->exists();
+        $clientes = $request->id_cliente;
 
-            if ($existe) {
-                return response()->json([
-                    'message' => 'Ya existe un periodo que se superpone con estas fechas y tipo de nómina.',
-                ], 422);
-            }
+        // Si el array está vacío, agregar null para crear periodo general
+        if (empty($clientes)) {
+            $clientes = [null];
         }
 
-        $periodo = PeriodoNomina::create([
-            'id_portal'             => $request->id_portal,
-            'id_cliente'            => $request->id_cliente,
-            'id_usuario'            => $request->id_usuario,
-            'fecha_inicio'          => $request->fecha_inicio,
-            'fecha_fin'             => $request->fecha_fin,
-            'fecha_pago'            => $request->fecha_pago,
-            'tipo_nomina'           => $request->tipo_nomina,
-            'estatus'               => $request->estatus,
-            'descripcion'           => $request->descripcion ?? null,
-            'periodicidad_objetivo' => $request->periodicidad_objetivo ?? null,
-            'creado_por'            => auth()->id() ?? 1,
-        ]);
+        $creados = [];
 
-        return response()->json($periodo, 201);
+        foreach ($clientes as $id_cliente) {
+            if ($request->tipo_nomina !== 'extraordinaria') {
+                $existe = PeriodoNomina::where('id_cliente', $id_cliente)
+                    ->where('id_portal', $request->id_portal)
+                    ->where('tipo_nomina', $request->tipo_nomina)
+                    ->where(function ($query) use ($request) {
+                        $query->whereBetween('fecha_inicio', [$request->fecha_inicio, $request->fecha_fin])
+                            ->orWhereBetween('fecha_fin', [$request->fecha_inicio, $request->fecha_fin])
+                            ->orWhere(function ($q) use ($request) {
+                                $q->where('fecha_inicio', '<=', $request->fecha_inicio)
+                                    ->where('fecha_fin', '>=', $request->fecha_fin);
+                            });
+                    })
+                    ->exists();
+
+                if ($existe) {
+                    return response()->json([
+                        'message' => "Ya existe un periodo " . ($id_cliente ? "para el cliente ID {$id_cliente}" : "general") . " que se superpone con estas fechas y tipo de nómina.",
+                    ], 422);
+                }
+            }
+
+            $periodo = PeriodoNomina::create([
+                'id_portal'             => $request->id_portal,
+                'id_cliente'            => $id_cliente, // puede ser null para periodo general
+                'id_usuario'            => $request->id_usuario,
+                'fecha_inicio'          => $request->fecha_inicio,
+                'fecha_fin'             => $request->fecha_fin,
+                'fecha_pago'            => $request->fecha_pago,
+                'tipo_nomina'           => $request->tipo_nomina,
+                'estatus'               => $request->estatus,
+                'descripcion'           => $request->descripcion ?? null,
+                'periodicidad_objetivo' => $request->periodicidad_objetivo ?? null,
+                'creado_por'            => auth()->id() ?? 1,
+            ]);
+
+            $creados[] = $periodo;
+        }
+
+        return response()->json([
+            'message' => 'Periodos creados correctamente.',
+            'data'    => $creados,
+        ], 201);
     }
 
     public function update(Request $request, $id)
@@ -152,71 +232,114 @@ class PeriodoNominaController extends Controller
 
     public function periodosConPrenomina(Request $request)
     {
-        Log::debug('Request recibido en periodosConPrenomina:', $request->all());
+        //Log::debug('Request recibido en periodosConPrenomina:', $request->all());
 
-        // Obtener el parámetro
         $clientes = $request->input('id_cliente');
-
-        // Log para ver cómo llegó id_cliente
         Log::debug('Valor inicial de id_cliente:', ['id_cliente' => $clientes]);
 
-        // Asegurarse de que sea array
         if (! is_array($clientes)) {
-            Log::debug('id_cliente no es array, se convierte a array.');
             $clientes = [$clientes];
         }
 
-        // Validar manualmente
         foreach ($clientes as $clienteId) {
-            Log::debug('Validando cliente_id:', ['clienteId' => $clienteId]);
-
             if (! is_numeric($clienteId)) {
-                Log::warning('id_cliente no numérico:', ['clienteId' => $clienteId]);
                 return response()->json([
                     'message' => "El id_cliente debe ser numérico.",
                 ], 422);
             }
 
             if (! ClienteTalent::where('id', $clienteId)->exists()) {
-                Log::warning('Cliente no encontrado:', ['clienteId' => $clienteId]);
                 return response()->json([
                     'message' => "El cliente con id {$clienteId} no existe.",
                 ], 422);
             }
         }
 
-        // Construcción del query
-        Log::debug('Todos los clientes son válidos. Construyendo query...');
-
-        $query = PeriodoNomina::with('prenominaEmpleados')
+        $query = PeriodoNomina::with('prenominaEmpleados', 'cliente')
             ->where('id_portal', $request->id_portal)
-            ->whereIn('id_cliente', $clientes);
+            ->where('estatus', 'pendiente')
+
+            ->where(function ($q) use ($clientes) {
+                $q->whereIn('id_cliente', $clientes)
+                    ->orWhereNull('id_cliente'); // ✅ incluir sin cliente
+            });
 
         if ($request->filled('estatus')) {
-            Log::debug('Filtrando por estatus:', ['estatus' => $request->estatus]);
             $query->where('estatus', $request->estatus);
         }
 
         if ($request->filled('tipo_nomina')) {
-            Log::debug('Filtrando por tipo_nomina:', ['tipo_nomina' => $request->tipo_nomina]);
             $query->where('tipo_nomina', $request->tipo_nomina);
         }
 
         if ($request->filled('fecha_inicio')) {
-            Log::debug('Filtrando por fecha_inicio >=', ['fecha_inicio' => $request->fecha_inicio]);
             $query->whereDate('fecha_inicio', '>=', $request->fecha_inicio);
         }
 
         if ($request->filled('fecha_fin')) {
-            Log::debug('Filtrando por fecha_fin <=', ['fecha_fin' => $request->fecha_fin]);
             $query->whereDate('fecha_fin', '<=', $request->fecha_fin);
         }
 
         $resultados = $query->orderBy('fecha_inicio', 'desc')->get();
 
-        Log::debug('Consulta finalizada. Resultados obtenidos:', ['total' => $resultados->count()]);
+        // ✅ Agregar nombre del cliente o GENERAL si no tiene cliente
+        $resultados = $resultados->map(function ($p) {
+            $p->cliente_nombre = $p->cliente->nombre ?? 'GENERAL';
+            unset($p->cliente);
+            return $p;
+        });
 
         return response()->json($resultados);
+    }
+
+    public function obtenerPeriodosPendientes(Request $request)
+    {
+      //  Log::debug('Request recibido en periodosConPrenomina:', $request->all());
+        $idPortal      = (int) $request->query('id_portal');
+        $idClientesRaw = $request->query('id_cliente', []);
+        $idClientes    = [];
+
+        // Normalizar id_cliente a array de enteros
+        if (is_string($idClientesRaw)) {
+            $decoded = json_decode($idClientesRaw, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $idClientes = $decoded;
+            } elseif (! empty($idClientesRaw)) {
+                $idClientes = [$idClientesRaw];
+            }
+        } elseif (is_array($idClientesRaw)) {
+            $idClientes = $idClientesRaw;
+        }
+
+        $idClientes = array_filter(array_map('intval', $idClientes));
+
+        // Base query
+        $query = PeriodoNomina::with('cliente')
+            ->where('id_portal', $idPortal)
+            ->where('estatus', 'pendiente');
+
+        // Filtro según cantidad de clientes
+        if (count($idClientes) === 1) {
+            $clienteUnico = $idClientes[0];
+            $query->where(function ($q) use ($clienteUnico) {
+                $q->whereNull('id_cliente')
+                    ->orWhere('id_cliente', $clienteUnico);
+            });
+        } else {
+            // Si son varios, solo traer periodos generales
+            $query->whereNull('id_cliente');
+        }
+
+        $periodos = $query->orderBy('fecha_inicio', 'desc')->get();
+
+        // Agregar nombre del cliente o 'GENERAL'
+        $periodos = $periodos->map(function ($p) {
+            $p->cliente_nombre = $p->cliente->nombre ?? 'GENERAL';
+            unset($p->cliente); // opcional
+            return $p;
+        });
+
+        return response()->json($periodos);
     }
 
 }
