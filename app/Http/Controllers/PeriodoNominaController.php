@@ -107,7 +107,7 @@ class PeriodoNominaController extends Controller
 
     public function store(Request $request)
     {
-        Log::debug('Request recibido en periodosConPrenomina:', $request->all());
+        //Log::debug('Request recibido en periodosConPrenomina:', $request->all());
 
         $request->validate([
             'id_portal'    => 'required|integer',
@@ -232,7 +232,7 @@ class PeriodoNominaController extends Controller
 
     public function periodosConPrenomina(Request $request)
     {
-        Log::debug('Request recibido en periodosConPrenomina:', $request->all());
+        //Log::debug('Request recibido en periodosConPrenomina:', $request->all());
 
         $clientes = $request->input('id_cliente');
         Log::debug('Valor inicial de id_cliente:', ['id_cliente' => $clientes]);
@@ -294,6 +294,7 @@ class PeriodoNominaController extends Controller
 
     public function obtenerPeriodosPendientes(Request $request)
     {
+      //  Log::debug('Request recibido en periodosConPrenomina:', $request->all());
         $idPortal      = (int) $request->query('id_portal');
         $idClientesRaw = $request->query('id_cliente', []);
         $idClientes    = [];

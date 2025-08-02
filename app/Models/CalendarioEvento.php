@@ -22,12 +22,16 @@ class CalendarioEvento extends Model
 
     // Campos que puedes asignar masivamente
     protected $fillable = [
+        'id_usuario',
         'id_empleado',
+        'id_periodo_nomina',
         'id_tipo',
         'inicio',
         'fin',
+        'dias_evento',
         'descripcion',
         'archivo',
+        'eliminado',
 
     ];
 

@@ -144,6 +144,9 @@ Route::middleware(['api'])->group(function () {
 
     Route::get('/colaboradores-por-sucursal', [CalendarioController::class, 'colaboradoresPorSucursal']);
     Route::post('/setEventos', [CalendarioController::class, 'setEventos']);
+    Route::put('/eventos/{id}', [CalendarioController::class, 'actualizarEvento']);
+    Route::delete('/eventos/{id}', [CalendarioController::class, 'eliminarEvento']);
+
     Route::get('/eventos/tipos', [CalendarioController::class, 'getTiposEvento']);
     Route::get('/eventos', [CalendarioController::class, 'getEventosPorClientes']);
 
@@ -220,8 +223,6 @@ Route::middleware(['api'])->group(function () {
     Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultar']);
 
     Route::get('/notificaciones/consultarex/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultarExempleo']);
-
-
 
 });
 
