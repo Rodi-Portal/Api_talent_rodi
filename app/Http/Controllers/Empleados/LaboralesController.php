@@ -283,10 +283,18 @@ class LaboralesController extends Controller
 
     public function empleadosMasivoPrenomina(Request $request)
     {
-        $idCliente = $request->input('id_cliente');
-        $idPortal  = $request->input('id_portal');
-        $idPeriodo = $request->input('id_periodo');
+        $idPortal     = $request->input('id_portal');
+        $idPeriodo    = $request->input('id_periodo');
+        $idCliente    = $request->input('id_cliente');
+        $periodicidad = $request->input('periodicidad_pago');
 
+        $idClientes = explode(',', $idCliente);
+        /*Log::info('🔍 empleadosMasivoPrenomina ejecutada', [
+            'id_cliente'        => $request->input('id_cliente'),
+            'id_portal'         => $request->input('id_portal'),
+            'id_periodo'        => $request->input('id_periodo'),
+            'periodicidad_pago' => $request->input('periodicidad_pago'),
+        ]);*/
         if (! $idCliente || ! $idPortal) {
             return response()->json(['message' => 'Faltan parámetros.'], 400);
         }
@@ -315,14 +323,22 @@ class LaboralesController extends Controller
         }
 
         // Consulta principal
-        $empleados = DB::connection('portal_main')
+        $query = DB::connection('portal_main')
             ->table('empleados as e')
             ->join('laborales_empleado as l', 'l.id_empleado', '=', 'e.id')
+            ->join('cliente as c', 'c.id', '=', 'e.id_cliente')
             ->leftJoin(DB::raw("($subquery) AS p"), 'p.id_empleado', '=', 'e.id')
             ->where('e.status', 1)
             ->where('e.eliminado', 0)
-            ->where('e.id_cliente', $idCliente)
-            ->where('e.id_portal', $idPortal)
+            ->whereIn('e.id_cliente', $idClientes)
+            ->where('e.id_portal', $idPortal);
+
+        if ($periodicidad) {
+            $query->where('l.periodicidad_pago', $periodicidad);
+        }
+
+        // 3. Continuar con select y get
+        $empleados = $query
             ->select(
                 'e.id',
                 'e.id_empleado',
@@ -351,6 +367,7 @@ class LaboralesController extends Controller
                 'p.deducciones_extra',
                 'p.prestaciones_extra_a',
                 'p.deducciones_extra_a',
+                'c.nombre as nombre_cliente'
             )
             ->get();
         //Log::info('Empleados:', $empleados->toArray());
@@ -414,14 +431,14 @@ class LaboralesController extends Controller
 
             return $empleado;
         });
-        Log::info('Empleados:', $empleados->map(fn($e) => (array) $e)->values()->all());
+        //Log::info('Empleados:', $empleados->map(fn($e) => (array) $e)->values()->all());
 
         return response()->json($empleados->toArray());
     }
 
     public function guardarPrenominaMasiva(Request $request)
     {
-        /* Log::info('Datos recibidos para prenómina masiva:', [
+       /*  Log::info('Datos recibidos para prenómina masiva:', [
             'id_periodo_nomina' => $request->input('id_periodo_nomina'),
             'datos'             => $request->input('datos'),
         ]); */
@@ -491,7 +508,7 @@ class LaboralesController extends Controller
                 // Los cálculos ya vienen hechos desde el frontend
                 $datosEmpleado['sueldo_total']   = $item['sueldo_total'] ?? 0;
                 $datosEmpleado['sueldo_total_a'] = $item['sueldo_total_a'] ?? 0;
-                $datosEmpleado['sueldo_total_t'] = $item['sueldo_total_t'] ?? 0;
+                $datosEmpleado['sueldo_total_t'] =  $item['sueldo_total'] + $item['sueldo_total_a'];
                 try {
                     // Verificar si ya existe un registro para este empleado y período
                     $existente = PreNominaEmpleado::where('id_empleado', $item['id'])

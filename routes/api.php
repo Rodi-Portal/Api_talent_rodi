@@ -8,6 +8,7 @@ use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 //use App\Http\Controllers\AvanceController;
+use App\Http\Controllers\Comunicacion\CalendarioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
@@ -106,10 +107,11 @@ Route::middleware(['api'])->group(function () {
     Route::put('/empleados/laborales/{id_empleado}', [LaboralesController::class, 'actualizarDatosLaborales']);
 
     //peridodos_nomina
-    Route::get('/periodos-nomina', [PeriodoNominaController::class, 'index']);
+    Route::post('/periodos-nomina-get', [PeriodoNominaController::class, 'index']);
     Route::post('/periodos-nomina-con-datos', [PeriodoNominaController::class, 'periodosConPrenomina']);
     Route::post('/periodos-nomina', [PeriodoNominaController::class, 'store']);
     Route::put('/periodos-nomina/{id}', [PeriodoNominaController::class, 'update']);
+    Route::get('/periodos-nomina-pre-nomina-registro', [PeriodoNominaController::class, 'obtenerPeriodosPendientes']);
 
     //Pre Nomina Empleados //
     Route::post('/empleados/registro_prenomina', [LaboralesController::class, 'guardarPrenomina']);
@@ -137,6 +139,18 @@ Route::middleware(['api'])->group(function () {
     Route::post('/configuracion/columnas', [ConfiguracionColumnasController::class, 'guardar']);
 
     //***************  Ruta para  los  Configuracion Columnas del empleado ******************/
+
+    //*************** Ruta para Calendario  ************************/
+
+    Route::get('/colaboradores-por-sucursal', [CalendarioController::class, 'colaboradoresPorSucursal']);
+    Route::post('/setEventos', [CalendarioController::class, 'setEventos']);
+    Route::put('/eventos/{id}', [CalendarioController::class, 'actualizarEvento']);
+    Route::delete('/eventos/{id}', [CalendarioController::class, 'eliminarEvento']);
+
+    Route::get('/eventos/tipos', [CalendarioController::class, 'getTiposEvento']);
+    Route::get('/eventos', [CalendarioController::class, 'getEventosPorClientes']);
+
+    //***************  FIN Calendario  ****************/
     //  obtener  el status  de general  de los empleados
     Route::get('/empleados/status', [EmpleadoController::class, 'getEmpleadosStatus']);
     /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
@@ -209,8 +223,6 @@ Route::middleware(['api'])->group(function () {
     Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultar']);
 
     Route::get('/notificaciones/consultarex/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultarExempleo']);
-//*****************Modulo Comunicacion  Calendario */ */
-    Route::get('/colaboradores-por-sucursal', [EmpleadoController::class, 'obtenerColaboradoresParaCalendario']);
 
 });
 
