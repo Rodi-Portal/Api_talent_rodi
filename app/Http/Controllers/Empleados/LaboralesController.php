@@ -44,70 +44,93 @@ class LaboralesController extends Controller
      */
     public function guardarDatosLaborales(Request $request)
     {
-        $request->validate([
-            'id_empleado'           => 'required|exists:portal_main.empleados,id',
-            'grupoNomina'           => 'string|max:255',
-            'horasDia'              => 'numeric|min:0',
-            'diasAguinaldo'         => 'numeric|min:0',
-            'descuentoAusencia'     => 'numeric|min:0',
-            'descuentoAusenciaA'    => 'nullable|numeric|min:0',
-            'primaVacacional'       => 'numeric|min:0',
-            'otroTipoContrato'      => 'nullable|string|max:255',
-            'pagoDiaFestivo'        => 'required|numeric|min:0',
-            'pagoDiaFestivoA'       => 'nullable|numeric|min:0',
-            'pagoHoraExtra'         => 'required|numeric|min:0',
-            'pagoHoraExtraA'        => 'nullable|numeric|min:0',
-            'prestamoPendiente'     => 'nullable|numeric|min:0',
-            'periodicidadPago'      => 'string|max:255',
-            'sueldoDiario'          => 'nullable|numeric|min:0',
-            'sueldoDiarioAsimilado' => 'nullable|numeric|min:0',
-            'sueldoMes'             => 'required|numeric|min:0',
-            'tipoContrato'          => 'nullable|string|max:255',
-            'tipoJornada'           => 'string|max:255',
-            'tipoRegimen'           => 'string|max:255',
-            'vacacionesDisponibles' => 'required|numeric|min:0',
-            'diasDescanso'          => 'array|min:0',
-            'diasDescanso.*'        => 'string|in:Lunes,Martes,Miércoles,Jueves,Viernes,Sábado,Domingo',
-            'sindicato'             => 'string|max:255',
+        // Log inicial: datos recibidos
+        \Log::info('Datos recibidos en guardarDatosLaborales', $request->all());
 
-        ]);
-        dd($request->all());
+        // Validación
+        try {
+            $request->validate([
+                'id_empleado'           => 'required|exists:portal_main.empleados,id',
+                'grupoNomina'           => 'string|max:255',
+                'horasDia'              => 'numeric|min:0',
+                'diasAguinaldo'         => 'numeric|min:0',
+                'descuentoAusencia'     => 'numeric|min:0',
+                'descuentoAusenciaA'    => 'nullable|numeric|min:0',
+                'primaVacacional'       => 'numeric|min:0',
+                'otroTipoContrato'      => 'nullable|string|max:255',
+                'pagoDiaFestivo'        => 'nullable|numeric|min:0',
+                'pagoDiaFestivoA'       => 'nullable|numeric|min:0',
+                'pagoHoraExtra'         => 'nullable|numeric|min:0',
+                'pagoHoraExtraA'        => 'nullable|numeric|min:0',
+                'prestamoPendiente'     => 'nullable|numeric|min:0',
+                'periodicidadPago'      => 'string|max:255',
+                'sueldoDiario'          => 'nullable|numeric|min:0',
+                'sueldoDiarioAsimilado' => 'nullable|numeric|min:0',
+                'sueldoMes'             => 'required|numeric|min:0',
+                'tipoContrato'          => 'nullable|string|max:255',
+                'tipoJornada'           => 'string|max:255',
+                'tipoRegimen'           => 'string|max:255',
+                'vacacionesDisponibles' => 'required|numeric|min:0',
+                'diasDescanso'          => 'array|min:0',
+                'diasDescanso.*'        => 'string|in:Lunes,Martes,Miércoles,Jueves,Viernes,Sábado,Domingo',
+                'sindicato'             => 'string|max:255',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::error('Error de validación en guardarDatosLaborales', [
+                'errores' => $e->errors(),
+                'input'   => $request->all(),
+            ]);
+            return response()->json(['message' => 'Error de validación', 'errors' => $e->errors()], 422);
+        }
+
+        // Buscar empleado
         $empleado = Empleado::find($request->id_empleado);
 
         if (! $empleado) {
+            \Log::warning('Empleado no encontrado', ['id_empleado' => $request->id_empleado]);
             return response()->json(['message' => 'Empleado no encontrado'], 404);
         }
-        // \Log::debug('Datos recibidos en guardarDatosLaborales:', $request->all());
 
-        // Guardar datos laborales
-        $empleado->laborales()->create([
-            'id_empleado'            => $request->id_empleado,
-            'grupo_nomina'           => $request->grupoNomina,
-            'horas_dia'              => $request->horasDia,
-            'dias_aguinaldo'         => $request->diasAguinaldo,
-            'descuento_ausencia'     => $request->descuentoAusencia,
-            'descuento_ausencia_a'   => $request->descuentoAusenciaA ?? null,
-            'prima_vacacional'       => $request->primaVacacional,
-            'otro_tipo_contrato'     => $request->otroTipoContrato,
-            'pago_dia_festivo'       => $request->pagoDiaFestivo,
-            'pago_dia_festivo_a'     => $request->pagoDiaFestivoA ?? null,
-            'pago_hora_extra'        => $request->pagoHoraExtra,
-            'pago_hora_extra_A'      => $request->pagoHoraExtraA ?? null,
-            'periodicidad_pago'      => $request->periodicidadPago,
-            'prestamo_pendiente'     => $request->prestamoPendiente,
-            'sueldo_diario'          => $request->sueldoDiario,
-            'sueldo_asimilado'       => $request->sueldoDiarioAsimilado,
-            'sueldo_mes'             => $request->sueldoMes,
-            'tipo_contrato'          => $request->tipoContrato,
-            'tipo_jornada'           => $request->tipoJornada,
-            'tipo_regimen'           => $request->tipoRegimen,
-            'sindicato'              => $request->sindicato,
-            'vacaciones_disponibles' => $request->vacacionesDisponibles,
-            'dias_descanso'          => json_encode($request->diasDescanso), // Guardar los días de descanso como un JSON
-        ]);
+        try {
+            // Guardar datos laborales
+            $empleado->laborales()->create([
+                'id_empleado'            => $request->id_empleado,
+                'grupo_nomina'           => $request->grupoNomina,
+                'horas_dia'              => $request->horasDia,
+                'dias_aguinaldo'         => $request->diasAguinaldo,
+                'descuento_ausencia'     => $request->descuentoAusencia,
+                'descuento_ausencia_a'   => $request->descuentoAusenciaA ?? null,
+                'prima_vacacional'       => $request->primaVacacional,
+                'otro_tipo_contrato'     => $request->otroTipoContrato,
+                'pago_dia_festivo'       => $request->pagoDiaFestivo,
+                'pago_dia_festivo_a'     => $request->pagoDiaFestivoA ?? null,
+                'pago_hora_extra'        => $request->pagoHoraExtra,
+                'pago_hora_extra_A'      => $request->pagoHoraExtraA ?? null,
+                'periodicidad_pago'      => $request->periodicidadPago,
+                'prestamo_pendiente'     => $request->prestamoPendiente,
+                'sueldo_diario'          => $request->sueldoDiario,
+                'sueldo_asimilado'       => $request->sueldoDiarioAsimilado,
+                'sueldo_mes'             => $request->sueldoMes,
+                'tipo_contrato'          => $request->tipoContrato,
+                'tipo_jornada'           => $request->tipoJornada,
+                'tipo_regimen'           => $request->tipoRegimen,
+                'sindicato'              => $request->sindicato,
+                'vacaciones_disponibles' => $request->vacacionesDisponibles,
+                'dias_descanso'          => json_encode($request->diasDescanso), // Guardar los días de descanso como un JSON
+            ]);
+            \Log::info('Datos laborales guardados correctamente para empleado', ['id_empleado' => $request->id_empleado]);
+            return response()->json(['message' => 'Datos laborales guardados correctamente'], 201);
 
-        return response()->json(['message' => 'Datos laborales guardados correctamente'], 201);
+        } catch (\Exception $ex) {
+            \Log::error('Error guardando datos laborales', [
+                'id_empleado' => $request->id_empleado,
+                'error'       => $ex->getMessage(),
+                'input'       => $request->all(),
+            ]);
+            return response()->json(['message' => 'Error interno al guardar datos laborales'], 500);
+        }
     }
+
     /**
      * Actualizar datos laborales de un empleado.
      *
@@ -438,7 +461,7 @@ class LaboralesController extends Controller
 
     public function guardarPrenominaMasiva(Request $request)
     {
-       /*  Log::info('Datos recibidos para prenómina masiva:', [
+        /*  Log::info('Datos recibidos para prenómina masiva:', [
             'id_periodo_nomina' => $request->input('id_periodo_nomina'),
             'datos'             => $request->input('datos'),
         ]); */
@@ -508,7 +531,7 @@ class LaboralesController extends Controller
                 // Los cálculos ya vienen hechos desde el frontend
                 $datosEmpleado['sueldo_total']   = $item['sueldo_total'] ?? 0;
                 $datosEmpleado['sueldo_total_a'] = $item['sueldo_total_a'] ?? 0;
-                $datosEmpleado['sueldo_total_t'] =  $item['sueldo_total'] + $item['sueldo_total_a'];
+                $datosEmpleado['sueldo_total_t'] = $item['sueldo_total'] + $item['sueldo_total_a'];
                 try {
                     // Verificar si ya existe un registro para este empleado y período
                     $existente = PreNominaEmpleado::where('id_empleado', $item['id'])
