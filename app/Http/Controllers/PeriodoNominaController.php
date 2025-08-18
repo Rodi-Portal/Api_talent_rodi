@@ -107,111 +107,79 @@ class PeriodoNominaController extends Controller
 
     public function store(Request $request)
     {
-        \Log::debug('[PERIODOS] Request recibido en store:', $request->all());
+        //Log::debug('Request recibido en periodosConPrenomina:', $request->all());
 
-        try {
-            $request->validate([
-                'id_portal'    => 'required|integer',
-                'id_cliente'   => 'present|array',
-                'id_cliente.*' => [
-                    'nullable', // puede ser null (para el caso de periodo general)
-                    'integer',
-                    function ($attribute, $value, $fail) {
-                        if (! is_null($value) && ! ClienteTalent::where('id', $value)->exists()) {
-                            $fail("El cliente con id {$value} no existe en la base de datos.");
-                        }
-                    },
-                ],
-                'fecha_inicio' => 'required|date',
-                'fecha_fin'    => 'required|date|after_or_equal:fecha_inicio',
-                'fecha_pago'   => 'required|date',
-                'tipo_nomina'  => 'required|in:ordinaria,extraordinaria',
-                'estatus'      => 'required|in:pendiente,cerrado,cancelado',
-            ]);
-
-            \Log::debug('[PERIODOS] Validación exitosa:', $request->all());
-
-            $clientes = $request->id_cliente;
-
-            // Si el array está vacío, agregar null para crear periodo general
-            if (empty($clientes)) {
-                \Log::info('[PERIODOS] id_cliente está vacío, se usará [null] para periodo general');
-                $clientes = [null];
-            }
-
-            $creados = [];
-
-            foreach ($clientes as $id_cliente) {
-                \Log::info('[PERIODOS] Analizando id_cliente:', ['id_cliente' => $id_cliente]);
-                if ($request->tipo_nomina !== 'extraordinaria') {
-                    $existe = PeriodoNomina::where('id_cliente', $id_cliente)
-                        ->where('id_portal', $request->id_portal)
-                        ->where('tipo_nomina', $request->tipo_nomina)
-                        ->where(function ($query) use ($request) {
-                            $query->whereBetween('fecha_inicio', [$request->fecha_inicio, $request->fecha_fin])
-                                ->orWhereBetween('fecha_fin', [$request->fecha_inicio, $request->fecha_fin])
-                                ->orWhere(function ($q) use ($request) {
-                                    $q->where('fecha_inicio', '<=', $request->fecha_inicio)
-                                        ->where('fecha_fin', '>=', $request->fecha_fin);
-                                });
-                        })
-                        ->exists();
-
-                    \Log::info('[PERIODOS] ¿Ya existe periodo con este id_cliente?', [
-                        'id_cliente' => $id_cliente,
-                        'existe'     => $existe,
-                    ]);
-
-                    if ($existe) {
-                        \Log::warning('[PERIODOS] Intento de duplicidad de periodo para id_cliente:', ['id_cliente' => $id_cliente]);
-                        return response()->json([
-                            'message' => "Ya existe un periodo " . ($id_cliente ? "para el cliente ID {$id_cliente}" : "general") . " que se superpone con estas fechas y tipo de nómina.",
-                        ], 422);
+        $request->validate([
+            'id_portal'    => 'required|integer',
+            'id_cliente'   => 'present|array',
+            'id_cliente.*' => [
+                'nullable', // puede ser null (para el caso de periodo general)
+                'integer',
+                function ($attribute, $value, $fail) {
+                    if (! is_null($value) && ! ClienteTalent::where('id', $value)->exists()) {
+                        $fail("El cliente con id {$value} no existe en la base de datos.");
                     }
+                },
+            ],
+            'fecha_inicio' => 'required|date',
+            'fecha_fin'    => 'required|date|after_or_equal:fecha_inicio',
+            'fecha_pago'   => 'required|date',
+            'tipo_nomina'  => 'required|in:ordinaria,extraordinaria',
+            'estatus'      => 'required|in:pendiente,cerrado,cancelado',
+        ]);
+
+        $clientes = $request->id_cliente;
+
+        // Si el array está vacío, agregar null para crear periodo general
+        if (empty($clientes)) {
+            $clientes = [null];
+        }
+
+        $creados = [];
+
+        foreach ($clientes as $id_cliente) {
+            if ($request->tipo_nomina !== 'extraordinaria') {
+                $existe = PeriodoNomina::where('id_cliente', $id_cliente)
+                    ->where('id_portal', $request->id_portal)
+                    ->where('tipo_nomina', $request->tipo_nomina)
+                    ->where(function ($query) use ($request) {
+                        $query->whereBetween('fecha_inicio', [$request->fecha_inicio, $request->fecha_fin])
+                            ->orWhereBetween('fecha_fin', [$request->fecha_inicio, $request->fecha_fin])
+                            ->orWhere(function ($q) use ($request) {
+                                $q->where('fecha_inicio', '<=', $request->fecha_inicio)
+                                    ->where('fecha_fin', '>=', $request->fecha_fin);
+                            });
+                    })
+                    ->exists();
+
+                if ($existe) {
+                    return response()->json([
+                        'message' => "Ya existe un periodo " . ($id_cliente ? "para el cliente ID {$id_cliente}" : "general") . " que se superpone con estas fechas y tipo de nómina.",
+                    ], 422);
                 }
-
-                $periodo = PeriodoNomina::create([
-                    'id_portal'             => $request->id_portal,
-                    'id_cliente'            => $id_cliente, // puede ser null para periodo general
-                    'id_usuario'            => $request->id_usuario,
-                    'fecha_inicio'          => $request->fecha_inicio,
-                    'fecha_fin'             => $request->fecha_fin,
-                    'fecha_pago'            => $request->fecha_pago,
-                    'tipo_nomina'           => $request->tipo_nomina,
-                    'estatus'               => $request->estatus,
-                    'descripcion'           => $request->descripcion ?? null,
-                    'periodicidad_objetivo' => $request->periodicidad_objetivo ?? null,
-                    'creado_por'            => auth()->id() ?? 1,
-                ]);
-
-                \Log::info('[PERIODOS] Periodo creado:', $periodo->toArray());
-
-                $creados[] = $periodo;
             }
 
-            \Log::debug('[PERIODOS] Todos los periodos creados:', $creados);
-
-            return response()->json([
-                'message' => 'Periodos creados correctamente.',
-                'data'    => $creados,
-            ], 201);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            \Log::error('[PERIODOS][VALIDACION] Error:', $e->errors());
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors'  => $e->errors(),
-            ], 422);
-        } catch (\Exception $e) {
-            \Log::error('[PERIODOS][EXCEPCION] Error inesperado:', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+            $periodo = PeriodoNomina::create([
+                'id_portal'             => $request->id_portal,
+                'id_cliente'            => $id_cliente, // puede ser null para periodo general
+                'id_usuario'            => $request->id_usuario,
+                'fecha_inicio'          => $request->fecha_inicio,
+                'fecha_fin'             => $request->fecha_fin,
+                'fecha_pago'            => $request->fecha_pago,
+                'tipo_nomina'           => $request->tipo_nomina,
+                'estatus'               => $request->estatus,
+                'descripcion'           => $request->descripcion ?? null,
+                'periodicidad_objetivo' => $request->periodicidad_objetivo ?? null,
+                'creado_por'            => auth()->id() ?? 1,
             ]);
-            return response()->json([
-                'message' => 'Ocurrió un error inesperado al guardar el periodo',
-                'error'   => $e->getMessage(),
-            ], 500);
+
+            $creados[] = $periodo;
         }
+
+        return response()->json([
+            'message' => 'Periodos creados correctamente.',
+            'data'    => $creados,
+        ], 201);
     }
 
     public function update(Request $request, $id)
