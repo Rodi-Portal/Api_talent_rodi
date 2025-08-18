@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -8,46 +9,108 @@ class PreNominaEmpleado extends Model
 {
     use HasFactory;
 
-    // Definir el nombre de la tabla en la base de datos
-    protected $table = 'pre_nomina_empleados';
-
-    // Definir la clave primaria
-    protected $primaryKey = 'id';
-
-    // Deshabilitar el uso de timestamps si no los necesitas
-    public $timestamps    = false;
     protected $connection = 'portal_main';
-    // Especificar los campos que son asignables
+    protected $table      = 'pre_nomina_empleados';
+    protected $primaryKey = 'id';
+    public    $timestamps = false;
+
+    // Campos EXACTOS según tu esquema
     protected $fillable = [
         'creacion',
         'edicion',
+
         'id_empleado',
-        'id_periodo_nomina', 
+        'id_periodo_nomina',
+
         'sueldo_base',
+        'sueldo_asimilado',
+
         'horas_extras',
         'pago_horas_extra',
-        'dias_festivos',
+        'pago_horas_extra_a',
+
         'pago_dias_festivos',
-        'dias_ausencia',
+        'pago_dias_festivos_a',
+
         'descuento_ausencias',
-        'pago_vacaciones',
+        'descuento_ausencias_a',
+
         'aguinaldo',
-        'dias_vacaciones',
+        'aguinaldo_a',
+
         'prestamos',
-        'deducciones_extra',  // jason
-        'prestaciones_extra', // jason
-        'deducciones_extra_a',  // jason
-        'prestaciones_extra_a', // jason
+
+        'dias_festivos',
+        'dias_ausencia',
+        'dias_vacaciones',
+
+        'pago_vacaciones',
+        'pago_vacaciones_a',
+        'prima_vacacional',
+
+        'deducciones_extra',
+        'deducciones_extra_a',
+        'prestaciones_extra',
+        'prestaciones_extra_a',
+
         'sueldo_total',
         'sueldo_total_a',
         'sueldo_total_t',
     ];
 
-    // Definir la relación con el modelo de Empleado
+    // Casts útiles (números y JSON)
+   protected $casts = [
+    'id_empleado'       => 'integer',
+    'id_periodo_nomina' => 'integer',
+
+    // Sueldos y montos (2 decimales)
+    'sueldo_base'        => 'decimal:2',
+    'sueldo_asimilado'   => 'decimal:2',
+
+    // Cantidades enteras
+    'horas_extras'       => 'integer',
+    'dias_festivos'      => 'integer',
+    'dias_ausencia'      => 'integer',
+    'dias_vacaciones'    => 'integer',
+
+    // Pagos y descuentos (2 decimales)
+    'pago_horas_extra'    => 'decimal:2',
+    'pago_horas_extra_a'  => 'decimal:2',
+    'pago_dias_festivos'  => 'decimal:2',
+    'descuento_ausencias' => 'decimal:2',
+    'descuento_ausencias_a'=> 'decimal:2',
+    'pago_vacaciones'     => 'decimal:2',
+    'pago_vacaciones_a'   => 'decimal:2',
+    'aguinaldo'           => 'decimal:2',
+    'aguinaldo_a'         => 'decimal:2',
+    'prestamos'           => 'decimal:2',
+    'prima_vacacional'    => 'decimal:2',
+
+    // En tu DB esta es DECIMAL(10,0)
+    'pago_dias_festivos_a'=> 'decimal:0',
+
+    // JSON
+    'prestaciones_extra'   => 'array',
+    'deducciones_extra'    => 'array',
+    'prestaciones_extra_a' => 'array',
+    'deducciones_extra_a'  => 'array',
+
+    // Totales (2 decimales)
+    'sueldo_total'   => 'decimal:2',
+    'sueldo_total_a' => 'decimal:2',
+    'sueldo_total_t' => 'decimal:2',
+
+    'creacion' => 'datetime',
+    'edicion'  => 'datetime',
+];
+
+
     public function empleado()
     {
+        // FK: pre_nomina_empleados.id_empleado -> empleados.id (PK)
         return $this->belongsTo(Empleado::class, 'id_empleado', 'id');
     }
+
     public function periodo()
     {
         return $this->belongsTo(PeriodoNomina::class, 'id_periodo_nomina');

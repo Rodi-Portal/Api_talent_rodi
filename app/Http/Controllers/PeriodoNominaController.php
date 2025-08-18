@@ -294,7 +294,7 @@ class PeriodoNominaController extends Controller
 
     public function obtenerPeriodosPendientes(Request $request)
     {
-      //  Log::debug('Request recibido en periodosConPrenomina:', $request->all());
+        //  Log::debug('Request recibido en periodosConPrenomina:', $request->all());
         $idPortal      = (int) $request->query('id_portal');
         $idClientesRaw = $request->query('id_cliente', []);
         $idClientes    = [];
