@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 use App\Models\ConfiguracionColumnas;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Arr;
+
 
 class ConfiguracionColumnasController extends Controller
 {
@@ -13,16 +15,18 @@ class ConfiguracionColumnasController extends Controller
     public function obtener(Request $request)
     {
         $request->validate([
-            'id_usuario'   => 'required|integer',
-            'id_portal'    => 'required|integer',
-            'id_cliente'   => 'required|array|min:1', // <-- ahora es array
-            'id_cliente.*' => 'integer',              // <-- cada elemento debe ser entero
-            'modulo'       => 'required|string|in:mensajeria,empleados,former',
+            'id_usuario' => 'required|integer',
+            'id_portal'  => 'required|integer',
+            'id_cliente' => 'required', // puede venir int o array
+            'modulo'     => 'required|string|in:mensajeria,empleados,former',
         ]);
+
+        // Normaliza a array aunque venga como número único
+        $clientes = Arr::wrap($request->id_cliente);
 
         $configs = ConfiguracionColumnas::where('id_usuario', $request->id_usuario)
             ->where('id_portal', $request->id_portal)
-            ->whereIn('id_cliente', $request->id_cliente) // <-- whereIn para el array
+            ->whereIn('id_cliente', $clientes)
             ->where('modulo', $request->modulo)
             ->get();
 
@@ -30,9 +34,20 @@ class ConfiguracionColumnasController extends Controller
             return response()->json(['columnas' => []], 200);
         }
 
-        // Unión de todas las columnas encontradas (sin duplicados, preservando orden de aparición)
+        // Une todas las columnas, sin duplicados y preservando orden
         $columnas = $configs->reduce(function ($carry, $cfg) {
-            $cols = is_array($cfg->columnas) ? $cfg->columnas : [];
+            $cols = $cfg->columnas;
+
+            // Fallback por si olvidaste el cast o el dato viene como string JSON
+            if (is_string($cols)) {
+                $decoded = json_decode($cols, true);
+                $cols    = json_last_error() === JSON_ERROR_NONE ? $decoded : [];
+            } elseif ($cols instanceof \Illuminate\Support\Collection) {
+                $cols = $cols->all();
+            } elseif (! is_array($cols)) {
+                $cols = [];
+            }
+
             foreach ($cols as $col) {
                 if (! in_array($col, $carry, true)) {
                     $carry[] = $col;
@@ -41,9 +56,7 @@ class ConfiguracionColumnasController extends Controller
             return $carry;
         }, []);
 
-        return response()->json([
-            'columnas' => $columnas,
-        ], 200);
+        return response()->json(['columnas' => $columnas], 200);
     }
 
     /**
