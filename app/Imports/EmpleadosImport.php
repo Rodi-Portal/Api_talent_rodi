@@ -4,10 +4,12 @@ namespace App\Imports;
 use App\Models\DomicilioEmpleado;
 use App\Models\Empleado;
 use App\Models\EmpleadoCampoExtra;
-use App\Models\MedicalInfo;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 class EmpleadosImport implements ToModel, WithHeadingRow
 {
@@ -16,26 +18,37 @@ class EmpleadosImport implements ToModel, WithHeadingRow
     protected $insertados = 0;
     protected $rowNumber  = 1;
 
-    // Este mapa puede ser extendido dinámicamente si el usuario agrega nuevas columnas
     protected $columnMap = [
-        'nombre'      => ['nombre', 'first name', 'first_name', 'name'],
-        'paterno'     => ['apellido paterno', 'paterno', 'apellido_paterno', 'last name', 'lastname', 'last_name'],
-        'materno'     => ['apellido materno', 'materno', 'apellido_materno', 'middle name', 'middle_name'],
-        'telefono'    => ['telefono', 'teléfono', 'phone'],
-        'correo'      => ['correo', 'email', 'correo_electrónico', 'correo_electronico'],
-        'puesto'      => ['puesto', 'position', 'cargo'],
-        'curp'        => ['curp'],
-        'nss'         => ['nss', 'numero seguro social', 'social security'],
-        'rfc'         => ['rfc'],
-        'id_empleado' => ['id empleado', 'id_empleado', 'employee id'],
-        'calle'       => ['calle', 'street'],
-        'num_ext'     => ['numero exterior', 'num_ext', 'exterior number', 'numero_exterior'],
-        'num_int'     => ['numero interior', 'num_int', 'interior number', 'numero_interior'],
-        'colonia'     => ['colonia', 'neighborhood'],
-        'ciudad'      => ['ciudad', 'city'],
-        'estado'      => ['estado', 'state'],
-        'pais'        => ['pais', 'país', 'country'],
-        'cp'          => ['cp', 'codigo_postal', 'codigo postal', 'postal code', 'zip code'],
+        'nombre'           => ['nombre', 'first name', 'first_name', 'name'],
+        'paterno'          => ['apellido paterno', 'paterno', 'apellido_paterno', 'last name', 'lastname', 'last_name'],
+        'materno'          => ['apellido materno', 'materno', 'apellido_materno', 'middle name', 'middle_name'],
+        'telefono'         => ['telefono', 'teléfono', 'phone'],
+        'correo'           => ['correo', 'email', 'correo_electrónico', 'correo_electronico'],
+        'puesto'           => ['puesto', 'position', 'cargo'],
+        'curp'             => ['curp'],
+        'nss'              => ['nss', 'numero seguro social', 'social security'],
+        'rfc'              => ['rfc'],
+        'id_empleado'      => ['id empleado', 'id_empleado', 'employee id'],
+
+        // Dirección
+        'calle'            => ['calle', 'street'],
+        'num_ext'          => ['numero exterior', 'número exterior', 'num_ext', 'exterior number', 'numero_exterior', 'número_exterior'],
+        'num_int'          => ['numero interior', 'número interior', 'num_int', 'interior number', 'numero_interior', 'número_interior'],
+        'colonia'          => ['colonia', 'neighborhood'],
+        'ciudad'           => ['ciudad', 'city'],
+        'estado'           => ['estado', 'state'],
+        'pais'             => ['pais', 'país', 'country'],
+        'cp'               => [
+            'codigo_postal', 'codigo postal', 'código postal', 'código_postal',
+            'postal code', 'zip code',
+            'cp', 'c.p.', // <- las cortas al final
+        ],
+
+        // Fecha de nacimiento
+        'fecha_nacimiento' => [
+            'fecha nacimiento', 'fecha de nacimiento', 'fecha_nacimiento', 'nacimiento', 'f. nacimiento',
+            'fecha nac.', 'fechanac', 'dob', 'date of birth', 'birthdate', 'birthday',
+        ],
     ];
 
     public function __construct($generalData)
@@ -44,103 +57,212 @@ class EmpleadosImport implements ToModel, WithHeadingRow
     }
 
     public function getDuplicados()
+    {return $this->duplicados;}
+    public function getInsertados()
+    {return $this->insertados;}
+
+    private function normKey(string $s): string
     {
-        return $this->duplicados;
+        $sAscii = @iconv('UTF-8', 'ASCII//TRANSLIT', $s) ?: $s;
+        $sAscii = strtolower(trim($sAscii));
+        $sAscii = str_replace(['.', '’', '´', '`'], '', $sAscii);
+        $sAscii = preg_replace('/\s+/', ' ', $sAscii);
+        return Str::slug($sAscii, '_'); // "código postal" -> "codigo_postal", "c.p." -> "cp"
     }
 
-    public function getInsertados()
+    private function parseExcelDate($value): ?string
     {
-        return $this->insertados;
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            try {
+                $dt = ExcelDate::excelToDateTimeObject($value);
+                return Carbon::instance($dt)->format('Y-m-d');
+            } catch (\Throwable $e) {}
+        }
+
+        $v = trim((string) $value);
+        foreach (['d/m/Y', 'd-m-Y', 'Y-m-d', 'm/d/Y', 'm-d-Y', 'd.m.Y'] as $fmt) {
+            try {return Carbon::createFromFormat($fmt, $v)->format('Y-m-d');} catch (\Throwable $e) {}
+        }
+
+        try {return Carbon::parse($v)->format('Y-m-d');} catch (\Throwable $e) {return null;}
     }
-    // Método fuzzyMatch para la comparación de cadenas
-    public function fuzzyMatch($string1, $string2)
+
+    private function normalizeCp($value): ?string
     {
-        return levenshtein($string1, $string2) <= 2; // Ajusta el umbral según la tolerancia deseada
+        if ($value === null) {
+            return null;
+        }
+
+        // Normaliza espacios NBSP y a string
+        $s = trim((string) $value);
+        $s = str_replace("\xC2\xA0", ' ', $s);
+
+        // Caso 1: valor puramente numérico, quizá con decimales "44130.0" o "00450.00"
+        if (preg_match('/^\s*\d+([.,]\d+)?\s*$/', $s)) {
+                                                           // toma solo la parte entera antes del primer punto/coma
+            $intPart = preg_replace('/[^\d].*$/', '', $s); // corta desde el primer no-dígito en adelante
+            $digits  = $intPart;
+        } else {
+            // Caso 2: texto mixto; si hay una secuencia de 5 dígitos, prefierela (MX)
+            if (preg_match('/\d{5}/', $s, $m)) {
+                $digits = $m[0];
+            } else {
+                // último recurso: todos los dígitos
+                $digits = preg_replace('/\D/', '', $s);
+            }
+        }
+
+        if ($digits === '') {
+            return null;
+        }
+
+        // MX: exactamente 5 dígitos (si sobran, toma los primeros; si faltan, rellena con ceros a la izquierda)
+        if (strlen($digits) > 8) {
+            $digits = substr($digits, 0, 8);
+        } else {
+            $digits = str_pad($digits, 8, ' ', STR_PAD_LEFT);
+        }
+
+        return $digits;
+    }
+
+    // respaldo si quieres usar tolerancia extra (no imprescindible con normKey)
+    private function fuzzyMatch($a, $b): bool
+    {
+        return levenshtein($a, $b) <= 2;
     }
 
     public function model(array $row)
     {
         if ($this->rowNumber === 1) {
-            // Mostrar las cabeceras detectadas para depuración
-            Log::info("Cabeceras detectadas: " . json_encode(array_keys($row)));
+            // Loguea exactamente como Maatwebsite entrega los encabezados
+            /*Log::info('Cabeceras detectadas (raw y normalizadas)', [
+                'raw'  => array_keys($row),
+                'norm' => array_map(fn($h) => $this->normKey((string) $h), array_keys($row)),
+            ]);*/
         }
         $this->rowNumber++;
 
-        // Función para obtener el valor de una columna basada en su alias, con tolerancia a diferencias de formato
-        $get = function ($key) use ($row) {
-            $key = strtolower(trim($key));
+        // getter flexible por alias
+        $headerMap = [];
+        foreach ($row as $header => $v) {
+            $headerMap[$this->normKey((string) $header)] = $header;
+        }
 
-            $cabecerasDisponibles = array_keys($row);
+        $get = function ($key) use ($row, $headerMap) {
+            $key     = strtolower(trim($key));
+            $aliases = $this->columnMap[$key] ?? [];
+            if (empty($aliases)) {
+                return null;
+            }
 
-            foreach ($this->columnMap[$key] ?? [] as $alias) {
-                $alias = strtolower(trim($alias));
+            // 1) Exact match primero (normalizado)
+            foreach ($aliases as $alias) {
+                $aliasNorm = $this->normKey($alias);
+                if (isset($headerMap[$aliasNorm])) {
+                    $originalHeader = $headerMap[$aliasNorm];
+                    return $row[$originalHeader];
+                }
+            }
 
-                // Intentar coincidencia EXACTA primero
-                foreach ($cabecerasDisponibles as $header) {
-                    if (strtolower(trim($header)) === $alias) {
-                        return $row[$header];
-                    }
+            // 2) Fuzzy match (desactivado para 'cp' para evitar confundir con 'curp')
+            if ($key === 'cp') {
+                return null;
+            }
+
+            $best     = null;
+            $bestDist = PHP_INT_MAX;
+
+            foreach ($aliases as $alias) {
+                $aliasNorm = $this->normKey($alias);
+                // evita fuzzy en alias muy cortos (cp, rfc, nss...)
+                if (mb_strlen($aliasNorm) < 3) {
+                    continue;
                 }
 
-                // Luego intentar coincidencia difusa (solo si no es un campo crítico)
-                if (! in_array($key, ['paterno', 'materno', 'curp', 'cp', 'rfc', 'nss'])) {
-                    foreach ($cabecerasDisponibles as $header) {
-                        if ($this->fuzzyMatch($alias, strtolower(trim($header)))) {
-                            return $row[$header];
-                        }
+                foreach ($headerMap as $hNorm => $originalHeader) {
+                    if (mb_strlen($hNorm) < 3) {
+                        continue;
+                    }
+                    // ignora encabezados muy cortos
+                    $d = levenshtein($aliasNorm, $hNorm);
+                    if ($d < $bestDist) {
+                        $bestDist = $d;
+                        $best     = $originalHeader;
                     }
                 }
+            }
+
+            // Umbral conservador para fuzzy
+            if ($best !== null && $bestDist <= 2) {
+                return $row[$best];
             }
 
             return null;
         };
 
-        // Función para hacer una comparación difusa entre alias y cabeceras
-        // Esto puede utilizar un algoritmo como Levenshtein para comprobar la similitud
-        $this->fuzzyMatch = function ($string1, $string2) {
-                                                         // Usamos la distancia de Levenshtein para determinar la similitud entre cadenas
-            return levenshtein($string1, $string2) <= 2; // Ajusta el umbral según la tolerancia deseada
-        };
-
-        // Obtener los valores de las columnas
-        $nombre  = trim($get('nombre'));
-        $paterno = trim($get('paterno'));
-
-        // Validar si el nombre y paterno no están vacíos
-        if (empty($nombre) || empty($paterno)) {
-            Log::warning("Fila inválida (nombre o paterno vacío): " . json_encode($row));
+        // --- valores base ---
+        $nombre  = trim((string) $get('nombre'));
+        $paterno = trim((string) $get('paterno'));
+        if ($nombre === '' || $paterno === '') {
+            Log::warning('Fila inválida (nombre/paterno vacío)', ['row' => $row]);
             return null;
         }
 
-        // Validación del correo
         $correo = $get('correo');
         if ($correo && ! filter_var($correo, FILTER_VALIDATE_EMAIL)) {
-            Log::warning("Correo no válido: $correo");
+            Log::warning('Correo no válido', ['correo' => $correo]);
             return null;
         }
 
-        // Detectar campos extra que no están en el mapeo
-        $mapeados     = collect($this->columnMap)->flatten()->map(fn($a) => strtolower($a))->toArray();
+        // fecha y cp
+        $fechaRaw     = $get('fecha_nacimiento');
+        $cpRaw        = $get('cp');
+        $fechaParsed  = $this->parseExcelDate($fechaRaw);
+        $cpNormalized = $this->normalizeCp($cpRaw);
+
+       /* Log::debug('Parse row fecha/cp', [
+            'fecha_raw' => $fechaRaw,
+            'fecha_db'  => $fechaParsed,
+            'cp_raw'    => $cpRaw,
+            'cp_db'     => $cpNormalized,
+        ]);
+        Log::debug('Debug directo', [
+            'keys'         => array_keys($row),
+            'fecha_direct' => $row['fecha_de_nacimiento'] ?? '(sin clave)',
+            'cp_direct'    => $row['codigo_postal'] ?? '(sin clave)',
+        ]);*/
+
+        // campos extra (opcional)
+        $aliasNormSet = [];
+        foreach ($this->columnMap as $k => $aliases) {
+            foreach ($aliases as $a) {$aliasNormSet[$this->normKey($a)] = true;}
+        }
         $camposExtras = [];
         foreach ($row as $key => $valor) {
-            if (! in_array(strtolower(trim($key)), $mapeados)) {
-                $camposExtras[trim($key)] = $valor;
+            $keyNorm = $this->normKey((string) $key);
+            if (! isset($aliasNormSet[$keyNorm])) {
+                $camposExtras[trim((string) $key)] = $valor;
             }
         }
-        $materno = $get('materno');
-        $materno = $materno ? mb_strtoupper($materno, 'UTF-8') : null;
-        // Validar y preparar los datos para el empleado
+
+        // Datos
         $validatedData = [
             'nombre'             => mb_strtoupper($nombre, 'UTF-8'),
             'paterno'            => mb_strtoupper($paterno, 'UTF-8'),
-            'materno'            => $materno,
+            'materno'            => mb_strtoupper((string) $get('materno'), 'UTF-8'),
             'telefono'           => $get('telefono'),
             'correo'             => $correo,
-            'puesto'             => mb_strtoupper($get('puesto'), 'UTF-8'),
-            'curp'               => mb_strtoupper($get('curp'), 'UTF-8'),
+            'puesto'             => mb_strtoupper((string) $get('puesto'), 'UTF-8'),
+            'curp'               => mb_strtoupper((string) $get('curp'), 'UTF-8'),
             'nss'                => $get('nss'),
-            'rfc'                => mb_strtoupper($get('rfc'), 'UTF-8'),
+            'rfc'                => mb_strtoupper((string) $get('rfc'), 'UTF-8'),
             'id_empleado'        => $get('id_empleado'),
+
             'domicilio_empleado' => [
                 'calle'   => $get('calle'),
                 'num_ext' => $get('num_ext'),
@@ -149,21 +271,18 @@ class EmpleadosImport implements ToModel, WithHeadingRow
                 'ciudad'  => $get('ciudad'),
                 'estado'  => $get('estado'),
                 'pais'    => $get('pais'),
-                'cp'      => $get('cp'),
+                'cp'      => $cpNormalized, // 👈 guardamos CP normalizado
             ],
         ];
 
-        // Comprobar si el empleado ya existe para evitar duplicados
-        $nombre1  = mb_strtoupper($validatedData['nombre'], 'UTF-8');
-        $paterno1 = mb_strtoupper($validatedData['paterno'], 'UTF-8');
-
-        $existeEmpleado = Empleado::whereRaw('UPPER(nombre) = ?', [$nombre1])
-            ->whereRaw('UPPER(paterno) = ?', [$paterno1])
+        // Duplicados
+        $existe = Empleado::whereRaw('UPPER(nombre)=?', [mb_strtoupper($validatedData['nombre'], 'UTF-8')])
+            ->whereRaw('UPPER(paterno)=?', [mb_strtoupper($validatedData['paterno'], 'UTF-8')])
             ->where('id_cliente', $this->generalData['id_cliente'])
             ->where('id_portal', $this->generalData['id_portal'])
             ->exists();
 
-        if ($existeEmpleado) {
+        if ($existe) {
             $this->duplicados[] = [
                 'nombre'      => $validatedData['nombre'],
                 'paterno'     => $validatedData['paterno'],
@@ -172,9 +291,10 @@ class EmpleadosImport implements ToModel, WithHeadingRow
             return null;
         }
 
-        // Crear domicilio y empleado
+        // Persistencia
         $domicilio = DomicilioEmpleado::create($validatedData['domicilio_empleado']);
-        $empleado  = Empleado::create([
+
+        $empleado = Empleado::create([
             'creacion'              => $this->generalData['creacion'],
             'edicion'               => $this->generalData['edicion'],
             'id_portal'             => $this->generalData['id_portal'],
@@ -193,21 +313,19 @@ class EmpleadosImport implements ToModel, WithHeadingRow
             'id_domicilio_empleado' => $domicilio->id,
             'status'                => 1,
             'eliminado'             => 0,
+            'fecha_nacimiento'      => $fechaParsed, // 👈 guardamos fecha
         ]);
 
-        // Crear información médica y campos extra
-        MedicalInfo::create([
-            'id_empleado' => $empleado->id,
-            'creacion'    => $this->generalData['creacion'],
-            'edicion'     => $this->generalData['creacion'],
-        ]);
+      /*  Log::debug('Guardados', [
+            'empleado_id'      => $empleado->id,
+            'fecha_nacimiento' => $empleado->fecha_nacimiento?->format('Y-m-d'),
+            'dom_cp'           => $domicilio->cp,
+        ]);*/
 
+        // Extras
         foreach ($camposExtras as $campo => $valor) {
-            $campoNormalizado = strtolower(trim($campo));
-
-            // Saltar si el nombre del campo es numérico o el valor es null
-            if (is_numeric($campoNormalizado) || is_null($valor) || trim($valor) === '') {
-                Log::warning("Campo extra inválido ignorado: campo=[$campo] valor=[" . var_export($valor, true) . "]");
+            $campoNorm = strtolower(trim((string) $campo));
+            if (is_numeric($campoNorm) || is_null($valor) || trim((string) $valor) === '') {
                 continue;
             }
 
@@ -220,8 +338,8 @@ class EmpleadosImport implements ToModel, WithHeadingRow
             ]);
         }
 
-        // Contabilizar los registros insertados
         $this->insertados++;
         return $empleado;
     }
+
 }

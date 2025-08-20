@@ -26,16 +26,17 @@ class CsvController extends Controller
     {
         // Aquí defines los encabezados para la descarga de Excel
         $encabezados = [
+            'ID Empleado',
             'Nombre*',
             'Apellido Paterno*',
             'Apellido Materno',
             'Teléfono*',
             'Correo Electrónico',
             'Puesto',
+            'Fecha de Nacimiento',
             'CURP',
             'NSS',
             'RFC',
-            'ID Empleado',
             'Calle',
             'Número Exterior',
             'Número Interior',
@@ -114,12 +115,12 @@ class CsvController extends Controller
                 'id empleado',
                 'calle',
                 'número exterior',
-                'número interior',
                 'colonia',
                 'ciudad',
                 'estado',
                 'país',
                 'código postal',
+                'fecha de nacimiento',
             ];
 
             $normalizeHeaders = function ($headers) {
