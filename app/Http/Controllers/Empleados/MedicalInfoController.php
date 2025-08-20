@@ -52,7 +52,7 @@ class MedicalInfoController extends Controller
         $medicalInfo->save();
 
         return response()->json([
-            'message' => $medicalInfo->wasRecentlyCreated
+            'message' => $mi->wasRecentlyCreated
             ? 'Medical information created successfully.'
             : 'Medical information updated successfully.',
             'created' => $medicalInfo->wasRecentlyCreated,
