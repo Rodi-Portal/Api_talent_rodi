@@ -1,5 +1,6 @@
 <?php
 namespace App\Exports;
+use Carbon\Carbon;
 
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithEvents;
@@ -51,7 +52,22 @@ class EmpleadosGeneralExport implements FromCollection, WithHeadings, WithStyles
                 'NSS'              => $empleado->nss,
                 'Departamento'     => $empleado->departamento,
                 'Puesto'           => $empleado->puesto,
-                'Fecha Nacimiento' => $empleado->fecha_nacimiento,
+                'Fecha Nacimiento' => (function ($v) {
+                    if (empty($v)) {
+                        return '';
+                    }
+
+                    if ($v instanceof \Carbon\CarbonInterface) {
+                        return $v->toDateString();
+                    }
+                    // YYYY-MM-DD
+                    try {
+                        return Carbon::parse($v)->toDateString(); // maneja "2025-08-08T05:00:00Z"
+                    } catch (\Throwable $e) {
+                        // último recurso: si viene en ISO 8601, toma los 10 primeros
+                        return substr((string) $v, 0, 10);
+                    }
+                })($empleado->fecha_nacimiento),
                 // Domicilio
                 'Pais'             => $empleado->domicilioEmpleado->pais ?? '',
                 'Estado'           => $empleado->domicilioEmpleado->estado ?? '',
