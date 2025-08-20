@@ -166,7 +166,7 @@ Route::middleware(['api'])->group(function () {
     Route::put('/empleados/update', [EmpleadoController::class, 'update']);
 
     Route::get('/medical-info/{id_empleado}', [MedicalInfoController::class, 'show']);
-    Route::put('/medical-info/{id_empleado}', [MedicalInfoController::class, 'update']);
+    Route::put('/medical-info/{id_empleado}', [MedicalInfoController::class, 'upsert']);
     Route::post('/documents', [DocumentOptionController::class, 'store']);
     Route::post('/exams', [DocumentOptionController::class, 'storeExams']);
     Route::get('/documents/{id}', [DocumentOptionController::class, 'getDocumentsByEmployeeId']);

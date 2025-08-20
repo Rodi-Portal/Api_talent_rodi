@@ -4,7 +4,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-
 class Empleado extends Model
 {
     use HasFactory;
@@ -34,6 +33,9 @@ class Empleado extends Model
         'fecha_nacimiento',
         'status',
         'eliminado',
+    ];
+    protected $casts = [
+        'fecha_nacimiento' => 'date:Y-m-d',
     ];
 
     public function domicilioEmpleado()
