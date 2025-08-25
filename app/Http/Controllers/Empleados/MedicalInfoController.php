@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Empleados;
 use App\Http\Controllers\Controller;
 use App\Models\MedicalInfo;
 use Illuminate\Http\Request;
-
+use App\Models\Empleado;
 
 class MedicalInfoController extends Controller
 {
