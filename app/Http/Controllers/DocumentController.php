@@ -20,7 +20,7 @@ class DocumentController extends Controller
         $fileName = $request->input('file_name');
         $carpeta  = $request->input('carpeta');
 
-       // Log::info('Archivo recibido:', ['file' => $file, 'file_name' => $fileName]);
+        // Log::info('Archivo recibido:', ['file' => $file, 'file_name' => $fileName]);
 
         if (! $file) {
             return response()->json(['error' => 'No se recibió ningún archivo.'], 400);
@@ -43,7 +43,7 @@ class DocumentController extends Controller
         // Construir la ruta completa del archivo
         $fileDestination = $destinationPath . DIRECTORY_SEPARATOR . $fileName;
 
-       /* Log::info('Moviendo archivo:', [
+        /* Log::info('Moviendo archivo:', [
             'file_name'        => $fileName,
             'destination_path' => $fileDestination,
         ]);*/
@@ -56,7 +56,7 @@ class DocumentController extends Controller
             chmod($fileDestination, 0664);
             @chgrp($fileDestination, 'rodicomm'); // Opcional, si el grupo es el problema
 
-      /*      Log::info('Archivo movido correctamente y permisos ajustados:', [
+            /*      Log::info('Archivo movido correctamente y permisos ajustados:', [
                 'file_name'        => $fileName,
                 'destination_path' => $fileDestination,
             ]);
@@ -249,30 +249,27 @@ class DocumentController extends Controller
 
     public function downloadZip(Request $request)
     {
-        // Validar la solicitud
         $request->validate([
             'file_name' => 'required|string',
             'carpeta'   => 'required|string',
         ]);
 
-        $fileName = $request->input('file_name') . '.zip'; // Asegúrate de que el nombre tenga la extensión .zip
+        $fileName = $request->input('file_name'); // aquí ya puede ser zip, pdf, jpg, etc.
         $carpeta  = $request->input('carpeta');
 
-        // Define las rutas directamente
         $localImagePath = 'C:/laragon/www/rodi_portal';
         $prodImagePath  = '/home/rodicomm/public_html/portal.rodi.com.mx';
 
-        // Obtener la ruta de destino
-        $filePath = app()->environment('produccion')
-        ? rtrim($prodImagePath, '/\\') . '/' . trim($carpeta, '/\\') . '/' . $fileName
-        : rtrim($localImagePath, '/\\') . '/' . trim($carpeta, '/\\') . '/' . $fileName;
+        $basePath = app()->environment('produccion')
+        ? $prodImagePath
+        : $localImagePath;
 
-        // Verificar si el archivo ZIP existe
+        $filePath = rtrim($basePath, '/\\') . '/' . trim($carpeta, '/\\') . '/' . $fileName;
+
         if (! file_exists($filePath)) {
-            return response()->json(['error' => 'El archivo ZIP no existe.'], 404);
+            return response()->json(['error' => "El archivo {$fileName} no existe."], 404);
         }
 
-        // Descargar el archivo ZIP
         return response()->download($filePath);
     }
 
