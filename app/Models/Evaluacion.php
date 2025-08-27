@@ -30,7 +30,8 @@ class Evaluacion extends Model
         'acciones', // Nuevo campo
         'expiry_date',
         'expiry_reminder',
-        'origen', // Nuevo campo
+        'origen', 
+        'eliminado',// Nuevo campo
     ];
 
     // Si tienes timestamps en la tabla y quieres que se manejen automáticamente
