@@ -104,12 +104,12 @@ class MensajeriaController extends Controller
             'sistemas@rodicontrol.com',
         ];
         */
-        // $destinatarios = $data['destinatarios'];
+         $destinatarios = $data['destinatarios'];
 
-        $destinatarios = json_decode('[
-    {"nombre": "Juan Pérez", "correo": "Luisjorgeti@rodicontrol.com"},
-    {"nombre": "Ana Torres", "correo": "rodi.control@gmail.com"}
-        ]', true);
+            /*$destinatarios = json_decode('[
+            {"nombre": "Juan Pérez", "correo": "Luisjorgeti@rodicontrol.com"},
+            {"nombre": "Ana Torres", "correo": "rodi.control@gmail.com"}
+                ]', true);*/
         foreach ($destinatarios as $destinatario) {
             try {
                 Mail::to($destinatario['correo'])->send(
