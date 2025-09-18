@@ -64,7 +64,7 @@ class ApiEmpleadoController extends Controller
         $prodImagePath = '/home/rodicomm/public_html/portal.rodi.com.mx';
     
         // Obtener la ruta de destino
-        $destinationPath = app()->environment('produccion') 
+        $destinationPath = app()->environment(['production', 'produccion'])
             ? $prodImagePath . '/' . $carpeta 
             : $localImagePath . '/' . $carpeta; 
         // Determinar la ruta de destino según el entorno
