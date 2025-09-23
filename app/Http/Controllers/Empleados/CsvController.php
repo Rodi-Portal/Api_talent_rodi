@@ -33,6 +33,7 @@ class CsvController extends Controller
             'Teléfono*',
             'Correo Electrónico',
             'Puesto',
+            'Departamento',
             'Fecha de Nacimiento',
             'CURP',
             'NSS',
@@ -45,6 +46,7 @@ class CsvController extends Controller
             'Estado',
             'País',
             'Código Postal',
+            'Fecha de Ingreso',
         ];
 
         // Llamar a la clase de exportación para la plantilla
@@ -109,6 +111,7 @@ class CsvController extends Controller
                 'teléfono*',
                 'correo electrónico',
                 'puesto',
+                'departamento',
                 'curp',
                 'nss',
                 'rfc',
@@ -121,6 +124,7 @@ class CsvController extends Controller
                 'país',
                 'código postal',
                 'fecha de nacimiento',
+                'Fecha de ingreso',
             ];
 
             $normalizeHeaders = function ($headers) {
@@ -273,6 +277,7 @@ class CsvController extends Controller
                 'departamento',
                 'puesto',
                 'fecha_nacimiento',
+                'creacion AS fecha_ingreso',
 
             ]);
         //Log::info('Datos médicos de empleados:', $empleados->toArray());

@@ -9,6 +9,8 @@ use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 //use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
+use App\Http\Controllers\Comunicacion\ChecadorController;
+use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
@@ -223,6 +225,33 @@ Route::middleware(['api'])->group(function () {
     Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultar']);
 
     Route::get('/notificaciones/consultarex/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultarExempleo']);
+
+    //***************  Inicio Checador  ****************/
+    Route::get('/checador/mappings', [ChecadorController::class, 'indexMappings']);
+    Route::post('/checador/mappings', [ChecadorController::class, 'storeMapping']);
+    Route::post('/checador/import', [ChecadorController::class, 'import']);
+
+    //***************  Fin  Checador  ****************/
+
+    //***************  Inicio Recordatorios ****************/
+    Route::prefix('comunicacion')->group(function () {
+        Route::get('recordatorios', [RecordatorioController::class, 'index']);
+        Route::delete('recordatorios/{id}', [RecordatorioController::class, 'destroy']);
+        Route::get('recordatorios/{id}/evidencias', [RecordatorioController::class, 'evidenciasIndex']);
+        Route::post('recordatorios/{id}/evidencias', [RecordatorioController::class, 'evidenciasStore']);
+        Route::delete('recordatorios/evidencias/{docId}', [RecordatorioController::class, 'evidenciasDestroy']);
+        Route::patch('recordatorios/{id}/estado', [RecordatorioController::class, 'toggle']);
+        Route::get('recordatorios/evidencias/{docId}/ver', [RecordatorioController::class, 'evidenciasShow']);
+        Route::get('recordatorios/evidencias/{docId}/descargar', [RecordatorioController::class, 'evidenciasDownload']);
+    });
+
+// Rutas especiales para guardar con portal/cliente en el path (como pediste)
+    Route::prefix('_recordadorios')->group(function () {
+        Route::post('{idPortal}/{idCliente}', [RecordatorioController::class, 'storeForPortalCliente']);
+        Route::put('{idPortal}/{idCliente}/{id}', [RecordatorioController::class, 'updateForPortalCliente']);
+    });
+
+    //***************  Fin Recordatorios ****************/
 
 });
 

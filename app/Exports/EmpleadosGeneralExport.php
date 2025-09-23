@@ -67,7 +67,23 @@ class EmpleadosGeneralExport implements FromCollection, WithHeadings, WithStyles
                         // último recurso: si viene en ISO 8601, toma los 10 primeros
                         return substr((string) $v, 0, 10);
                     }
-                })($empleado->fecha_nacimiento),
+                })($empleado->fecha_ingreso),
+                 'Fecha Ingreso' => (function ($v) {
+                    if (empty($v)) {
+                        return '';
+                    }
+
+                    if ($v instanceof \Carbon\CarbonInterface) {
+                        return $v->toDateString();
+                    }
+                    // YYYY-MM-DD
+                    try {
+                        return Carbon::parse($v)->toDateString(); // maneja "2025-08-08T05:00:00Z"
+                    } catch (\Throwable $e) {
+                        // último recurso: si viene en ISO 8601, toma los 10 primeros
+                        return substr((string) $v, 0, 10);
+                    }
+                })($empleado->fecha_ingreso),
                 // Domicilio
                 'Pais'             => $empleado->domicilioEmpleado->pais ?? '',
                 'Estado'           => $empleado->domicilioEmpleado->estado ?? '',
@@ -114,6 +130,7 @@ class EmpleadosGeneralExport implements FromCollection, WithHeadings, WithStyles
             'Departamento',
             'Puesto',
             'Fecha Nacimiento',
+            'Fecha Ingreso',
             'Pais',
             'Estado',
             'Ciudad',
