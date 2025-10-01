@@ -10,6 +10,7 @@ use App\Http\Controllers\ApiGetMedicoDetalles;
 //use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
 use App\Http\Controllers\Comunicacion\ChecadorController;
+use App\Http\Controllers\Comunicacion\ChecadasController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
 use App\Http\Controllers\DocumentController;
@@ -235,6 +236,16 @@ Route::middleware(['api'])->group(function () {
     Route::post('/checador/mappings', [ChecadorController::class, 'storeMapping']);
     Route::post('/checador/import', [ChecadorController::class, 'import']);
 
+    Route::prefix('checador')->group(function () {
+        // crudas (lista simple, ordenadas por fecha/hora)
+        Route::get('/checadas', [ChecadasController::class, 'listChecadas']);
+
+        // agrupadas por día (y empleado)
+        Route::get('/checadas/rango', [ChecadasController::class, 'checadasPorRango']);
+
+        // un día con navegación (prev/next)
+        Route::get('/checadas/dia', [ChecadasController::class, 'checadasPorDia']);
+    });
     //***************  Fin  Checador  ****************/
 
     //***************  Inicio Recordatorios ****************/
