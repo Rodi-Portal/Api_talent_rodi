@@ -7,6 +7,8 @@ use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
+use App\Http\Controllers\Auth\PermissionController;
+
 //use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
 use App\Http\Controllers\Comunicacion\ChecadorController;
@@ -267,6 +269,12 @@ Route::middleware(['api'])->group(function () {
     });
 
     //***************  Fin Recordatorios ****************/
+
+    //***************  Fin Permision ****************/
+
+    Route::get('/auth/permissions/effective', [PermissionController::class, 'effective']);
+
+   //***************  Fin Permision ****************/
 
 });
 
