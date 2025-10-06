@@ -3,7 +3,6 @@ namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller; // Asegúrate de tener esta línea arriba para utilizar Log
 
-use App\Models\ComentarioFormerEmpleado;
 use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\DomicilioEmpleado;
@@ -18,7 +17,6 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\Log;
 
 class EmpleadoController extends Controller
 {
@@ -47,8 +45,16 @@ class EmpleadoController extends Controller
         if ($status == 2) {
 
             foreach ($empleados as $empleado) {
-                // Obtener el campo 'creacion' de ComentarioFormerEmpleado
-                $comentario = ComentarioFormerEmpleado::where('id', $empleado->id)->first(['creacion']);
+                                                                                      // Obtener el campo 'creacion' de ComentarioFormerEmpleado
+                $comentario = \App\Models\ComentarioFormerEmpleado::on('portal_main') // fuerza la conexión del modelo
+                    ->where('id_empleado', $empleado->id)
+                    ->whereNotNull('fecha_salida_reingreso')
+                    ->whereRaw("TRIM(fecha_salida_reingreso) <> ''")
+                    ->where('fecha_salida_reingreso', '!=', '0000-00-00')
+                // si lo que te interesa es la última FECHA de salida/reingreso, ordena por esa columna:
+                    ->orderByDesc('fecha_salida_reingreso')
+                // alternativamente, si quieres el último registro creado usa ->orderByDesc('id') o ->latest('creacion')
+                    ->first(['id', 'creacion', 'titulo', 'comentario', 'fecha_salida_reingreso']);
 
                 // Log de lo que trae el comentario
                 //Log::info('Comentario para empleado ' . $empleado->id . ': ', ['comentario' => $comentario]);
@@ -80,7 +86,7 @@ class EmpleadoController extends Controller
                     }
                 }
                 // Agregar el campo 'fecha_salida' si existe
-                $empleadoArray['fecha_salida']    = $comentario ? $comentario->creacion : null;
+                $empleadoArray['fecha_salida']    = $comentario ? $comentario->fecha_salida_reingreso : null;
                 $empleadoArray['statusDocuments'] = $statusDocuments;
 
                 // Log del empleado procesado
@@ -143,10 +149,10 @@ class EmpleadoController extends Controller
             $prioridadB = $controller->obtenerPrioridad($b);
             return $prioridadA <=> $prioridadB;
         });
-       // Log::info("Resultados ordenados:\n" . json_encode($resultados, JSON_PRETTY_PRINT));
+        // Log::info("Resultados ordenados:\n" . json_encode($resultados, JSON_PRETTY_PRINT));
 
 // O también puedes loguear las columnas si quieres
-       // Log::info("Columnas únicas:\n" . json_encode($this->extraerColumnasUnicas($resultados), JSON_PRETTY_PRINT));
+        // Log::info("Columnas únicas:\n" . json_encode($this->extraerColumnasUnicas($resultados), JSON_PRETTY_PRINT));
 
         return response()->json([
             'empleados' => $resultados,
