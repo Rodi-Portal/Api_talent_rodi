@@ -84,6 +84,7 @@ Route::middleware(['api'])->group(function () {
 // Emdpoints Empleados
     Route::get('empleados', [ApiEmpleadoController::class, 'index']);
     Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
+    Route::get('/empleados/{id}/foto', [ApiEmpleadoController::class, 'getProfilePicture']);
 
     // ----- opciones  documentos, examenes y cursos ----- //
     Route::get('/document-options', [DocumentOptionController::class, 'index']);
