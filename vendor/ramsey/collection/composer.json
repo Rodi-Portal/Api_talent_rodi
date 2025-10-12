@@ -30,12 +30,9 @@
         "mockery/mockery": "^1.6",
         "php-parallel-lint/php-console-highlighter": "^1.0",
         "php-parallel-lint/php-parallel-lint": "^1.4",
-        "phpspec/prophecy-phpunit": "^2.3",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan": "^2.1",
         "phpstan/phpstan-mockery": "^2.0",
-        "phpstan/phpstan-phpunit": "^2.0",
-        "phpunit/phpunit": "^10.5",
         "ramsey/coding-standard": "^2.3",
         "ramsey/conventional-commits": "^1.6",
         "roave/security-advisories": "dev-latest"
@@ -86,9 +83,6 @@
             "@dev:analyze",
             "@dev:test:unit"
         ],
-        "dev:test:coverage:ci": "phpunit --colors=always --coverage-text --coverage-clover build/coverage/clover.xml --coverage-cobertura build/coverage/cobertura.xml --coverage-crap4j build/coverage/crap4j.xml --coverage-xml build/coverage/coverage-xml --log-junit build/junit.xml",
-        "dev:test:coverage:html": "phpunit --colors=always --coverage-html build/coverage/coverage-html/",
-        "dev:test:unit": "phpunit --colors=always",
         "test": "@dev:test"
     },
     "scripts-descriptions": {

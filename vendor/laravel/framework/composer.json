@@ -105,7 +105,6 @@
         "pda/pheanstalk": "^4.0",
         "phpstan/phpdoc-parser": "^1.15",
         "phpstan/phpstan": "^1.4.7",
-        "phpunit/phpunit": "^9.5.8",
         "predis/predis": "^1.1.9|^2.0.2",
         "symfony/cache": "^6.0",
         "symfony/http-client": "^6.0"
@@ -172,7 +171,6 @@
         "mockery/mockery": "Required to use mocking (^1.5.1).",
         "nyholm/psr7": "Required to use PSR-7 bridging features (^1.2).",
         "pda/pheanstalk": "Required to use the beanstalk queue driver (^4.0).",
-        "phpunit/phpunit": "Required to use assertions and run tests (^9.5.8).",
         "predis/predis": "Required to use the predis connector (^1.1.9|^2.0.2).",
         "psr/http-message": "Required to allow Storage::put to accept a StreamInterface (^1.0).",
         "pusher/pusher-php-server": "Required to use the Pusher broadcast driver (^6.0|^7.0).",

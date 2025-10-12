@@ -18,7 +18,6 @@
         "ext-ctype": "*"
     },
     "require-dev": {
-        "phpunit/phpunit": "^8.5.13"
     },
     "conflict": {
         "phpstan/phpstan": "<0.12.20",
