@@ -50,7 +50,19 @@ use Illuminate\Support\Facades\Route;
 |
  */
 //  rutas  para  envio de  mensajes  de  whatsssApp
-
+Route::get('/api/test-status', function() {
+    $id_portal = 5;
+    $id_cliente = 1003;
+    try {
+        $data = App\Models\Empleado::where('id_portal', $id_portal)
+                                    ->where('id_cliente', $id_cliente)
+                                    ->get();
+        return response()->json($data);
+    } catch (\Throwable $e) {
+        \Log::error('Test status error', ['exception' => $e]);
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+});
 Route::middleware(['api'])->group(function () {
 
     Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
