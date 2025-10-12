@@ -27,8 +27,6 @@
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan": "^2.1",
         "phpstan/phpstan-mockery": "^2.0",
-        "phpstan/phpstan-phpunit": "^2.0",
-        "phpunit/phpunit": "^9.6",
         "slevomat/coding-standard": "^8.18",
         "squizlabs/php_codesniffer": "^3.13"
     },
@@ -91,9 +89,6 @@
             "@dev:analyze",
             "@dev:test:unit"
         ],
-        "dev:test:coverage:ci": "@php -d 'xdebug.mode=coverage' vendor/bin/phpunit --colors=always --coverage-text --coverage-clover build/coverage/clover.xml --coverage-cobertura build/coverage/cobertura.xml --coverage-crap4j build/coverage/crap4j.xml --coverage-xml build/coverage/coverage-xml --log-junit build/junit.xml",
-        "dev:test:coverage:html": "@php -d 'xdebug.mode=coverage' vendor/bin/phpunit --colors=always --coverage-html build/coverage/coverage-html/",
-        "dev:test:unit": "phpunit --colors=always",
         "test": "@dev:test"
     },
     "scripts-descriptions": {

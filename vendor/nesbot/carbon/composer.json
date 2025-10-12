@@ -57,8 +57,6 @@
         "phpmd/phpmd": "^2.9",
         "phpstan/extension-installer": "^1.0",
         "phpstan/phpstan": "^0.12.99 || ^1.7.14",
-        "phpunit/php-file-iterator": "^2.0.5 || ^3.0.6",
-        "phpunit/phpunit": "^7.5.20 || ^8.5.26 || ^9.5.20",
         "squizlabs/php_codesniffer": "^3.4"
     },
     "provide": {
@@ -112,14 +110,12 @@
         "phpmd": "phpmd src text /phpmd.xml",
         "phpmd-test": "phpmd tests text /tests/phpmd-test.xml",
         "phpstan": "phpstan analyse --configuration phpstan.neon",
-        "phpunit": "phpunit --verbose",
         "style-check": [
             "@phpcs",
             "@phpstan",
             "@phpmd"
         ],
         "test": [
-            "@phpunit",
             "@style-check"
         ],
         "sponsors": "php sponsors.php"
