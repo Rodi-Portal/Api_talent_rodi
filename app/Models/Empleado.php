@@ -33,9 +33,12 @@ class Empleado extends Model
         'fecha_nacimiento',
         'status',
         'eliminado',
+        'fecha_ingreso',
     ];
     protected $casts = [
         'fecha_nacimiento' => 'date:Y-m-d',
+        'fecha_ingreso'    => 'date:Y-m-d',
+
     ];
 
     public function domicilioEmpleado()

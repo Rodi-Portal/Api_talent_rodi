@@ -151,7 +151,7 @@ class EmpleadoController extends Controller
         });
         // Log::info("Resultados ordenados:\n" . json_encode($resultados, JSON_PRETTY_PRINT));
 
-// O también puedes loguear las columnas si quieres
+        // O también puedes loguear las columnas si quieres
         // Log::info("Columnas únicas:\n" . json_encode($this->extraerColumnasUnicas($resultados), JSON_PRETTY_PRINT));
 
         return response()->json([
@@ -548,7 +548,7 @@ class EmpleadoController extends Controller
             'departamento'               => 'nullable|string',
             'puesto'                     => 'nullable|string',
             'telefono'                   => 'nullable|string',
-
+            'fecha_ingreso'              => 'nullable|date',
             // Validación para domicilio_empleado
             'domicilio_empleado.calle'   => 'nullable|string',
             'domicilio_empleado.num_ext' => 'nullable|string',
@@ -628,6 +628,7 @@ class EmpleadoController extends Controller
                 'materno'               => $validatedData['materno'] ?? null,
                 'departamento'          => $validatedData['departamento'] ?? null,
                 'puesto'                => $validatedData['puesto'] ?? null,
+                'fecha_ingreso'         => $validatedData['fecha_ingreso'] ?? null,
                 'fecha_nacimiento'      => $validatedData['fecha_nacimiento'] ?? null,
                 'telefono'              => $validatedData['telefono'] ?? null,
                 'id_domicilio_empleado' => $domicilio->id, // Asignar el ID del domicilio creado
