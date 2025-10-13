@@ -188,11 +188,11 @@ class ApiEmpleadoController extends Controller
 
         // Devuelve el archivo con el Content-Type correcto
         return response()->file($filePath, [
-            'Content-Type'                => $mimeType,
-            'Content-Disposition'         => 'inline; filename="' . $archivo . '"',
-            'Access-Control-Allow-Origin' => 'https://portal.talentsafecontrol.com', // tu frontend
-            'Content-Security-Policy'     => "frame-ancestors 'self' https://portal.talentsafecontrol.com",
+            'Content-Type'            => $mimeType,
+            'Content-Disposition'     => 'inline; filename="' . $archivo . '"',
+            'Content-Security-Policy' => "frame-ancestors 'self' https://portal.talentsafecontrol.com",
         ]);
+
     }
 
 }
