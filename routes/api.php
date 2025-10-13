@@ -97,7 +97,7 @@ Route::middleware(['api'])->group(function () {
     Route::get('empleados', [ApiEmpleadoController::class, 'index']);
     Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
     Route::get('/empleados/{id}/foto', [ApiEmpleadoController::class, 'getProfilePicture']);
-
+    Route::get('/documentos/{carpeta}/{archivo}', [ApiEmpleadoController::class, 'verDocumento']);
     // ----- opciones  documentos, examenes y cursos ----- //
     Route::get('/document-options', [DocumentOptionController::class, 'index']);
     Route::post('/document-options/save', [DocumentOptionController::class, 'guardarOpcion']);
