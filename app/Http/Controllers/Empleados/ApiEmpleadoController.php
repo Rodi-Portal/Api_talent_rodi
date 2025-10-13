@@ -165,27 +165,34 @@ class ApiEmpleadoController extends Controller
         return response()->json($paquetes); // Retorna los datos como JSON
     }
 
-
     public function verDocumento($carpeta, $archivo)
     {
         $env = config('app.env');
+
+        // Determina la ruta base según el entorno
         $basePath = $env === 'production'
             ? env('PROD_IMAGE_PATH')
             : env('LOCAL_IMAGE_PATH');
 
+        // Evita ataques de path traversal
+        $carpeta = basename($carpeta);
+        $archivo = basename($archivo);
+
         $filePath = "{$basePath}/{$carpeta}/{$archivo}";
 
-        if (!file_exists($filePath)) {
+        if (! file_exists($filePath)) {
             return response()->json(['error' => 'Archivo no encontrado'], 404);
         }
 
         $mimeType = mime_content_type($filePath);
 
+        // Devuelve el archivo con el Content-Type correcto
         return response()->file($filePath, [
-            'Content-Type' => $mimeType,
+            'Content-Type'                => $mimeType,
+            // Permite que se use desde cualquier dominio (CORS)
             'Access-Control-Allow-Origin' => '*',
+            'Content-Disposition'         => 'inline; filename="' . $archivo . '"', // inline permite ver PDF en navegador
         ]);
     }
 
-    
 }
