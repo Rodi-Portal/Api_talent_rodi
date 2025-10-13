@@ -189,9 +189,9 @@ class ApiEmpleadoController extends Controller
         // Devuelve el archivo con el Content-Type correcto
         return response()->file($filePath, [
             'Content-Type'                => $mimeType,
-            // Permite que se use desde cualquier dominio (CORS)
+            'Content-Disposition'         => 'inline; filename="' . $archivo . '"',
             'Access-Control-Allow-Origin' => '*',
-            'Content-Disposition'         => 'inline; filename="' . $archivo . '"', // inline permite ver PDF en navegador
+            'X-Frame-Options'             => 'ALLOWALL', // o 'ALLOW-FROM https://tu-frontend.com'
         ]);
     }
 
