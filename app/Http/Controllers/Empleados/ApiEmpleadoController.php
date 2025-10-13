@@ -190,8 +190,8 @@ class ApiEmpleadoController extends Controller
         return response()->file($filePath, [
             'Content-Type'                => $mimeType,
             'Content-Disposition'         => 'inline; filename="' . $archivo . '"',
-            'Access-Control-Allow-Origin' => '*',
-            'X-Frame-Options'             => 'ALLOWALL', // o 'ALLOW-FROM https://tu-frontend.com'
+            'Access-Control-Allow-Origin' => 'https://portal.talentsafecontrol.com', // tu frontend
+            'Content-Security-Policy'     => "frame-ancestors 'self' https://portal.talentsafecontrol.com",
         ]);
     }
 
