@@ -164,4 +164,28 @@ class ApiEmpleadoController extends Controller
 
         return response()->json($paquetes); // Retorna los datos como JSON
     }
+
+
+    public function verDocumento($carpeta, $archivo)
+    {
+        $env = config('app.env');
+        $basePath = $env === 'production'
+            ? env('PROD_IMAGE_PATH')
+            : env('LOCAL_IMAGE_PATH');
+
+        $filePath = "{$basePath}/{$carpeta}/{$archivo}";
+
+        if (!file_exists($filePath)) {
+            return response()->json(['error' => 'Archivo no encontrado'], 404);
+        }
+
+        $mimeType = mime_content_type($filePath);
+
+        return response()->file($filePath, [
+            'Content-Type' => $mimeType,
+            'Access-Control-Allow-Origin' => '*',
+        ]);
+    }
+
+    
 }
