@@ -17,7 +17,7 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
         $this->idCliente = $idCliente;
     }
     protected array $aliasDb = [
-        'fecha_ingreso' => 'creacion', // o 'created_at' si usas timestamps estándar
+        'fecha_ingreso' => 'fecha_ingreso', // o 'created_at' si usas timestamps estándar
     ];
     protected $columnasFijas = [
         'id', 'id_empleado', 'nombre', 'paterno', 'materno',
