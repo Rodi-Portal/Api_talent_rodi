@@ -277,7 +277,7 @@ class CsvController extends Controller
                 'departamento',
                 'puesto',
                 'fecha_nacimiento',
-                'creacion AS fecha_ingreso',
+                'fecha_ingreso',
 
             ]);
         //Log::info('Datos médicos de empleados:', $empleados->toArray());
