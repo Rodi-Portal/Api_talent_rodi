@@ -67,7 +67,8 @@ class EmpleadosGeneralExport implements FromCollection, WithHeadings, WithStyles
                         // último recurso: si viene en ISO 8601, toma los 10 primeros
                         return substr((string) $v, 0, 10);
                     }
-                })($empleado->fecha_ingreso),
+                })
+                ($empleado->fecha_nacimiento),
                  'Fecha Ingreso' => (function ($v) {
                     if (empty($v)) {
                         return '';
