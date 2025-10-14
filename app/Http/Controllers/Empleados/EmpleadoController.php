@@ -455,6 +455,7 @@ class EmpleadoController extends Controller
                 'curp',
                 'foto',
                 'fecha_nacimiento',
+                'fecha_ingreso',
                 'status',
                 'eliminado',
             ]));
@@ -539,6 +540,8 @@ class EmpleadoController extends Controller
             'id_empleado'                => 'nullable|integer',
             'correo'                     => 'nullable|email',
             'fecha_nacimiento'           => 'nullable|date',
+            'fecha_ingreso'              => 'nullable|date',
+
             'curp'                       => 'nullable|string',
             'rfc'                        => 'nullable|string',
             'nss'                        => 'nullable|string',
