@@ -121,7 +121,7 @@ class DocumentOptionController extends Controller
         $tabla     = $request->input('tabla');
         $opciones  = $request->input('opciones', []); // array de opciones con id y name
 
-        Log::info('Guardando opciones', ['tabla' => $tabla, 'id_portal' => $id_portal, 'opciones' => $opciones]);
+       // Log::info('Guardando opciones', ['tabla' => $tabla, 'id_portal' => $id_portal, 'opciones' => $opciones]);
 
         // Determinar el modelo a utilizar según la tabla
         $model = match ($tabla) {
@@ -202,7 +202,7 @@ class DocumentOptionController extends Controller
         // Verificar si se recibió id_portal
         $id_portal = $request->input('id_portal');
         $tabla     = $request->input('tabla');
-        Log::info('📥 Tabla recibida:', ['tabla' => $tabla]);
+       // Log::info('📥 Tabla recibida:', ['tabla' => $tabla]);
 
         // Determinar el modelo a utilizar
         $model = match ($tabla) {
@@ -306,17 +306,17 @@ class DocumentOptionController extends Controller
             $now = Carbon::now('America/Mexico_City');
 
             // Log de entrada
-            Log::info('[DOCUMENTO] ⏱ Iniciando registro', ['payload' => $request->all()]);
-            Log::debug('[DOCUMENTO] 🟢 Inicia subida de archivo', [
+           // Log::info('[DOCUMENTO] ⏱ Iniciando registro', ['payload' => $request->all()]);
+           /* Log::debug('[DOCUMENTO] 🟢 Inicia subida de archivo', [
                 'hasFile' => $request->hasFile('file'),
                 'isValid' => $request->file('file') ? $request->file('file')->isValid() : 'sin archivo',
                 'size'    => $request->file('file') ? $request->file('file')->getSize() : 0,
                 'mime'    => $request->file('file') ? $request->file('file')->getMimeType() : 'N/A',
             ]);
-
+*/
             // Normalizar campo "file" si viene como texto "null"
             if ($request->has('file') && $request->input('file') === 'null') {
-                Log::debug('[DOCUMENTO] 🧼 El campo "file" venía como string "null". Eliminado para evitar errores de validación.');
+               // Log::debug('[DOCUMENTO] 🧼 El campo "file" venía como string "null". Eliminado para evitar errores de validación.');
                 $request->request->remove('file');
             }
 
@@ -372,10 +372,10 @@ class DocumentOptionController extends Controller
                         'file_name' => $newFileName,
                         'carpeta'   => $request->input('carpeta'),
                     ]);
-                    Log::debug('[DOCUMENTO] 🚀 Llamando a upload()', [
+                    /*Log::debug('[DOCUMENTO] 🚀 Llamando a upload()', [
                         'targetFolder' => $request->input('carpeta'),
                         'newFileName'  => $newFileName,
-                    ]);
+                    ]);*/
 
                     $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
 
@@ -391,12 +391,12 @@ class DocumentOptionController extends Controller
                         'line'    => $e->getLine(),
                         'trace'   => $e->getTraceAsString(),
                     ]);
-                    
+
                     return response()->json(['error' => 'Ocurrió un error al subir el archivo.'], 500);
                 }
             } else {
                 $newFileName = $request->input('employee_id') . '_sin_documento_' . uniqid();
-                Log::info('[CURSO] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
+                //Log::info('[CURSO] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
             }
 
             // === [4] Crear registro en la base de datos ===
@@ -418,7 +418,7 @@ class DocumentOptionController extends Controller
                 return response()->json(['error' => 'Error al guardar el documento.'], 500);
             }
 
-            Log::info('Documento registrado exitosamente.', ['document' => $documentEmpleado]);
+           // Log::info('Documento registrado exitosamente.', ['document' => $documentEmpleado]);
 
             return response()->json([
                 'message'  => 'Documento agregado exitosamente.',
@@ -540,11 +540,11 @@ class DocumentOptionController extends Controller
         $creacion = Carbon::now('America/Mexico_City')->format('Y-m-d H:i:s');
         $edicion  = $creacion;
 
-        Log::info('[EXAMEN] ⏱ Iniciando registro', ['payload' => $request->all()]);
+       // Log::info('[EXAMEN] ⏱ Iniciando registro', ['payload' => $request->all()]);
 
         // Sanitizar "file" si viene como string "null"
         if ($request->has('file') && $request->input('file') === 'null') {
-            Log::debug('[EXAMEN] 🧼 El campo "file" venía como string "null". Eliminado.');
+           // Log::debug('[EXAMEN] 🧼 El campo "file" venía como string "null". Eliminado.');
             $request->request->remove('file');
         }
 
@@ -620,7 +620,7 @@ class DocumentOptionController extends Controller
             }
         } else {
             $newFileName = $request->input('employee_id') . '_sin_examen_' . uniqid();
-            Log::info('[CURSO] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
+           // Log::info('[CURSO] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
         }
 
         // === [4] Crear registro en BD ===
@@ -643,7 +643,7 @@ class DocumentOptionController extends Controller
             return response()->json(['error' => 'Error al guardar el examen.'], 500);
         }
 
-        Log::info('[EXAMEN] ✅ Examen registrado correctamente.', ['exam' => $examEmpleado]);
+       // Log::info('[EXAMEN] ✅ Examen registrado correctamente.', ['exam' => $examEmpleado]);
 
         return response()->json([
             'message'  => 'Examen agregado exitosamente.',
@@ -696,10 +696,10 @@ class DocumentOptionController extends Controller
     { // Aumentar memoria y tiempo máximo de ejecución
         ini_set('memory_limit', '512M');                         // 512 MB de memoria
         set_time_limit(300);
-        Log::info('🔁 Entró a updateDocuments', [
+        /*  Log::info('🔁 Entró a updateDocuments', [
             'id'      => $id,
             'request' => $request->all(),
-        ]);
+        ]);*/
 
         if (count($request->except(['id', '_method'])) === 0) {
             Log::warning('⚠️ No se enviaron datos útiles');
@@ -742,7 +742,7 @@ class DocumentOptionController extends Controller
         if ($file && $docAnterior) {
             $docController = new DocumentController();
 
-            Log::info("📤 Eliminando archivo anterior: $docAnterior");
+            //Log::info("📤 Eliminando archivo anterior: $docAnterior");
             $deleteReq = new Request([
                 'file_name' => $docAnterior,
                 'carpeta'   => $carpeta,
@@ -753,13 +753,13 @@ class DocumentOptionController extends Controller
             if (str_contains($docAnterior, '_sin_')) {
                 $extension   = $file->getClientOriginalExtension();
                 $nuevoNombre = time() . '_' . uniqid() . '.' . $extension;
-                Log::info("✏️ Se detectó '_sin_' en el nombre. Nuevo nombre generado: $nuevoNombre");
+               // Log::info("✏️ Se detectó '_sin_' en el nombre. Nuevo nombre generado: $nuevoNombre");
             } else {
                 $nuevoNombre = $docAnterior;
-                Log::info("📎 Se conservará el nombre anterior: $nuevoNombre");
+               // Log::info("📎 Se conservará el nombre anterior: $nuevoNombre");
             }
 
-            Log::info("📥 Subiendo nuevo archivo: $nuevoNombre");
+            //Log::info("📥 Subiendo nuevo archivo: $nuevoNombre");
 
             $uploadReq = new Request([
                 'file_name' => $nuevoNombre,
@@ -779,7 +779,7 @@ class DocumentOptionController extends Controller
 
         // Si no hay nuevo archivo pero sí doc anterior
         if (! $file && $docAnterior) {
-            Log::info("📎 Se conservará el documento anterior: $docAnterior");
+           // Log::info("📎 Se conservará el documento anterior: $docAnterior");
             $document->name = $docAnterior;
         }
 
@@ -796,15 +796,15 @@ class DocumentOptionController extends Controller
             ]));
 
             $data = json_decode($response->getContent(), true);
-            Log::info("🚀 Respuesta de buscar_insertar_opcion:", $data);
+          // Log::info("🚀 Respuesta de buscar_insertar_opcion:", $data);
 
             if (isset($data['id_opciones'])) {
                 $document->id_opcion    = $data['id_opciones'];
                 $document->nameDocument = null;
-                Log::info("📝 Se asignó id_opcion = {$data['id_opciones']} y se limpió nameDocument");
+              // Log::info("📝 Se asignó id_opcion = {$data['id_opciones']} y se limpió nameDocument");
             } else {
                 $document->nameDocument = $name;
-                Log::info("📝 No se encontró opción, se asignó nameDocument = $name");
+               // Log::info("📝 No se encontró opción, se asignó nameDocument = $name");
             }
         }
 
@@ -814,13 +814,13 @@ class DocumentOptionController extends Controller
             if ($request->filled($field)) {
                 $valor            = $request->input($field);
                 $document->$field = $valor;
-                Log::info("📝 Campo actualizado [$field]: $valor");
+               // Log::info("📝 Campo actualizado [$field]: $valor");
             }
         }
 
         $document->save();
 
-        Log::info("✅ Documento actualizado correctamente", ['id' => $id]);
+       // Log::info("✅ Documento actualizado correctamente", ['id' => $id]);
 
         return response()->json(['message' => 'Documento actualizado correctamente.'], 200);
     }
