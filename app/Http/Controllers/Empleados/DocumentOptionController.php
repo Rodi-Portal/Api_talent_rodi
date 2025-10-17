@@ -122,14 +122,13 @@ class DocumentOptionController extends Controller
         $opciones  = $request->input('opciones', []); // array de opciones con id y name
 
         Log::info('Guardando opciones', ['tabla' => $tabla, 'id_portal' => $id_portal, 'opciones' => $opciones]);
-    
 
         // Determinar el modelo a utilizar según la tabla
         $model = match ($tabla) {
             '_documentEmpleado' => DocumentOption::class,
-            '_examEmpleado' => ExamOption::class,
-            '_cursos' => CursosOption::class,
-            default => null,
+            '_examEmpleado'     => ExamOption::class,
+            '_cursos'           => CursosOption::class,
+            default             => null,
         };
 
         if (! $model) {
@@ -178,9 +177,9 @@ class DocumentOptionController extends Controller
 
         $model = match ($tabla) {
             '_documentEmpleado' => DocumentOption::class,
-            '_examEmpleado' => ExamOption::class,
-            '_cursos' => CursosOption::class,
-            default => null,
+            '_examEmpleado'     => ExamOption::class,
+            '_cursos'           => CursosOption::class,
+            default             => null,
         };
 
         if (! $model) {
@@ -208,9 +207,9 @@ class DocumentOptionController extends Controller
         // Determinar el modelo a utilizar
         $model = match ($tabla) {
             '_documentEmpleado' => DocumentOption::class,
-            '_examEmpleado' => ExamOption::class,
-            '_cursos' => CursosOption::class,
-            default => null,
+            '_examEmpleado'     => ExamOption::class,
+            '_cursos'           => CursosOption::class,
+            default             => null,
         };
 
         if (! $model) {
@@ -240,8 +239,8 @@ class DocumentOptionController extends Controller
             });
 
             return $filtered->isNotEmpty()
-            ? response()->json($filtered->pluck('id'))
-            : response()->json([], 404);
+                ? response()->json($filtered->pluck('id'))
+                : response()->json([], 404);
         }
 
         // Devolver todos los resultados si no se busca por nombre
@@ -300,6 +299,9 @@ class DocumentOptionController extends Controller
 
     public function store(Request $request)
     {
+                                         // Aumentar memoria y tiempo máximo de ejecución
+        ini_set('memory_limit', '512M'); // 512 MB de memoria
+        set_time_limit(300);
         try {
             $now = Carbon::now('America/Mexico_City');
 
@@ -515,6 +517,9 @@ class DocumentOptionController extends Controller
     //  registrar  nuevos  examenes
     public function storeExams(Request $request)
     {
+                                         // Aumentar memoria y tiempo máximo de ejecución
+        ini_set('memory_limit', '512M'); // 512 MB de memoria
+        set_time_limit(300);
         $creacion = Carbon::now('America/Mexico_City')->format('Y-m-d H:i:s');
         $edicion  = $creacion;
 
@@ -533,7 +538,7 @@ class DocumentOptionController extends Controller
             'description'     => 'nullable|string|max:500',
             'expiry_date'     => 'nullable|date',
             'expiry_reminder' => 'nullable|integer',
-            'file'            => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
+            'file'            => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:10240',
             'id_portal'       => 'required|integer',
             'carpeta'         => 'nullable|string|max:255',
 
@@ -671,7 +676,9 @@ class DocumentOptionController extends Controller
     }
 
     public function updateDocuments(Request $request, $id)
-    {
+    { // Aumentar memoria y tiempo máximo de ejecución
+        ini_set('memory_limit', '512M');                         // 512 MB de memoria
+        set_time_limit(300);
         Log::info('🔁 Entró a updateDocuments', [
             'id'      => $id,
             'request' => $request->all(),
@@ -835,8 +842,8 @@ class DocumentOptionController extends Controller
 
         // Construir path base
         $basePath = env('APP_ENV') === 'local'
-        ? env('LOCAL_IMAGE_PATH')
-        : env('PROD_IMAGE_PATH');
+            ? env('LOCAL_IMAGE_PATH')
+            : env('PROD_IMAGE_PATH');
 
         $fileName = $document->nameDocument ?? null;
 
