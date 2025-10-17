@@ -319,7 +319,7 @@ class DocumentOptionController extends Controller
                 'description'     => 'nullable|string|max:500',
                 'expiry_date'     => 'nullable|date',
                 'expiry_reminder' => 'nullable|integer',
-                'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120',
+                'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
                 'id_portal'       => 'required|integer',
                 'status'          => 'required|integer',
                 'carpeta'         => 'nullable|string|max:255',
@@ -424,7 +424,7 @@ class DocumentOptionController extends Controller
             'description'     => 'nullable|string|max:500',
             'expiry_date'     => 'nullable|date',
             'expiry_reminder' => 'nullable|integer',
-            'file'            => 'required|file|mimes:pdf,application/pdf,application/x-pdf,application/acrobat,application/vnd.pdf,jpg,jpeg,png|max:5120',
+            'file'            => 'required|file|mimes:pdf,application/pdf,application/x-pdf,application/acrobat,application/vnd.pdf,jpg,jpeg,png|max:10240',
 
             'id_portal'       => 'required|integer',
             'status'          => 'required|integer',
