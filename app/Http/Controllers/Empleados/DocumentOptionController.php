@@ -300,9 +300,6 @@ class DocumentOptionController extends Controller
 
     public function store(Request $request)
     {
-           // Aumentar memoria y tiempo máximo de ejecución
-                ini_set('memory_limit', '512M');       // 512 MB de memoria
-                set_time_limit(300); 
         try {
             $now = Carbon::now('America/Mexico_City');
 
@@ -322,7 +319,7 @@ class DocumentOptionController extends Controller
                 'description'     => 'nullable|string|max:500',
                 'expiry_date'     => 'nullable|date',
                 'expiry_reminder' => 'nullable|integer',
-                'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+                'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120',
                 'id_portal'       => 'required|integer',
                 'status'          => 'required|integer',
                 'carpeta'         => 'nullable|string|max:255',

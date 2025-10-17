@@ -10,7 +10,7 @@ class DocumentController extends Controller
     {
         // ✅ Validación (simplificada de mimes)
         $request->validate([
-            'file'      => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'file'      => 'required|file|mimes:pdf,jpg,jpeg,png|max:5120',
             'file_name' => 'required|string',
             'carpeta'   => 'required|string',
         ]);
