@@ -712,7 +712,7 @@ class DocumentOptionController extends Controller
             'description'     => 'nullable|string|max:500',
             'expiry_date'     => 'nullable|date',
             'expiry_reminder' => 'nullable|integer',
-            'file'            => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
+            'file'            => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:10240',
             'id_portal'       => 'required|integer',
             'carpeta'         => 'nullable|string|max:255',
 
