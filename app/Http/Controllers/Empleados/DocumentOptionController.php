@@ -307,6 +307,12 @@ class DocumentOptionController extends Controller
 
             // Log de entrada
             Log::info('[DOCUMENTO] ⏱ Iniciando registro', ['payload' => $request->all()]);
+            Log::debug('[DOCUMENTO] 🟢 Inicia subida de archivo', [
+                'hasFile' => $request->hasFile('file'),
+                'isValid' => $request->file('file') ? $request->file('file')->isValid() : 'sin archivo',
+                'size'    => $request->file('file') ? $request->file('file')->getSize() : 0,
+                'mime'    => $request->file('file') ? $request->file('file')->getMimeType() : 'N/A',
+            ]);
 
             // Normalizar campo "file" si viene como texto "null"
             if ($request->has('file') && $request->input('file') === 'null') {
@@ -366,6 +372,10 @@ class DocumentOptionController extends Controller
                         'file_name' => $newFileName,
                         'carpeta'   => $request->input('carpeta'),
                     ]);
+                    Log::debug('[DOCUMENTO] 🚀 Llamando a upload()', [
+                        'targetFolder' => $request->input('carpeta'),
+                        'newFileName'  => $newFileName,
+                    ]);
 
                     $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
 
@@ -375,6 +385,13 @@ class DocumentOptionController extends Controller
                     }
                 } catch (\Exception $e) {
                     Log::error('Excepción al subir el archivo.', ['exception' => $e->getMessage()]);
+                    Log::error('Excepción al subir el archivo.', [
+                        'message' => $e->getMessage(),
+                        'file'    => $e->getFile(),
+                        'line'    => $e->getLine(),
+                        'trace'   => $e->getTraceAsString(),
+                    ]);
+                    
                     return response()->json(['error' => 'Ocurrió un error al subir el archivo.'], 500);
                 }
             } else {
