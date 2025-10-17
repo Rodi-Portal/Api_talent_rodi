@@ -18,6 +18,8 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
+
 
 class DocumentOptionController extends Controller
 {
@@ -296,142 +298,183 @@ class DocumentOptionController extends Controller
 
         return response()->json(['id_opciones' => $newOption->id], 201);
     }
-    public function store(Request $request)
-    {
-        try {
-            $now = Carbon::now('America/Mexico_City');
+ public function store(Request $request)
+{
+    $traceId = (string) Str::ulid();
+    $t0 = microtime(true);
+    Log::withContext(['traceId' => $traceId, 'endpoint' => 'document.store']);
 
-                                 // === [0] Log de entrada ===
-            $traceId = uniqid(); // ID único para rastrear este request
-            Log::info("[DOCUMENTO][$traceId] ⏱ Iniciando registro", [
-                'payload' => $request->all(),
-                'ip'      => $request->ip(),
-                'user_id' => $request->user()?->id,
-            ]);
+    try {
+        $now = Carbon::now('America/Mexico_City');
 
-            // Normalizar campo "file" si viene como texto "null"
-            if ($request->has('file') && $request->input('file') === 'null') {
-                Log::debug("[DOCUMENTO][$traceId] 🧼 Campo 'file' venía como string 'null'. Eliminado para evitar errores de validación.");
-                $request->request->remove('file');
-            }
+        Log::info('⌛ Inicio STORE', [
+            'ip'           => $request->ip(),
+            'user_id'      => optional($request->user())->id,
+            'method'       => $request->method(),
+            'uri'          => $request->path(),
+            'content_type' => $request->header('Content-Type'),
+            'content_len'  => $request->header('Content-Length'),
+            'files_count'  => count($request->files->all()),
+            'upload_max'   => ini_get('upload_max_filesize'),
+            'post_max'     => ini_get('post_max_size'),
+            'tmp_dir'      => sys_get_temp_dir(),
+        ]);
 
-            // === [1] Validación de datos ===
-            $validator = Validator::make($request->all(), [
-                'employee_id'     => 'required|integer',
-                'name'            => 'required|string|max:255',
-                'description'     => 'nullable|string|max:500',
-                'expiry_date'     => 'nullable|date',
-                'expiry_reminder' => 'nullable|integer',
-                'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
-                'id_portal'       => 'required|integer',
-                'status'          => 'required|integer',
-                'carpeta'         => 'nullable|string|max:255',
-            ]);
+        if ($request->has('file') && $request->input('file') === 'null') {
+            Log::debug("🧼 'file' llegó como string 'null' → se elimina");
+            $request->request->remove('file');
+        }
 
-            if ($validator->fails()) {
-                Log::warning("[DOCUMENTO][$traceId] ⚠ Validación fallida", [
-                    'errors'  => $validator->errors(),
-                    'payload' => $request->all(),
-                ]);
-                return response()->json($validator->errors(), 422);
-            }
+        $validator = Validator::make($request->all(), [
+            'employee_id'     => 'required|integer',
+            'name'            => 'required|string|max:255',
+            'description'     => 'nullable|string|max:500',
+            'expiry_date'     => 'nullable|date',
+            'expiry_reminder' => 'nullable|integer',
+            'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'id_portal'       => 'required|integer',
+            'status'          => 'required|integer',
+            'carpeta'         => 'nullable|string|max:255',
+        ]);
 
-            // === [2] Buscar coincidencia en DocumentOption ===
-            $idOpcion       = null;
-            $documentOption = DocumentOption::where(function ($query) use ($request) {
-                $query->where('id_portal', $request->input('id_portal'))
-                    ->orWhereNull('id_portal');
+        if ($validator->fails()) {
+            Log::warning('⚠️ Validación fallida STORE', ['errors' => $validator->errors()]);
+            return response()->json(['traceId' => $traceId, 'errors' => $validator->errors()], 422);
+        }
+
+        $documentOption = \App\Models\DocumentOption::where(function ($q) use ($request) {
+                $q->where('id_portal', (int)$request->input('id_portal'))->orWhereNull('id_portal');
             })
-                ->where('name', $request->input('name'))
-                ->first();
+            ->where('name', (string)$request->input('name'))
+            ->first();
 
-            if ($documentOption) {
-                $idOpcion = $documentOption->id;
-                Log::info("[DOCUMENTO][$traceId] 🔍 Opción de documento encontrada", ['id' => $idOpcion]);
-            } else {
-                Log::info("[DOCUMENTO][$traceId] 🔍 No existe opción de documento, se usará nombre genérico", ['name' => $request->input('name')]);
+        $idOpcion     = $documentOption?->id;
+        $nameDocument = $idOpcion ? null : (string)$request->input('name');
+
+        Log::info('🔎 Opción de documento', [
+            'found'        => (bool)$documentOption,
+            'id_opcion'    => $idOpcion,
+            'nameDocument' => $nameDocument,
+        ]);
+
+        $newFileName = null;
+
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+
+            Log::info('📦 Archivo detectado', [
+                'client_name' => $file->getClientOriginalName(),
+                'ext'         => $file->getClientOriginalExtension(),
+                'size_bytes'  => $file->getSize(),
+                'mime_client' => $file->getClientMimeType(),
+                'mime_detect' => $file->getMimeType(),
+                'tmp_path'    => $file->getPathname(),
+                'is_valid'    => $file->isValid(),
+                'php_error'   => method_exists($file, 'getError') ? $file->getError() : null,
+            ]);
+
+            if (! $file->isValid()) {
+                $err = $file->getError();
+                $map = [
+                    UPLOAD_ERR_INI_SIZE   => 'excede upload_max_filesize',
+                    UPLOAD_ERR_FORM_SIZE  => 'excede MAX_FILE_SIZE',
+                    UPLOAD_ERR_PARTIAL    => 'subida parcial',
+                    UPLOAD_ERR_NO_FILE    => 'sin archivo',
+                    UPLOAD_ERR_NO_TMP_DIR => 'falta tmp_dir',
+                    UPLOAD_ERR_CANT_WRITE => 'no se pudo escribir',
+                    UPLOAD_ERR_EXTENSION  => 'bloqueado por extensión',
+                ];
+                Log::error('❌ Archivo inválido', ['php_error_code' => $err, 'explain' => $map[$err] ?? 'desconocido']);
+                return response()->json(['traceId' => $traceId, 'error' => 'Archivo inválido: '.($map[$err] ?? 'desconocido')], 400);
             }
 
-            $nameDocument = $idOpcion ? null : $request->input('name');
+            try {
+                $employeeId    = (int)$request->input('employee_id');
+                $randomString  = Str::random(8);
+                $fileExtension = $file->getClientOriginalExtension();
+                $newFileName   = "{$employeeId}_{$randomString}.{$fileExtension}";
 
-            // === [3] Procesar archivo si existe ===
-            $newFileName = null;
-
-            if ($request->hasFile('file') && $request->file('file')->isValid()) {
-                $file = $request->file('file');
-                Log::info("[DOCUMENTO][$traceId] 📁 Archivo recibido", [
-                    'original_name' => $file->getClientOriginalName(),
-                    'size'          => $file->getSize(),
-                    'mime'          => $file->getMimeType(),
+                $uploadRequest = new Request();
+                $uploadRequest->files->set('file', $file);
+                $uploadRequest->merge([
+                    'file_name' => $newFileName,
+                    'carpeta'   => (string)$request->input('carpeta', ''),
                 ]);
 
-                try {
-                    $employeeId    = $request->input('employee_id');
-                    $randomString  = $this->generateRandomString();
-                    $fileExtension = $file->getClientOriginalExtension();
-                    $newFileName   = "{$employeeId}_{$randomString}.{$fileExtension}";
+                $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
+                $status = $uploadResponse->getStatusCode();
+                $resp   = json_decode($uploadResponse->getContent(), true);
 
-                    $uploadRequest = new Request();
-                    $uploadRequest->files->set('file', $file);
-                    $uploadRequest->merge([
-                        'file_name' => $newFileName,
-                        'carpeta'   => $request->input('carpeta'),
-                    ]);
+                Log::info('↩️ Respuesta de upload()', ['status' => $status, 'body' => $resp]);
 
-                    $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
-
-                    if ($uploadResponse->getStatusCode() !== 200) {
-                        Log::error("[DOCUMENTO][$traceId] ❌ Error al subir archivo", ['response' => $uploadResponse->getContent()]);
-                        return response()->json(['error' => 'Error al subir el documento.'], 500);
-                    }
-
-                    Log::info("[DOCUMENTO][$traceId] ✅ Archivo subido exitosamente", ['new_name' => $newFileName]);
-
-                } catch (\Exception $e) {
-                    Log::error("[DOCUMENTO][$traceId] 💥 Excepción al subir archivo", ['exception' => $e]);
-                    return response()->json(['error' => 'Ocurrió un error al subir el archivo.'], 500);
+                if ($status !== 200) {
+                    Log::error('🚫 upload() falló desde STORE', ['status' => $status, 'resp' => $resp]);
+                    return response()->json(['traceId' => $traceId, 'error' => 'Error al subir el documento', 'detail' => $resp], 500);
                 }
 
-            } else {
-                $newFileName = $request->input('employee_id') . '_sin_documento_' . uniqid();
-                Log::info("[DOCUMENTO][$traceId] 🗂 No se recibió archivo. Se asigna nombre genérico", ['name' => $newFileName]);
-            }
+                Log::info('✅ Archivo subido OK', ['new_name' => $newFileName, 'public_url' => $resp['public_url'] ?? null]);
 
-            // === [4] Crear registro en la base de datos ===
-            try {
-                $documentEmpleado = DocumentEmpleado::create([
-                    'creacion'        => $now,
-                    'edicion'         => $now,
-                    'employee_id'     => $request->input('employee_id'),
-                    'name'            => $newFileName,
-                    'nameDocument'    => $nameDocument,
-                    'id_opcion'       => $idOpcion,
-                    'description'     => $request->input('description'),
-                    'expiry_date'     => $request->input('expiry_date'),
-                    'expiry_reminder' => $request->input('expiry_reminder'),
-                    'status'          => $request->input('status', 1),
+            } catch (\Throwable $e) {
+                Log::error('💥 Excepción subiendo archivo en STORE', [
+                    'msg'  => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
                 ]);
-
-                Log::info("[DOCUMENTO][$traceId] 📄 Documento registrado exitosamente", ['document' => $documentEmpleado->toArray()]);
-
-            } catch (\Exception $e) {
-                Log::error("[DOCUMENTO][$traceId] 💥 Error al crear documento en BD", ['exception' => $e]);
-                return response()->json(['error' => 'Error al guardar el documento.'], 500);
+                return response()->json(['traceId' => $traceId, 'error' => 'Excepción al subir el archivo', 'detail' => $e->getMessage()], 500);
             }
-
-            return response()->json([
-                'message'  => 'Documento agregado exitosamente.',
-                'document' => $documentEmpleado,
-            ], 201);
-
-        } catch (\Exception $e) {
-            Log::critical("[DOCUMENTO][$traceId] ⚡ Error inesperado", [
-                'exception' => $e,
-                'payload'   => $request->all(),
-            ]);
-            return response()->json(['error' => 'Error inesperado al procesar la solicitud.'], 500);
+        } else {
+            $newFileName = (int)$request->input('employee_id') . '_sin_documento_' . Str::random(6);
+            Log::info('🗂 No se recibió archivo; se asigna nombre genérico', ['new_name' => $newFileName]);
         }
+
+        try {
+            $documentEmpleado = \App\Models\DocumentEmpleado::create([
+                'creacion'        => $now,
+                'edicion'         => $now,
+                'employee_id'     => (int)$request->input('employee_id'),
+                'name'            => $newFileName,
+                'nameDocument'    => $nameDocument,
+                'id_opcion'       => $idOpcion,
+                'description'     => $request->input('description'),
+                'expiry_date'     => $request->input('expiry_date'),
+                'expiry_reminder' => $request->input('expiry_reminder'),
+                'status'          => (int)$request->input('status', 1),
+            ]);
+            Log::info('📄 Documento creado en BD', ['id' => $documentEmpleado->id]);
+
+        } catch (\Throwable $e) {
+            Log::error('💥 Error al crear documento en BD', [
+                'msg'  => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            return response()->json(['traceId' => $traceId, 'error' => 'Error al guardar el documento', 'detail' => $e->getMessage()], 500);
+        }
+
+        $ms = (int)((microtime(true) - $t0) * 1000);
+        Log::info('✅ Fin STORE', ['dur_ms' => $ms]);
+
+        return response()->json([
+            'traceId'  => $traceId,
+            'message'  => 'Documento agregado exitosamente.',
+            'document' => $documentEmpleado,
+            'dur_ms'   => $ms,
+        ], 201);
+
+    } catch (\Throwable $e) {
+        Log::critical('⚡ Error inesperado STORE', [
+            'msg'  => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+
+        return response()->json([
+            'traceId' => $traceId,
+            'error'   => 'Error inesperado al procesar la solicitud.',
+            'detail'  => $e->getMessage(),
+        ], 500);
     }
+}
 
     /*
     public function store(Request $request)
