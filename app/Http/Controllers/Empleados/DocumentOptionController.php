@@ -122,13 +122,14 @@ class DocumentOptionController extends Controller
         $opciones  = $request->input('opciones', []); // array de opciones con id y name
 
         Log::info('Guardando opciones', ['tabla' => $tabla, 'id_portal' => $id_portal, 'opciones' => $opciones]);
+    
 
         // Determinar el modelo a utilizar según la tabla
         $model = match ($tabla) {
             '_documentEmpleado' => DocumentOption::class,
-            '_examEmpleado'     => ExamOption::class,
-            '_cursos'           => CursosOption::class,
-            default             => null,
+            '_examEmpleado' => ExamOption::class,
+            '_cursos' => CursosOption::class,
+            default => null,
         };
 
         if (! $model) {
@@ -177,9 +178,9 @@ class DocumentOptionController extends Controller
 
         $model = match ($tabla) {
             '_documentEmpleado' => DocumentOption::class,
-            '_examEmpleado'     => ExamOption::class,
-            '_cursos'           => CursosOption::class,
-            default             => null,
+            '_examEmpleado' => ExamOption::class,
+            '_cursos' => CursosOption::class,
+            default => null,
         };
 
         if (! $model) {
@@ -207,9 +208,9 @@ class DocumentOptionController extends Controller
         // Determinar el modelo a utilizar
         $model = match ($tabla) {
             '_documentEmpleado' => DocumentOption::class,
-            '_examEmpleado'     => ExamOption::class,
-            '_cursos'           => CursosOption::class,
-            default             => null,
+            '_examEmpleado' => ExamOption::class,
+            '_cursos' => CursosOption::class,
+            default => null,
         };
 
         if (! $model) {
@@ -239,8 +240,8 @@ class DocumentOptionController extends Controller
             });
 
             return $filtered->isNotEmpty()
-                ? response()->json($filtered->pluck('id'))
-                : response()->json([], 404);
+            ? response()->json($filtered->pluck('id'))
+            : response()->json([], 404);
         }
 
         // Devolver todos los resultados si no se busca por nombre
@@ -299,20 +300,14 @@ class DocumentOptionController extends Controller
 
     public function store(Request $request)
     {
-                                         // Aumentar memoria y tiempo máximo de ejecución
-        ini_set('memory_limit', '512M'); // 512 MB de memoria
-        set_time_limit(300);
+           // Aumentar memoria y tiempo máximo de ejecución
+                ini_set('memory_limit', '512M');       // 512 MB de memoria
+                set_time_limit(300); 
         try {
             $now = Carbon::now('America/Mexico_City');
 
             // Log de entrada
             Log::info('[DOCUMENTO] ⏱ Iniciando registro', ['payload' => $request->all()]);
-Log::debug('[DOCUMENTO] 🟢 Inicia subida de archivo', [
-    'hasFile' => $request->hasFile('file'),
-    'isValid' => $request->file('file') ? $request->file('file')->isValid() : 'sin archivo',
-    'size'    => $request->file('file') ? $request->file('file')->getSize() : 0,
-    'mime'    => $request->file('file') ? $request->file('file')->getMimeType() : 'N/A',
-]);
 
             // Normalizar campo "file" si viene como texto "null"
             if ($request->has('file') && $request->input('file') === 'null') {
@@ -372,10 +367,6 @@ Log::debug('[DOCUMENTO] 🟢 Inicia subida de archivo', [
                         'file_name' => $newFileName,
                         'carpeta'   => $request->input('carpeta'),
                     ]);
-                    Log::debug('[DOCUMENTO] 🚀 Llamando a upload()', [
-    'targetFolder' => $request->input('carpeta'),
-    'newFileName'  => $newFileName,
-]);
 
                     $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
 
@@ -385,12 +376,6 @@ Log::debug('[DOCUMENTO] 🟢 Inicia subida de archivo', [
                     }
                 } catch (\Exception $e) {
                     Log::error('Excepción al subir el archivo.', ['exception' => $e->getMessage()]);
-                    Log::error('Excepción al subir el archivo.', [
-    'message' => $e->getMessage(),
-    'file' => $e->getFile(),
-    'line' => $e->getLine(),
-    'trace' => $e->getTraceAsString(),
-]);
                     return response()->json(['error' => 'Ocurrió un error al subir el archivo.'], 500);
                 }
             } else {
@@ -533,9 +518,6 @@ Log::debug('[DOCUMENTO] 🟢 Inicia subida de archivo', [
     //  registrar  nuevos  examenes
     public function storeExams(Request $request)
     {
-                                         // Aumentar memoria y tiempo máximo de ejecución
-        ini_set('memory_limit', '512M'); // 512 MB de memoria
-        set_time_limit(300);
         $creacion = Carbon::now('America/Mexico_City')->format('Y-m-d H:i:s');
         $edicion  = $creacion;
 
@@ -554,7 +536,7 @@ Log::debug('[DOCUMENTO] 🟢 Inicia subida de archivo', [
             'description'     => 'nullable|string|max:500',
             'expiry_date'     => 'nullable|date',
             'expiry_reminder' => 'nullable|integer',
-            'file'            => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:10240',
+            'file'            => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'id_portal'       => 'required|integer',
             'carpeta'         => 'nullable|string|max:255',
 
@@ -692,9 +674,7 @@ Log::debug('[DOCUMENTO] 🟢 Inicia subida de archivo', [
     }
 
     public function updateDocuments(Request $request, $id)
-    { // Aumentar memoria y tiempo máximo de ejecución
-        ini_set('memory_limit', '512M');                         // 512 MB de memoria
-        set_time_limit(300);
+    {
         Log::info('🔁 Entró a updateDocuments', [
             'id'      => $id,
             'request' => $request->all(),
@@ -858,8 +838,8 @@ Log::debug('[DOCUMENTO] 🟢 Inicia subida de archivo', [
 
         // Construir path base
         $basePath = env('APP_ENV') === 'local'
-            ? env('LOCAL_IMAGE_PATH')
-            : env('PROD_IMAGE_PATH');
+        ? env('LOCAL_IMAGE_PATH')
+        : env('PROD_IMAGE_PATH');
 
         $fileName = $document->nameDocument ?? null;
 
