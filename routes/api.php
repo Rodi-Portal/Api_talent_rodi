@@ -11,8 +11,8 @@ use App\Http\Controllers\Auth\PermissionController;
 
 //use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
-use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\ChecadasController;
+use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
 use App\Http\Controllers\DocumentController;
@@ -28,6 +28,7 @@ use App\Http\Controllers\Empleados\MedicalInfoController;
 use App\Http\Controllers\Empleados\MensajeriaController;
 use App\Http\Controllers\Empleados\NotificacionController;
 use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
+use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\PeriodoNominaController;
 use App\Http\Controllers\Plantillas\PlantillaController;
@@ -50,13 +51,13 @@ use Illuminate\Support\Facades\Route;
 |
  */
 //  rutas  para  envio de  mensajes  de  whatsssApp
-Route::get('/api/test-status', function() {
-    $id_portal = 5;
+Route::get('/api/test-status', function () {
+    $id_portal  = 5;
     $id_cliente = 1003;
     try {
         $data = App\Models\Empleado::where('id_portal', $id_portal)
-                                    ->where('id_cliente', $id_cliente)
-                                    ->get();
+            ->where('id_cliente', $id_cliente)
+            ->get();
         return response()->json($data);
     } catch (\Throwable $e) {
         \Log::error('Test status error', ['exception' => $e]);
@@ -71,14 +72,14 @@ Route::middleware(['api'])->group(function () {
     Route::post('/send-message-comentario-cliente', [WhatsAppController::class, 'sendMessage_comentario_cliente']);
     Route::post('/send-message-requisicion-cliente', [WhatsAppController::class, 'sendMessage_requisicion_cliente']);
 
-// ruta  de  examen  medico
+    // ruta  de  examen  medico
     Route::get('/medico/{id}', [ApiGetMedicoDetalles::class, 'getDatosMedico']);
     Route::get('/test', [TestController::class, 'testPost']);
 
     Route::get('file/{path}', [ImageController::class, 'getFile'])->where('path', '.*');
     Route::post('/upload', [DocumentController::class, 'upload']);
 
-//  rutas    para  candidatos  socioeconomicos  y doping
+    //  rutas    para  candidatos  socioeconomicos  y doping
     Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
     Route::post('/candidatos', [ApiCandidatoSinEseController::class, 'store']);
     Route::post('/existe-cliente', [ApiClientesController::class, 'VerificarCliente']);
@@ -87,13 +88,13 @@ Route::middleware(['api'])->group(function () {
     Route::get('doping/{id}', [ApiGetDopingDetalles::class, 'getDatosDoping']);
     Route::get('doping-detalles/{id}', [ApiGetDopingDetalles::class, 'getDopingDetalles']);
 
-// ruta  para  cargar
+    // ruta  para  cargar
     Route::get('area/{nombre}', [ApiGetArea::class, 'getArea']);
 
-// EndPoints bgv  reportes
+    // EndPoints bgv  reportes
     Route::get('/report/{id_candidato}', [ReportController::class, 'getReport']);
 
-// Emdpoints Empleados
+    // Emdpoints Empleados
     Route::get('empleados', [ApiEmpleadoController::class, 'index']);
     Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
     Route::get('/empleados/{id}/foto', [ApiEmpleadoController::class, 'getProfilePicture']);
@@ -167,8 +168,21 @@ Route::middleware(['api'])->group(function () {
 
     Route::get('/eventos/tipos', [CalendarioController::class, 'getTiposEvento']);
     Route::get('/eventos', [CalendarioController::class, 'getEventosPorClientes']);
+    Route::get('/archivos/calendario/{id}/stream', [CalendarioController::class, 'streamArchivoCalendario']);
+    Route::get('/archivos/{id}/download', [CalendarioController::class, 'downloadArchivoCalendario']);
 
     //***************  FIN Calendario  ****************/
+
+    //***************  Inicio Politicas Asitencia  ****************/
+    Route::get   ('/politicas-asistencia',            [PoliticasAsistenciaController::class, 'index']);
+    Route::get   ('/politicas-asistencia/{id}',       [PoliticasAsistenciaController::class, 'show']);
+    Route::post  ('/politicas-asistencia',            [PoliticasAsistenciaController::class, 'store']);
+    Route::put   ('/politicas-asistencia/{id}',       [PoliticasAsistenciaController::class, 'update']);
+    Route::delete('/politicas-asistencia/{id}',       [PoliticasAsistenciaController::class, 'destroy']);
+
+    //***************  Fin Politicas Asitencia  ****************/
+
+
     //  obtener  el status  de general  de los empleados
     Route::get('/empleados/status', [EmpleadoController::class, 'getEmpleadosStatus']);
     /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
@@ -211,19 +225,19 @@ Route::middleware(['api'])->group(function () {
     // validar  si hay cursos   vencidos
     Route::get('/empleados/cursos', [CursosController::class, 'getEmpleadosConCursos']);
 
-/*  rutas  para  subir  las  evaluaciones   */
+    /*  rutas  para  subir  las  evaluaciones   */
     Route::post('/evaluaciones', [EvaluacionController::class, 'store']);
     Route::get('/evaluaciones', [EvaluacionController::class, 'getEvaluations']);
     Route::put('/evaluaciones/{id}', [EvaluacionController::class, 'update']);
 
-/*Descomprimir  archivos  */
+    /*Descomprimir  archivos  */
     Route::post('/unzip', [DocumentController::class, 'unzipFile']);
     Route::post('/delete', [DocumentController::class, 'deleteFile']);
     Route::post('/download-zip', [DocumentController::class, 'downloadZip']);
     Route::post('/upload-zip', [DocumentController::class, 'uploadZip']);
 
-/** Former Employe   endpoints */
-// enviar   empleado  a exempleados
+    /** Former Employe   endpoints */
+    // enviar   empleado  a exempleados
     Route::post('/comentarios-former-empleado', [FormerEmpleadoController::class, 'storeComentarioFormer']);
     Route::get('empleados/{id_empleado}/documentos-y-cursos', [FormerEmpleadoController::class, 'getDocumentosYCursos']);
     Route::post('/documentos/former', [FormerEmpleadoController::class, 'storeDocumentos']);
@@ -231,14 +245,13 @@ Route::middleware(['api'])->group(function () {
     // borrar comentario
     Route::delete('/comentarios-former-empleado/{id}', [FormerEmpleadoController::class, 'deleteComentario']);
 
-// ruta  para   enviar     de pre employment  a employment
+    // ruta  para   enviar     de pre employment  a employment
     Route::post('candidato-send/{id_candidato}', [ApiGetCandidatosByCliente::class, 'sendCandidateToEmployee']);
 
-// ruta  para  guardar  y consultar  notificaciones Whats  y correo
+    // ruta  para  guardar  y consultar  notificaciones Whats  y correo
     Route::post('/notificaciones/guardar', [NotificacionController::class, 'guardar']);
     Route::post('/notificaciones/guardarex', [NotificacionController::class, 'guardarExempleados']);
     Route::post('/notificaciones/guardarec', [NotificacionController::class, 'guardarRecordatorios']);
-
 
     Route::get('/notificaciones/consultar/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultar']);
 
@@ -275,7 +288,7 @@ Route::middleware(['api'])->group(function () {
         Route::get('recordatorios/evidencias/{docId}/descargar', [RecordatorioController::class, 'evidenciasDownload']);
     });
 
-// Rutas especiales para guardar con portal/cliente en el path (como pediste)
+    // Rutas especiales para guardar con portal/cliente en el path (como pediste)
     Route::prefix('_recordadorios')->group(function () {
         Route::post('{idPortal}/{idCliente}', [RecordatorioController::class, 'storeForPortalCliente']);
         Route::put('{idPortal}/{idCliente}/{id}', [RecordatorioController::class, 'updateForPortalCliente']);
@@ -287,13 +300,15 @@ Route::middleware(['api'])->group(function () {
 
     Route::get('/auth/permissions/effective', [PermissionController::class, 'effective']);
 
-   //***************  Fin Permision ****************/
+    //***************  Fin Permision ****************/
+
+    Route::post('/send-notification', [WhatsAppController::class, 'sendMessage_notificacion_talentsafe']);
 
 });
 
 /*notificaciones  via  whatsapp modulo empleados*/
 
-Route::post('/send-notification', [WhatsAppController::class, 'sendMessage_notificacion_talentsafe']);
+
 
 /*Este  endpoint  es para   mostrar  avances  de los  candidatos  en pre empleo  */
 //Route::get('/check-avances', [AvanceController::class, 'checkAvances']);

@@ -300,6 +300,7 @@ class EmpleadoController extends Controller
         // Ajustamos la diferencia para que sea negativa si la fecha de expiración ya ha pasado
         return $fechaExpiracion < $fechaActual ? -$diferenciaDias : $diferenciaDias;
     }
+    /*
     public function getEmpleadosStatus(Request $request)
     {
         $request->validate([
@@ -411,7 +412,131 @@ class EmpleadoController extends Controller
         //Log::info('Resultados de estados de documentos, cursos y evaluaciones: ' . print_r($resultado, true));
 
         return response()->json($resultado);
+    }*/
+    public function getEmpleadosStatus(Request $request)
+    {
+        $request->validate([
+            'id_portal'  => 'required|integer',
+            'id_cliente' => 'required|integer',
+        ]);
+
+        $status     = $request->input('status'); // puede venir null
+        $id_portal  = (int) $request->input('id_portal');
+        $id_cliente = (int) $request->input('id_cliente');
+
+        $isEx = ((string) $status === '2'); // ex-empleados
+
+        // Carga de empleados según regla dada:
+        $empleados = Empleado::where('id_portal', $id_portal)
+            ->where('id_cliente', $id_cliente)
+            ->where('status', $isEx ? 2 : 1)
+            ->get();
+
+        // Defaults
+        $statusDocuments    = 'verde';
+        $statusCursos       = 'verde';
+        $statusEvaluaciones = 'verde';
+        $estadoDocumentos   = 'verde';
+        $estadoCursos       = 'verde';
+
+        // Si no hay empleados, regresa estados “verde”
+        if ($empleados->isEmpty()) {
+            return response()->json(
+                $isEx
+                    ? ['statusDocuments' => $statusDocuments]
+                    : [
+                    'statusDocuments'    => $statusDocuments,
+                    'statusCursos'       => $statusCursos,
+                    'statusEvaluaciones' => $statusEvaluaciones,
+                    'estadoDocumentos'   => $estadoDocumentos,
+                    'estadoCursos'       => $estadoCursos,
+                ]
+            );
+        }
+
+        if ($isEx) {
+            // === EX-EMPLEADOS ===
+            // Regla: solo documentos “de salida” (status=2). Si hay vencidos, marcar en rojo/amarillo según checkDocumentStatus
+            foreach ($empleados as $empleado) {
+                $documentosSalida = DocumentEmpleado::where('employee_id', $empleado->id)
+                    ->where('status', 2) // documentos de salida
+                                     // ->whereDate('fecha_vencimiento', '<', now()) // <-- si tienes un campo de vencimiento, descomenta/ajusta
+                    ->get();
+
+                $estado = $this->checkDocumentStatus($documentosSalida); // debe devolver rojo/amarillo/verde
+
+                if ($estado === 'rojo') {
+                    $statusDocuments = 'rojo';
+                    break; // peor caso, podemos cortar
+                } elseif ($estado === 'amarillo' && $statusDocuments !== 'rojo') {
+                    $statusDocuments = 'amarillo';
+                }
+            }
+
+            return response()->json([
+                'statusDocuments' => $statusDocuments,
+            ]);
+        }
+
+        // === EMPLEADOS ACTIVOS (status=1) ===
+        foreach ($empleados as $empleado) {
+            $documentos = DocumentEmpleado::where('employee_id', $empleado->id)->get();
+            $cursos     = CursoEmpleado::where('employee_id', $empleado->id)->get();
+
+            // Estados “visibles” por módulo
+            $eDocs  = $this->obtenerEstado($documentos);
+            $eCurso = $this->obtenerEstado($cursos);
+
+            if ($eDocs === 'rojo') {
+                $estadoDocumentos = 'rojo';
+            } elseif ($eDocs === 'amarillo' && $estadoDocumentos !== 'rojo') {
+                $estadoDocumentos = 'amarillo';
+            }
+
+            if ($eCurso === 'rojo') {
+                $estadoCursos = 'rojo';
+            } elseif ($eCurso === 'amarillo' && $estadoCursos !== 'rojo') {
+                $estadoCursos = 'amarillo';
+            }
+
+            // Estados agregados “status*”
+            $sDocs  = $this->checkDocumentStatus($documentos);
+            $sCurso = $this->checkDocumentStatus($cursos);
+
+            if ($sDocs === 'rojo') {
+                $statusDocuments = 'rojo';
+            } elseif ($sDocs === 'amarillo' && $statusDocuments !== 'rojo') {
+                $statusDocuments = 'amarillo';
+            }
+
+            if ($sCurso === 'rojo') {
+                $statusCursos = 'rojo';
+            } elseif ($sCurso === 'amarillo' && $statusCursos !== 'rojo') {
+                $statusCursos = 'amarillo';
+            }
+        }
+
+        // Evaluaciones a nivel portal/cliente (los ex no llegan aquí)
+        $evaluaciones = Evaluacion::where('id_portal', $id_portal)
+            ->where('id_cliente', $id_cliente)
+            ->get();
+
+        $sEval = $this->checkDocumentStatus($evaluaciones);
+        if ($sEval === 'rojo') {
+            $statusEvaluaciones = 'rojo';
+        } elseif ($sEval === 'amarillo' && $statusEvaluaciones !== 'rojo') {
+            $statusEvaluaciones = 'amarillo';
+        }
+
+        return response()->json([
+            'statusDocuments'    => $statusDocuments,
+            'statusCursos'       => $statusCursos,
+            'statusEvaluaciones' => $statusEvaluaciones,
+            'estadoDocumentos'   => $estadoDocumentos,
+            'estadoCursos'       => $estadoCursos,
+        ]);
     }
+
     public function update(Request $request)
     {
 

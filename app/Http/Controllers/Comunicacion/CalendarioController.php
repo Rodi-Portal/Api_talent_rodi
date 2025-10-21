@@ -7,6 +7,7 @@ use App\Models\ClienteTalent;
 use App\Models\Empleado;
 use App\Models\EventosOption;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Response;
 
 class CalendarioController extends Controller
 {
@@ -41,7 +42,7 @@ class CalendarioController extends Controller
                     'paterno'         => $e->paterno,
                     'materno'         => $e->materno,
                     'nombre_completo' => trim("{$e->nombre} {$e->paterno} {$e->materno}"),
-                    'nombre_cliente'  => $e->cliente ? $e->cliente->nombre : '',
+                    'nombre_cliente' => $e->cliente ? $e->cliente->nombre : '',
                 ];
             });
 
@@ -116,7 +117,7 @@ class CalendarioController extends Controller
 
         // \Log::info('[getEventosPorClientes] Total de eventos encontrados:', ['count' => $eventos->count()]);
         if ($eventos->count()) {
-           // \Log::info('[getEventosPorClientes] PRIMER EVENTO RAW:', $eventos->first()->toArray());
+            // \Log::info('[getEventosPorClientes] PRIMER EVENTO RAW:', $eventos->first()->toArray());
         }
 
         $result = $eventos->map(function ($evento) {
@@ -146,7 +147,7 @@ class CalendarioController extends Controller
             ];
         });
 
-      //  \Log::info('[getEventosPorClientes] Primer evento mapeado:', $result->all() ?? []);
+        //  \Log::info('[getEventosPorClientes] Primer evento mapeado:', $result->all() ?? []);
 
         return response()->json(['eventos' => $result]);
     }
@@ -290,7 +291,7 @@ class CalendarioController extends Controller
                     \Log::warning(">>> [actualizarEvento] Archivo anterior NO encontrado para borrar: $rutaArchivo");
                 }
             }
-                \Log::info('Método de la solicitud: ' . $request->method());
+            \Log::info('Método de la solicitud: ' . $request->method());
 
             // Guarda el nuevo archivo
             $archivo           = $request->file('archivo');
@@ -356,6 +357,187 @@ class CalendarioController extends Controller
         $tipos = $query->select('id', 'name', 'color')->distinct()->get();
 
         return response()->json($tipos);
+    }
+    private function calendarioBasePath(): string
+    {
+        // Detecta ambiente y toma la variable correcta
+        $base = app()->environment('production')
+            ? env('PROD_IMAGE_PATH', '')
+            : env('LOCAL_IMAGE_PATH', '');
+
+        // Normaliza separadores y quita slashes finales
+        return rtrim(str_replace(['\\', '//'], ['/', '/'], $base), '/');
+    }
+
+    private function joinPaths(string ...$parts): string
+    {
+        $clean = array_map(fn($p) => trim($p, "/ \t\n\r\0\x0B"), $parts);
+        return implode('/', $clean);
+    }
+
+    public function streamArchivoCalendario($id)
+    {
+        $evento = \App\Models\CalendarioEvento::find($id);
+        if (! $evento) {
+            return response()->json(['message' => 'Evento no encontrado'], 404);
+        }
+
+        if (empty($evento->archivo)) {
+            return response()->json(['message' => 'Este evento no tiene archivo'], 404);
+        }
+
+        // Base por ambiente (.env)
+        $base = app()->environment('production')
+            ? env('PROD_IMAGE_PATH', '')
+            : env('LOCAL_IMAGE_PATH', '');
+
+        // Normaliza separadores y quita slashes finales
+        $base = rtrim(str_replace(['\\', '//'], ['/', '/'], $base), '/');
+
+        // Ruta absoluta del archivo
+        $absPath = $base . '/_archivo_calendario/' . $evento->archivo;
+
+        // Seguridad: confirmar que existe y que está dentro de $base
+        $realBase = realpath($base);
+        $realFile = $absPath ? realpath($absPath) : false;
+
+        if (! $realBase || ! $realFile || strpos($realFile, $realBase) !== 0 || ! is_file($realFile)) {
+            return response()->json(['message' => 'Archivo no encontrado en servidor'], 404);
+        }
+
+        // Detectar MIME
+        $mime = (function ($path) {
+            $f = finfo_open(FILEINFO_MIME_TYPE);
+            $m = $f ? finfo_file($f, $path) : null;
+            if ($f) {
+                finfo_close($f);
+            }
+
+            return $m ?: 'application/octet-stream';
+        })($realFile);
+
+        $filename = $evento->archivo;
+
+        $headers = [
+            'Content-Type'        => $mime,
+            'Content-Disposition' => 'inline; filename="' . addslashes($filename) . '"',
+            'X-Accel-Buffering'   => 'no',
+            'Cache-Control'       => 'private, max-age=0, no-cache, no-store, must-revalidate',
+            'Pragma'              => 'no-cache',
+            'Expires'             => '0',
+        ];
+
+        @set_time_limit(0);
+
+        return Response::stream(function () use ($realFile) {
+            $h = fopen($realFile, 'rb');
+            if ($h === false) {
+                return;
+            }
+
+            while (! feof($h)) {
+                echo fread($h, 8192);
+                @ob_flush(); flush();
+            }
+            fclose($h);
+        }, 200, $headers);
+    }
+
+    public function downloadArchivoCalendario($id)
+    {
+        $evento = \App\Models\CalendarioEvento::find($id);
+        if (! $evento) {
+            return response()->json(['message' => 'Evento no encontrado'], 404);
+        }
+        if (empty($evento->archivo)) {
+            return response()->json(['message' => 'Este evento no tiene archivo'], 404);
+        }
+
+        // Base por ambiente (.env)
+        $base = app()->environment('production')
+            ? env('PROD_IMAGE_PATH', '')
+            : env('LOCAL_IMAGE_PATH', '');
+        $base = rtrim(str_replace(['\\', '//'], ['/', '/'], $base), '/');
+
+        // Ruta del archivo
+        $absPath  = $base . '/_archivo_calendario/' . $evento->archivo;
+        $realBase = realpath($base);
+        $realFile = $absPath ? realpath($absPath) : false;
+
+        if (! $realBase || ! $realFile || strpos($realFile, $realBase) !== 0 || ! is_file($realFile)) {
+            return response()->json(['message' => 'Archivo no encontrado en servidor'], 404);
+        }
+
+        // ====== MIME correcto (mejor compatibilidad) ======
+        $mime = null;
+        if (function_exists('finfo_open')) {
+            $f = finfo_open(FILEINFO_MIME_TYPE);
+            if ($f) {
+                $mime = finfo_file($f, $realFile) ?: null;
+                finfo_close($f);
+            }
+        }
+        // Fallback por extensión si finfo no disponible
+        if (! $mime) {
+            $ext = strtolower(pathinfo($realFile, PATHINFO_EXTENSION));
+            $map = [
+                'pdf'  => 'application/pdf',
+                'png'  => 'image/png',
+                'jpg'  => 'image/jpeg',
+                'jpeg' => 'image/jpeg',
+                'gif'  => 'image/gif',
+                'webp' => 'image/webp',
+                'doc'  => 'application/msword',
+                'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'xls'  => 'application/vnd.ms-excel',
+                'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'ppt'  => 'application/vnd.ms-powerpoint',
+                'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                'txt'  => 'text/plain',
+                'csv'  => 'text/csv',
+                'zip'  => 'application/zip',
+            ];
+            $mime = $map[$ext] ?? 'application/octet-stream';
+        }
+
+        $filename = $evento->archivo;
+
+        // Evita corrupción por buffers/compresión
+        if (function_exists('ini_get') && function_exists('ini_set')) {
+            if (ini_get('zlib.output_compression')) {
+                @ini_set('zlib.output_compression', 'Off');
+            }
+        }
+        while (ob_get_level() > 0) {@ob_end_clean();}
+
+        $headers = [
+            'Content-Type'              => $mime, // 👈 MIME real
+                                                  // Compatibilidad con nombres UTF-8
+            'Content-Disposition'       => 'attachment; filename="' . addslashes($filename) . '"' .
+            "; filename*=UTF-8''" . rawurlencode($filename),
+            'Content-Transfer-Encoding' => 'binary',
+            'X-Accel-Buffering'         => 'no',
+            'Cache-Control'             => 'private, max-age=0, no-cache, no-store, must-revalidate',
+            'Pragma'                    => 'no-cache',
+            'Expires'                   => '0',
+            'Content-Length'            => (string) filesize($realFile),
+            'X-Content-Type-Options'    => 'nosniff',
+        ];
+
+        @set_time_limit(0);
+
+        return Response::stream(function () use ($realFile) {
+            $h = fopen($realFile, 'rb');
+            if ($h === false) {
+                return;
+            }
+
+            while (! feof($h)) {
+                echo fread($h, 8192);
+                @ob_flush(); flush();
+            }
+            fclose($h);
+        }, 200, $headers);
     }
 
 }
