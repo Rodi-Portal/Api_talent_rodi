@@ -476,10 +476,10 @@ class WhatsAppController extends Controller
             $apiVersion    = 'v22.0';
 
             // Validaciones de config
-            if (empty($token) ) {
+            if (empty($token)) {
                 Log::error('[WA][{rid}] Falta configuración', [
-                    'rid'                 => $rid,
-                    'has_token'           => ! empty($token),
+                    'rid'       => $rid,
+                    'has_token' => ! empty($token),
                 ]);
                 return response()->json([
                     'status'  => 'error',
@@ -572,6 +572,331 @@ class WhatsAppController extends Controller
         } catch (\Throwable $e) {
             Log::error('[WA][{rid}] Excepción no controlada', [
                 'rid'       => $rid,
+                'exception' => get_class($e),
+                'message'   => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Ha ocurrido un error inesperado',
+                'rid'     => $rid,
+            ], 500);
+        }
+    }
+    public function sendMessage_notificacion_exempleados(Request $request)
+    {
+        $rid = (string) Str::uuid();
+
+        try {
+            $validated = $request->validate([
+                'phone'    => 'required|string',
+                'portal'   => 'required|string',
+                'modulo'   => 'required|string',
+                'sucursal' => 'required|string',
+            ]);
+
+            $token         = config('services.facebook.access_token');
+            $phoneNumberId = config('services.facebook.phone_number_id');
+            $apiVersion    = 'v22.0';
+
+            if (empty($token) || empty($phoneNumberId)) {
+                Log::error("[WA][{$rid}] Falta configuración");
+                return response()->json(['error' => 'Falta configuración de WhatsApp'], 500);
+            }
+
+            // Plantilla en inglés
+            $template = 'notificacion_exempleados_v2';
+
+            $payload = [
+                'messaging_product' => 'whatsapp',
+                'to'                => $validated['phone'],
+                'type'              => 'template',
+                'template'          => [
+                    'name'       => $template,
+                    'language'   => ['code' => 'es_MX'],
+                    'components' => [
+                        [
+                            'type'       => 'header',
+                            'parameters' => [
+                                ['type' => 'text', 'text' => $validated['portal']], // {{1}}
+                            ],
+                        ],
+                        [
+                            'type'       => 'body',
+                            'parameters' => [
+                                ['type' => 'text', 'text' => $validated['modulo']],   // {{2}}
+                                ['type' => 'text', 'text' => $validated['sucursal']], // {{3}}
+                            ],
+                        ],
+                    ],
+                ],
+            ];
+
+            $url = "https://graph.facebook.com/{$apiVersion}/{$phoneNumberId}/messages";
+
+            Log::info("[WA][{$rid}] Enviando plantilla {$template}", [
+                'url'   => $url,
+                'phone' => $validated['phone'],
+                'body'  => $payload,
+            ]);
+
+            $response = Http::timeout(20)
+                ->retry(2, 500)
+                ->withToken($token)
+                ->acceptJson()
+                ->post($url, $payload);
+
+            if ($response->successful()) {
+                Log::info("[WA][{$rid}] Envío exitoso", ['status' => $response->status()]);
+                return response()->json(['status' => 'success', 'rid' => $rid]);
+            }
+
+            $error = $response->json('error') ?? $response->body();
+            Log::error("[WA][{$rid}] Error", ['error' => $error]);
+            return response()->json(['status' => 'error', 'error' => $error], $response->status());
+
+        } catch (Throwable $e) {
+            Log::error("[WA][{$rid}] Excepción", ['msg' => $e->getMessage()]);
+            return response()->json(['status' => 'error', 'msg' => $e->getMessage()], 500);
+        }
+    }
+
+    public function sendMessage_recordatorio_portal(Request $request)
+    {
+        $rid = (string) Str::uuid();
+
+        try {
+            $validated = $request->validate([
+                'phone'        => 'required|string',
+                'template'     => 'required|string',
+                'portal'       => 'required|string', // ⬅ header variable
+                'cliente'      => 'required|string',
+                'recordatorio' => 'required|string',
+                'mensaje'      => 'required|string',
+                'fecha'        => 'required|string',
+                'language'     => 'sometimes|string',
+            ]);
+
+            $token         = config('services.facebook.access_token');
+            $phoneNumberId = config('services.facebook.phone_number_id');
+            $apiVersion    = 'v22.0';
+
+            if (empty($token) || empty($phoneNumberId)) {
+                Log::error("[WA][{$rid}] Falta configuración", [
+                    'has_token'           => ! empty($token),
+                    'has_phone_number_id' => ! empty($phoneNumberId),
+                ]);
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => 'Configuración de WhatsApp incompleta (token o phone_number_id).',
+                    'rid'     => $rid,
+                ], 500);
+            }
+
+            // Normaliza todos los parámetros para que nunca estén vacíos
+            $portal       = trim($validated['portal']) ?: 'TalentSafe';
+            $cliente      = trim($validated['cliente']) ?: 'Sucursal';
+            $recordatorio = trim($validated['recordatorio']) ?: 'Recordatorio';
+            $mensaje      = trim($validated['mensaje']) ?: 'Sin detalle';
+            $fecha        = trim($validated['fecha']) ?: date('d/m/Y');
+
+            $payload = [
+                'messaging_product' => 'whatsapp',
+                'to'                => $validated['phone'],
+                'type'              => 'template',
+                'template'          => [
+                    'name'       => 'notificacion_recordatorios_v2',
+                    'language'   => ['code' => 'es_MX'],
+                    'components' => [
+                        [
+                            'type'       => 'header',
+                            'parameters' => [
+                                ['type' => 'text', 'text' => $portal], // {{1}} portal
+                            ],
+                        ],
+                        [
+                            'type'       => 'body',
+                            'parameters' => [
+                                ['type' => 'text', 'text' => $cliente],      // {{2}} cliente
+                                ['type' => 'text', 'text' => $recordatorio], // {{3}} recordatorio
+                                ['type' => 'text', 'text' => $mensaje],      // {{4}} mensaje
+                                ['type' => 'text', 'text' => $fecha],        // {{5}} fecha
+                            ],
+                        ],
+                    ],
+                ],
+            ];
+            Log::channel('daily')->info("[WA][{$rid}] Payload final a Meta:", [
+                'url' => "https://graph.facebook.com/{$apiVersion}/{$phoneNumberId}/messages",
+                'payload' => $payload,
+            ]);
+            // Loguea payload final antes de enviar
+            Log::info("[WA][{$rid}] Enviando plantilla de recordatorio", [
+                'phone'    => $validated['phone'],
+                'template' => $validated['template'],
+                'payload'  => $payload,
+            ]);
+
+            $response = Http::timeout(20)->retry(1, 500)
+                ->withToken($token)
+                ->acceptJson()
+                ->post("https://graph.facebook.com/{$apiVersion}/{$phoneNumberId}/messages", $payload);
+
+            Log::info("[WA][{$rid}] Respuesta Graph", [
+                'status' => $response->status(),
+                'ok'     => $response->successful(),
+                'body'   => $response->json() ?? $response->body(),
+            ]);
+
+            if ($response->successful()) {
+                return response()->json(['status' => 'success', 'data' => $response->json(), 'rid' => $rid]);
+            }
+
+            return response()->json([
+                'status'  => 'error',
+                'message' => $response->json('error') ?? ['status' => $response->status(), 'body' => $response->body()],
+                'rid'     => $rid,
+            ], $response->status());
+
+        } catch (ValidationException $e) {
+            Log::warning("[WA][{$rid}] Validación fallida", ['errors' => $e->errors()]);
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Datos de entrada inválidos',
+                'errors'  => $e->errors(),
+                'rid'     => $rid,
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::error("[WA][{$rid}] Excepción no controlada", [
+                'exception' => get_class($e),
+                'message'   => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+            return response()->json(['status' => 'error', 'message' => 'Ha ocurrido un error inesperado', 'rid' => $rid], 500);
+        }
+    }
+
+    public function sendMessage_recordatorio_portal1(Request $request)
+    {
+        $rid = (string) Str::uuid();
+        Log::info("[WA][{$rid}] Request recibido", [
+            'input_raw' => $request->all(),
+        ]);
+
+        try {
+            // ✅ Validación
+            $validated = $request->validate([
+                'phone'        => 'required|string',
+                'template'     => 'required|string',
+                'portal'       => 'required|string', // HEADER variable
+                'cliente'      => 'required|string',
+                'recordatorio' => 'required|string',
+                'mensaje'      => 'required|string',
+                'fecha'        => 'required|string',
+                'language'     => 'sometimes|string',
+            ]);
+
+            Log::info("[WA][{$rid}] Datos validados", $validated);
+
+            $token         = config('services.facebook.access_token');
+            $phoneNumberId = config('services.facebook.phone_number_id');
+            $apiVersion    = 'v22.0';
+            $lang          = $request->input('language', 'es_MX');
+
+            if (empty($token) || empty($phoneNumberId)) {
+                Log::error("[WA][{$rid}] Falta configuración de WhatsApp", [
+                    'has_token'           => ! empty($token),
+                    'has_phone_number_id' => ! empty($phoneNumberId),
+                ]);
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => 'Configuración de WhatsApp incompleta (token o phone_number_id).',
+                    'rid'     => $rid,
+                ], 500);
+            }
+
+            $url = "https://graph.facebook.com/{$apiVersion}/{$phoneNumberId}/messages";
+
+            // ✅ Construcción del payload
+            $payload = [
+                'messaging_product' => 'whatsapp',
+                'to'                => $validated['phone'],
+                'type'              => 'template',
+                'template'          => [
+                    'name'       => $validated['template'],
+                    'language'   => ['code' => $lang],
+                    'components' => [
+                        [
+                            'type'       => 'header',
+                            'parameters' => [
+                                ['type' => 'text', 'text' => $validated['portal']],
+                            ],
+                        ],
+                        [
+                            'type'       => 'body',
+                            'parameters' => [
+                                ['type' => 'text', 'text' => $validated['cliente']],
+                                ['type' => 'text', 'text' => $validated['recordatorio']],
+                                ['type' => 'text', 'text' => $validated['mensaje']],
+                                ['type' => 'text', 'text' => $validated['fecha']],
+                            ],
+                        ],
+                    ],
+                ],
+            ];
+
+            Log::info("[WA][{$rid}] Payload preparado para enviar a WhatsApp", [
+                'url'     => $url,
+                'payload' => $payload,
+            ]);
+
+            // ✅ Envío HTTP a la API de WhatsApp
+            $response = Http::timeout(20)
+                ->retry(1, 500)
+                ->withToken($token)
+                ->acceptJson()
+                ->post($url, $payload);
+
+            // ✅ Registro detallado de la respuesta HTTP
+            Log::info("[WA][{$rid}] Respuesta de Graph API", [
+                'status'    => $response->status(),
+                'ok'        => $response->successful(),
+                'reason'    => $response->reason(),
+                'headers'   => $response->headers(),
+                'body_raw'  => $response->body(),
+                'body_json' => $response->json(),
+            ]);
+
+            if ($response->successful()) {
+                return response()->json([
+                    'status' => 'success',
+                    'data'   => $response->json(),
+                    'rid'    => $rid,
+                ]);
+            }
+
+            return response()->json([
+                'status'  => 'error',
+                'message' => $response->json('error') ?? [
+                    'status' => $response->status(),
+                    'body'   => $response->body(),
+                ],
+                'rid'     => $rid,
+            ], $response->status());
+
+        } catch (ValidationException $e) {
+            Log::warning("[WA][{$rid}] Validación fallida", [
+                'errors' => $e->errors(),
+            ]);
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Datos de entrada inválidos',
+                'errors'  => $e->errors(),
+                'rid'     => $rid,
+            ], 422);
+
+        } catch (\Throwable $e) {
+            Log::error("[WA][{$rid}] Excepción no controlada", [
                 'exception' => get_class($e),
                 'message'   => $e->getMessage(),
                 'trace'     => $e->getTraceAsString(),
