@@ -303,8 +303,10 @@ Route::middleware(['api'])->group(function () {
     //***************  Fin Permision ****************/
 
     Route::post('/send-notification', [WhatsAppController::class, 'sendMessage_notificacion_talentsafe']);
+        Route::post('/send-notification-ex', [WhatsAppController::class, 'sendMessage_notificacion_exempleados']);
 
-});
+    Route::post('/send-notification-recordatorio', [WhatsAppController::class, 'sendMessage_recordatorio_portal']);
+  });
 
 /*notificaciones  via  whatsapp modulo empleados*/
 
