@@ -316,20 +316,18 @@ class LaboralesController extends Controller
         }
 
         $idClientes = array_filter(array_map('intval', explode(',', $idClienteStr)));
+        $cn         = DB::connection('portal_main');
 
-        $cn = DB::connection('portal_main');
-
-        // Subquery seguro
+        /**
+         * 🔑 SUBQUERY:
+         * - Con periodo: prenómina de ese periodo
+         * - Sin periodo: subquery “vacía” (para forzar traer TODO de laborales)
+         */
         if ($idPeriodo) {
             $sub = $cn->table('pre_nomina_empleados')->where('id_periodo_nomina', $idPeriodo);
         } else {
-            $sub = $cn->table('pre_nomina_empleados as p1')
-                ->select('p1.*')
-                ->join($cn->raw('(SELECT id_empleado, MAX(id) AS max_id FROM pre_nomina_empleados GROUP BY id_empleado) p2'),
-                    function ($j) {
-                        $j->on('p1.id_empleado', '=', 'p2.id_empleado')
-                            ->on('p1.id', '=', 'p2.max_id');
-                    });
+            // Fuerza que no haya match y por tanto todo vaya a laborales (sin arrastrar última prenómina)
+            $sub = $cn->table('pre_nomina_empleados')->whereRaw('1=0');
         }
 
         $q = $cn->table('empleados as e')
@@ -347,12 +345,19 @@ class LaboralesController extends Controller
             $q->where('l.periodicidad_pago', $periodicidad);
         }
 
+        /**
+         * 🧠 Reglas:
+         * - Sueldos base: COALESCE(p, cálculo por periodicidad desde laborales)
+         * - Tarifas (pagos/desc): COALESCE(p, laborales)
+         * - Contadores y montos variables (horas/días/aguinaldo/…): COALESCE(p, 0)
+         * - JSONs: se decodifican abajo (si vienen null, quedan como [])
+         */
         $rows = $q->select([
             'e.id',
             'e.id_empleado',
             $cn->raw("CONCAT_WS(' ', e.nombre, e.paterno, e.materno) AS nombre_completo"),
 
-            // Info laboral útil para defaults/tarifas
+            // Laborales útiles (referencia)
             'l.horas_dia',
             'l.vacaciones_disponibles',
             'l.periodicidad_pago',
@@ -364,76 +369,69 @@ class LaboralesController extends Controller
             'l.pago_dia_festivo_a as tarifa_dia_festivo_a',
             'l.descuento_ausencia  as tarifa_desc_ausencia',
             'l.descuento_ausencia_a as tarifa_desc_ausencia_a',
+            'l.dias_aguinaldo',
+            'l.prima_vacacional',
 
-            // Sueldos calculados o guardados
+            // Sueldo base / asimilado
             $cn->raw('COALESCE(p.sueldo_base,
-                CASE l.periodicidad_pago
-                    WHEN "02" THEN l.sueldo_diario*7
-                    WHEN "03" THEN l.sueldo_diario*15
-                    WHEN "04" THEN l.sueldo_diario*30
-                    WHEN "05" THEN l.sueldo_diario*60
-                    ELSE l.sueldo_diario
-                END
-            ) AS sueldo_base'),
+            CASE l.periodicidad_pago
+                WHEN "02" THEN l.sueldo_diario*7
+                WHEN "03" THEN l.sueldo_diario*15
+                WHEN "04" THEN l.sueldo_diario*30
+                WHEN "05" THEN l.sueldo_diario*60
+                ELSE l.sueldo_diario
+            END
+        ) AS sueldo_base'),
 
             $cn->raw('COALESCE(p.sueldo_asimilado,
-                CASE l.periodicidad_pago
-                    WHEN "02" THEN l.sueldo_asimilado*7
-                    WHEN "03" THEN l.sueldo_asimilado*15
-                    WHEN "04" THEN l.sueldo_asimilado*30
-                    WHEN "05" THEN l.sueldo_asimilado*60
-                    ELSE l.sueldo_asimilado
-                END
-            ) AS sueldo_asimilado'),
+            CASE l.periodicidad_pago
+                WHEN "02" THEN l.sueldo_asimilado*7
+                WHEN "03" THEN l.sueldo_asimilado*15
+                WHEN "04" THEN l.sueldo_asimilado*30
+                WHEN "05" THEN l.sueldo_asimilado*60
+                ELSE l.sueldo_asimilado
+            END
+        ) AS sueldo_asimilado'),
 
-            // Campos guardados en prenómina (alias a nombres de UI)
-            'p.horas_extras                 as horas_extras',
-            'p.pago_horas_extra             as pago_hora_extra',
-            'p.pago_horas_extra_a           as pago_hora_extra_a',
+            // Tarifas (prioriza periodo; si no hay, laborales)
+            $cn->raw('COALESCE(p.pago_horas_extra,     l.pago_hora_extra)    AS pago_hora_extra'),
+            $cn->raw('COALESCE(p.pago_horas_extra_a,   l.pago_hora_extra_a)  AS pago_hora_extra_a'),
+            $cn->raw('COALESCE(p.pago_dias_festivos,   l.pago_dia_festivo)   AS pago_dia_festivo'),
+            $cn->raw('COALESCE(p.pago_dias_festivos_a, l.pago_dia_festivo_a) AS pago_dia_festivo_a'),
+            $cn->raw('COALESCE(p.descuento_ausencias,   l.descuento_ausencia)   AS descuento_ausencias'),
+            $cn->raw('COALESCE(p.descuento_ausencias_a, l.descuento_ausencia_a) AS descuento_ausencias_a'),
+            $cn->raw('COALESCE(p.prima_vacacional, l.prima_vacacional) AS prima_vacacional'),
 
-            'p.dias_festivos                as dias_festivos',
-            'p.pago_dias_festivos           as pago_dia_festivo',
-            'p.pago_dias_festivos_a         as pago_dia_festivo_a',
+            // Contadores / montos variables (prioriza periodo; si no hay, 0)
+            $cn->raw('COALESCE(p.horas_extras,    0) AS horas_extras'),
+            $cn->raw('COALESCE(p.dias_festivos,   0) AS dias_festivos'),
+            $cn->raw('COALESCE(p.dias_ausencia,   0) AS dias_ausencia'),
+            $cn->raw('COALESCE(p.dias_vacaciones, 0) AS vacaciones'),
 
-            'p.dias_ausencia                as dias_ausencia',
-            'p.descuento_ausencias          as descuento_ausencias',
-            'p.descuento_ausencias_a        as descuento_ausencias_a',
+            $cn->raw('COALESCE(p.pago_vacaciones,   0) AS pago_vacaciones'),
+            $cn->raw('COALESCE(p.pago_vacaciones_a, 0) AS pago_vacaciones_a'),
 
-                                                                 // Si tu UI usa 'vacaciones' en vez de 'dias_vacaciones', cambia el alias:
-            'p.dias_vacaciones              as vacaciones', // <-- cámbialo a "vacaciones" si es necesario
-            'p.pago_vacaciones              as pago_vacaciones',
-            'p.pago_vacaciones_a            as pago_vacaciones_a',
-            'p.prima_vacacional             as prima_vacacional',
+            $cn->raw('COALESCE(p.aguinaldo,   0) AS aguinaldo'),
+            $cn->raw('COALESCE(p.aguinaldo_a, 0) AS aguinaldo_a'),
 
-            'p.prestamos                    as prestamo', // <-- aquí el singular para la UI
+            $cn->raw('COALESCE(p.prestamos,   0) AS prestamo'),
 
-            'p.aguinaldo                    as aguinaldo',
-            'p.aguinaldo_a                  as aguinaldo_a',
-
+            // JSONs
             'p.prestaciones_extra',
             'p.deducciones_extra',
             'p.prestaciones_extra_a',
             'p.deducciones_extra_a',
 
-            $cn->raw('COALESCE(p.sueldo_total,0)  as sueldo_total'),
-            $cn->raw('COALESCE(p.sueldo_total_a,0) as sueldo_total_a'),
-            $cn->raw('COALESCE(p.sueldo_total_t, COALESCE(p.sueldo_total,0)+COALESCE(p.sueldo_total_a,0)) as sueldo_total_t'),
+            // Totales (si no hay, 0)
+            $cn->raw('COALESCE(p.sueldo_total,0)   AS sueldo_total'),
+            $cn->raw('COALESCE(p.sueldo_total_a,0) AS sueldo_total_a'),
+            $cn->raw('COALESCE(p.sueldo_total_t,
+                  COALESCE(p.sueldo_total,0)+COALESCE(p.sueldo_total_a,0)) AS sueldo_total_t'),
 
             'c.nombre as nombre_cliente',
-        ])
-            ->get();
+        ])->get();
 
-        // Log: cuántos y primera fila
-        if ($rows->count()) {
-            $first = (array) $rows->first();
-            Log::info('empleadosMasivoPrenomina', [
-                'count'      => $rows->count(),
-                'first_keys' => array_keys($first),
-                'first_row'  => $first,
-            ]);
-        }
-
-        // Decodificar JSONs
+        // Decodificar JSONs con seguridad
         $rows = collect($rows)->map(function ($e) {
             foreach (['prestaciones_extra', 'deducciones_extra', 'prestaciones_extra_a', 'deducciones_extra_a'] as $k) {
                 $v     = $e->$k ?? '[]';
@@ -445,6 +443,148 @@ class LaboralesController extends Controller
         return response()->json($rows);
     }
 
+/**  traer prenomina   anterior
+public function empleadosMasivoPrenomina(Request $request)
+{
+$idPortal     = (int) $request->input('id_portal');
+$idPeriodo    = $request->filled('id_periodo') ? (int) $request->input('id_periodo') : null;
+$idClienteStr = (string) $request->input('id_cliente');
+$periodicidad = $request->input('periodicidad_pago');
+
+if (! $idClienteStr || ! $idPortal) {
+return response()->json(['message' => 'Faltan parámetros.'], 400);
+}
+
+$idClientes = array_filter(array_map('intval', explode(',', $idClienteStr)));
+
+$cn = DB::connection('portal_main');
+
+// Subquery seguro
+if ($idPeriodo) {
+$sub = $cn->table('pre_nomina_empleados')->where('id_periodo_nomina', $idPeriodo);
+} else {
+$sub = $cn->table('pre_nomina_empleados as p1')
+->select('p1.*')
+->join($cn->raw('(SELECT id_empleado, MAX(id) AS max_id FROM pre_nomina_empleados GROUP BY id_empleado) p2'),
+function ($j) {
+$j->on('p1.id_empleado', '=', 'p2.id_empleado')
+->on('p1.id', '=', 'p2.max_id');
+});
+}
+
+$q = $cn->table('empleados as e')
+->join('laborales_empleado as l', 'l.id_empleado', '=', 'e.id')
+->join('cliente as c', 'c.id', '=', 'e.id_cliente')
+->leftJoinSub($sub, 'p', function ($join) {
+$join->on('p.id_empleado', '=', 'e.id');
+})
+->where('e.status', 1)
+->where('e.eliminado', 0)
+->whereIn('e.id_cliente', $idClientes)
+->where('e.id_portal', $idPortal);
+
+if ($periodicidad) {
+$q->where('l.periodicidad_pago', $periodicidad);
+}
+
+$rows = $q->select([
+'e.id',
+'e.id_empleado',
+$cn->raw("CONCAT_WS(' ', e.nombre, e.paterno, e.materno) AS nombre_completo"),
+
+// Info laboral útil para defaults/tarifas
+'l.horas_dia',
+'l.vacaciones_disponibles',
+'l.periodicidad_pago',
+'l.sueldo_diario',
+'l.sueldo_asimilado as sueldo_asimilado_diario',
+'l.pago_hora_extra  as tarifa_hora_extra',
+'l.pago_hora_extra_a as tarifa_hora_extra_a',
+'l.pago_dia_festivo as tarifa_dia_festivo',
+'l.pago_dia_festivo_a as tarifa_dia_festivo_a',
+'l.descuento_ausencia  as tarifa_desc_ausencia',
+'l.descuento_ausencia_a as tarifa_desc_ausencia_a',
+
+// Sueldos calculados o guardados
+$cn->raw('COALESCE(p.sueldo_base,
+CASE l.periodicidad_pago
+WHEN "02" THEN l.sueldo_diario*7
+WHEN "03" THEN l.sueldo_diario*15
+WHEN "04" THEN l.sueldo_diario*30
+WHEN "05" THEN l.sueldo_diario*60
+ELSE l.sueldo_diario
+END
+) AS sueldo_base'),
+
+$cn->raw('COALESCE(p.sueldo_asimilado,
+CASE l.periodicidad_pago
+WHEN "02" THEN l.sueldo_asimilado*7
+WHEN "03" THEN l.sueldo_asimilado*15
+WHEN "04" THEN l.sueldo_asimilado*30
+WHEN "05" THEN l.sueldo_asimilado*60
+ELSE l.sueldo_asimilado
+END
+) AS sueldo_asimilado'),
+
+// Campos guardados en prenómina (alias a nombres de UI)
+'p.horas_extras                 as horas_extras',
+'p.pago_horas_extra             as pago_hora_extra',
+'p.pago_horas_extra_a           as pago_hora_extra_a',
+
+'p.dias_festivos                as dias_festivos',
+'p.pago_dias_festivos           as pago_dia_festivo',
+'p.pago_dias_festivos_a         as pago_dia_festivo_a',
+
+'p.dias_ausencia                as dias_ausencia',
+'p.descuento_ausencias          as descuento_ausencias',
+'p.descuento_ausencias_a        as descuento_ausencias_a',
+
+// Si tu UI usa 'vacaciones' en vez de 'dias_vacaciones', cambia el alias:
+'p.dias_vacaciones              as vacaciones', // <-- cámbialo a "vacaciones" si es necesario
+'p.pago_vacaciones              as pago_vacaciones',
+'p.pago_vacaciones_a            as pago_vacaciones_a',
+'p.prima_vacacional             as prima_vacacional',
+
+'p.prestamos                    as prestamo', // <-- aquí el singular para la UI
+
+'p.aguinaldo                    as aguinaldo',
+'p.aguinaldo_a                  as aguinaldo_a',
+
+'p.prestaciones_extra',
+'p.deducciones_extra',
+'p.prestaciones_extra_a',
+'p.deducciones_extra_a',
+
+$cn->raw('COALESCE(p.sueldo_total,0)  as sueldo_total'),
+$cn->raw('COALESCE(p.sueldo_total_a,0) as sueldo_total_a'),
+$cn->raw('COALESCE(p.sueldo_total_t, COALESCE(p.sueldo_total,0)+COALESCE(p.sueldo_total_a,0)) as sueldo_total_t'),
+
+'c.nombre as nombre_cliente',
+])
+->get();
+
+// Log: cuántos y primera fila
+if ($rows->count()) {
+$first = (array) $rows->first();
+Log::info('empleadosMasivoPrenomina', [
+'count'      => $rows->count(),
+'first_keys' => array_keys($first),
+'first_row'  => $first,
+]);
+}
+
+// Decodificar JSONs
+$rows = collect($rows)->map(function ($e) {
+foreach (['prestaciones_extra', 'deducciones_extra', 'prestaciones_extra_a', 'deducciones_extra_a'] as $k) {
+$v     = $e->$k ?? '[]';
+$e->$k = is_string($v) ? (json_decode($v, true) ?: []): (is_array($v) ? $v : []);
+}
+return $e;
+})->values();
+
+return response()->json($rows);
+}
+ */
     // use Illuminate\Http\Request;
     // use Illuminate\Support\Facades\{Log, DB, Validator};
     // use App\Models\{PreNominaEmpleado, LaboralesEmpleado};

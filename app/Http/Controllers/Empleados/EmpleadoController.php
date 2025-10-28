@@ -3,7 +3,6 @@ namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller; // Asegúrate de tener esta línea arriba para utilizar Log
 
-use App\Models\ComentarioFormerEmpleado;
 use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\DomicilioEmpleado;
@@ -18,7 +17,6 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\Log;
 
 class EmpleadoController extends Controller
 {
@@ -47,8 +45,16 @@ class EmpleadoController extends Controller
         if ($status == 2) {
 
             foreach ($empleados as $empleado) {
-                // Obtener el campo 'creacion' de ComentarioFormerEmpleado
-                $comentario = ComentarioFormerEmpleado::where('id', $empleado->id)->first(['creacion']);
+                                                                                      // Obtener el campo 'creacion' de ComentarioFormerEmpleado
+                $comentario = \App\Models\ComentarioFormerEmpleado::on('portal_main') // fuerza la conexión del modelo
+                    ->where('id_empleado', $empleado->id)
+                    ->whereNotNull('fecha_salida_reingreso')
+                    ->whereRaw("TRIM(fecha_salida_reingreso) <> ''")
+                    ->where('fecha_salida_reingreso', '!=', '0000-00-00')
+                // si lo que te interesa es la última FECHA de salida/reingreso, ordena por esa columna:
+                    ->orderByDesc('fecha_salida_reingreso')
+                // alternativamente, si quieres el último registro creado usa ->orderByDesc('id') o ->latest('creacion')
+                    ->first(['id', 'creacion', 'titulo', 'comentario', 'fecha_salida_reingreso']);
 
                 // Log de lo que trae el comentario
                 //Log::info('Comentario para empleado ' . $empleado->id . ': ', ['comentario' => $comentario]);
@@ -80,7 +86,7 @@ class EmpleadoController extends Controller
                     }
                 }
                 // Agregar el campo 'fecha_salida' si existe
-                $empleadoArray['fecha_salida']    = $comentario ? $comentario->creacion : null;
+                $empleadoArray['fecha_salida']    = $comentario ? $comentario->fecha_salida_reingreso : null;
                 $empleadoArray['statusDocuments'] = $statusDocuments;
 
                 // Log del empleado procesado
@@ -143,10 +149,10 @@ class EmpleadoController extends Controller
             $prioridadB = $controller->obtenerPrioridad($b);
             return $prioridadA <=> $prioridadB;
         });
-       // Log::info("Resultados ordenados:\n" . json_encode($resultados, JSON_PRETTY_PRINT));
+        // Log::info("Resultados ordenados:\n" . json_encode($resultados, JSON_PRETTY_PRINT));
 
-// O también puedes loguear las columnas si quieres
-       // Log::info("Columnas únicas:\n" . json_encode($this->extraerColumnasUnicas($resultados), JSON_PRETTY_PRINT));
+        // O también puedes loguear las columnas si quieres
+        // Log::info("Columnas únicas:\n" . json_encode($this->extraerColumnasUnicas($resultados), JSON_PRETTY_PRINT));
 
         return response()->json([
             'empleados' => $resultados,
@@ -294,6 +300,7 @@ class EmpleadoController extends Controller
         // Ajustamos la diferencia para que sea negativa si la fecha de expiración ya ha pasado
         return $fechaExpiracion < $fechaActual ? -$diferenciaDias : $diferenciaDias;
     }
+    /*
     public function getEmpleadosStatus(Request $request)
     {
         $request->validate([
@@ -405,7 +412,131 @@ class EmpleadoController extends Controller
         //Log::info('Resultados de estados de documentos, cursos y evaluaciones: ' . print_r($resultado, true));
 
         return response()->json($resultado);
+    }*/
+    public function getEmpleadosStatus(Request $request)
+    {
+        $request->validate([
+            'id_portal'  => 'required|integer',
+            'id_cliente' => 'required|integer',
+        ]);
+
+        $status     = $request->input('status'); // puede venir null
+        $id_portal  = (int) $request->input('id_portal');
+        $id_cliente = (int) $request->input('id_cliente');
+
+        $isEx = ((string) $status === '2'); // ex-empleados
+
+        // Carga de empleados según regla dada:
+        $empleados = Empleado::where('id_portal', $id_portal)
+            ->where('id_cliente', $id_cliente)
+            ->where('status', $isEx ? 2 : 1)
+            ->get();
+
+        // Defaults
+        $statusDocuments    = 'verde';
+        $statusCursos       = 'verde';
+        $statusEvaluaciones = 'verde';
+        $estadoDocumentos   = 'verde';
+        $estadoCursos       = 'verde';
+
+        // Si no hay empleados, regresa estados “verde”
+        if ($empleados->isEmpty()) {
+            return response()->json(
+                $isEx
+                    ? ['statusDocuments' => $statusDocuments]
+                    : [
+                    'statusDocuments'    => $statusDocuments,
+                    'statusCursos'       => $statusCursos,
+                    'statusEvaluaciones' => $statusEvaluaciones,
+                    'estadoDocumentos'   => $estadoDocumentos,
+                    'estadoCursos'       => $estadoCursos,
+                ]
+            );
+        }
+
+        if ($isEx) {
+            // === EX-EMPLEADOS ===
+            // Regla: solo documentos “de salida” (status=2). Si hay vencidos, marcar en rojo/amarillo según checkDocumentStatus
+            foreach ($empleados as $empleado) {
+                $documentosSalida = DocumentEmpleado::where('employee_id', $empleado->id)
+                    ->where('status', 2) // documentos de salida
+                                     // ->whereDate('fecha_vencimiento', '<', now()) // <-- si tienes un campo de vencimiento, descomenta/ajusta
+                    ->get();
+
+                $estado = $this->checkDocumentStatus($documentosSalida); // debe devolver rojo/amarillo/verde
+
+                if ($estado === 'rojo') {
+                    $statusDocuments = 'rojo';
+                    break; // peor caso, podemos cortar
+                } elseif ($estado === 'amarillo' && $statusDocuments !== 'rojo') {
+                    $statusDocuments = 'amarillo';
+                }
+            }
+
+            return response()->json([
+                'statusDocuments' => $statusDocuments,
+            ]);
+        }
+
+        // === EMPLEADOS ACTIVOS (status=1) ===
+        foreach ($empleados as $empleado) {
+            $documentos = DocumentEmpleado::where('employee_id', $empleado->id)->get();
+            $cursos     = CursoEmpleado::where('employee_id', $empleado->id)->get();
+
+            // Estados “visibles” por módulo
+            $eDocs  = $this->obtenerEstado($documentos);
+            $eCurso = $this->obtenerEstado($cursos);
+
+            if ($eDocs === 'rojo') {
+                $estadoDocumentos = 'rojo';
+            } elseif ($eDocs === 'amarillo' && $estadoDocumentos !== 'rojo') {
+                $estadoDocumentos = 'amarillo';
+            }
+
+            if ($eCurso === 'rojo') {
+                $estadoCursos = 'rojo';
+            } elseif ($eCurso === 'amarillo' && $estadoCursos !== 'rojo') {
+                $estadoCursos = 'amarillo';
+            }
+
+            // Estados agregados “status*”
+            $sDocs  = $this->checkDocumentStatus($documentos);
+            $sCurso = $this->checkDocumentStatus($cursos);
+
+            if ($sDocs === 'rojo') {
+                $statusDocuments = 'rojo';
+            } elseif ($sDocs === 'amarillo' && $statusDocuments !== 'rojo') {
+                $statusDocuments = 'amarillo';
+            }
+
+            if ($sCurso === 'rojo') {
+                $statusCursos = 'rojo';
+            } elseif ($sCurso === 'amarillo' && $statusCursos !== 'rojo') {
+                $statusCursos = 'amarillo';
+            }
+        }
+
+        // Evaluaciones a nivel portal/cliente (los ex no llegan aquí)
+        $evaluaciones = Evaluacion::where('id_portal', $id_portal)
+            ->where('id_cliente', $id_cliente)
+            ->get();
+
+        $sEval = $this->checkDocumentStatus($evaluaciones);
+        if ($sEval === 'rojo') {
+            $statusEvaluaciones = 'rojo';
+        } elseif ($sEval === 'amarillo' && $statusEvaluaciones !== 'rojo') {
+            $statusEvaluaciones = 'amarillo';
+        }
+
+        return response()->json([
+            'statusDocuments'    => $statusDocuments,
+            'statusCursos'       => $statusCursos,
+            'statusEvaluaciones' => $statusEvaluaciones,
+            'estadoDocumentos'   => $estadoDocumentos,
+            'estadoCursos'       => $estadoCursos,
+        ]);
     }
+
     public function update(Request $request)
     {
 
@@ -449,6 +580,7 @@ class EmpleadoController extends Controller
                 'curp',
                 'foto',
                 'fecha_nacimiento',
+                'fecha_ingreso',
                 'status',
                 'eliminado',
             ]));
@@ -533,6 +665,8 @@ class EmpleadoController extends Controller
             'id_empleado'                => 'nullable|integer',
             'correo'                     => 'nullable|email',
             'fecha_nacimiento'           => 'nullable|date',
+            'fecha_ingreso'              => 'nullable|date',
+
             'curp'                       => 'nullable|string',
             'rfc'                        => 'nullable|string',
             'nss'                        => 'nullable|string',
@@ -542,7 +676,7 @@ class EmpleadoController extends Controller
             'departamento'               => 'nullable|string',
             'puesto'                     => 'nullable|string',
             'telefono'                   => 'nullable|string',
-
+            'fecha_ingreso'              => 'nullable|date',
             // Validación para domicilio_empleado
             'domicilio_empleado.calle'   => 'nullable|string',
             'domicilio_empleado.num_ext' => 'nullable|string',
@@ -622,6 +756,7 @@ class EmpleadoController extends Controller
                 'materno'               => $validatedData['materno'] ?? null,
                 'departamento'          => $validatedData['departamento'] ?? null,
                 'puesto'                => $validatedData['puesto'] ?? null,
+                'fecha_ingreso'         => $validatedData['fecha_ingreso'] ?? null,
                 'fecha_nacimiento'      => $validatedData['fecha_nacimiento'] ?? null,
                 'telefono'              => $validatedData['telefono'] ?? null,
                 'id_domicilio_empleado' => $domicilio->id, // Asignar el ID del domicilio creado
