@@ -22,7 +22,8 @@ class ComentarioFormerEmpleado extends Model
         'id_empleado', 
         'titulo', 
         'comentario', 
-        'origen'
+        'origen',
+        'fecha_salida_reingreso'
     ];
 
     // Define la relación con el modelo Empleado

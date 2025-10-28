@@ -18,6 +18,8 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
+
 
 class DocumentOptionController extends Controller
 {
@@ -122,14 +124,13 @@ class DocumentOptionController extends Controller
         $opciones  = $request->input('opciones', []); // array de opciones con id y name
 
         Log::info('Guardando opciones', ['tabla' => $tabla, 'id_portal' => $id_portal, 'opciones' => $opciones]);
-    
 
         // Determinar el modelo a utilizar según la tabla
         $model = match ($tabla) {
             '_documentEmpleado' => DocumentOption::class,
-            '_examEmpleado' => ExamOption::class,
-            '_cursos' => CursosOption::class,
-            default => null,
+            '_examEmpleado'     => ExamOption::class,
+            '_cursos'           => CursosOption::class,
+            default             => null,
         };
 
         if (! $model) {
@@ -178,9 +179,9 @@ class DocumentOptionController extends Controller
 
         $model = match ($tabla) {
             '_documentEmpleado' => DocumentOption::class,
-            '_examEmpleado' => ExamOption::class,
-            '_cursos' => CursosOption::class,
-            default => null,
+            '_examEmpleado'     => ExamOption::class,
+            '_cursos'           => CursosOption::class,
+            default             => null,
         };
 
         if (! $model) {
@@ -208,9 +209,9 @@ class DocumentOptionController extends Controller
         // Determinar el modelo a utilizar
         $model = match ($tabla) {
             '_documentEmpleado' => DocumentOption::class,
-            '_examEmpleado' => ExamOption::class,
-            '_cursos' => CursosOption::class,
-            default => null,
+            '_examEmpleado'     => ExamOption::class,
+            '_cursos'           => CursosOption::class,
+            default             => null,
         };
 
         if (! $model) {
@@ -240,8 +241,8 @@ class DocumentOptionController extends Controller
             });
 
             return $filtered->isNotEmpty()
-            ? response()->json($filtered->pluck('id'))
-            : response()->json([], 404);
+                ? response()->json($filtered->pluck('id'))
+                : response()->json([], 404);
         }
 
         // Devolver todos los resultados si no se busca por nombre
@@ -297,7 +298,185 @@ class DocumentOptionController extends Controller
 
         return response()->json(['id_opciones' => $newOption->id], 201);
     }
+ public function store(Request $request)
+{
+    $traceId = (string) Str::ulid();
+    $t0 = microtime(true);
+    Log::withContext(['traceId' => $traceId, 'endpoint' => 'document.store']);
 
+    try {
+        $now = Carbon::now('America/Mexico_City');
+
+        Log::info('⌛ Inicio STORE', [
+            'ip'           => $request->ip(),
+            'user_id'      => optional($request->user())->id,
+            'method'       => $request->method(),
+            'uri'          => $request->path(),
+            'content_type' => $request->header('Content-Type'),
+            'content_len'  => $request->header('Content-Length'),
+            'files_count'  => count($request->files->all()),
+            'upload_max'   => ini_get('upload_max_filesize'),
+            'post_max'     => ini_get('post_max_size'),
+            'tmp_dir'      => sys_get_temp_dir(),
+        ]);
+
+        if ($request->has('file') && $request->input('file') === 'null') {
+            Log::debug("🧼 'file' llegó como string 'null' → se elimina");
+            $request->request->remove('file');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'employee_id'     => 'required|integer',
+            'name'            => 'required|string|max:255',
+            'description'     => 'nullable|string|max:500',
+            'expiry_date'     => 'nullable|date',
+            'expiry_reminder' => 'nullable|integer',
+            'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'id_portal'       => 'required|integer',
+            'status'          => 'required|integer',
+            'carpeta'         => 'nullable|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            Log::warning('⚠️ Validación fallida STORE', ['errors' => $validator->errors()]);
+            return response()->json(['traceId' => $traceId, 'errors' => $validator->errors()], 422);
+        }
+
+        $documentOption = \App\Models\DocumentOption::where(function ($q) use ($request) {
+                $q->where('id_portal', (int)$request->input('id_portal'))->orWhereNull('id_portal');
+            })
+            ->where('name', (string)$request->input('name'))
+            ->first();
+
+        $idOpcion     = $documentOption?->id;
+        $nameDocument = $idOpcion ? null : (string)$request->input('name');
+
+        Log::info('🔎 Opción de documento', [
+            'found'        => (bool)$documentOption,
+            'id_opcion'    => $idOpcion,
+            'nameDocument' => $nameDocument,
+        ]);
+
+        $newFileName = null;
+
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+
+            Log::info('📦 Archivo detectado', [
+                'client_name' => $file->getClientOriginalName(),
+                'ext'         => $file->getClientOriginalExtension(),
+                'size_bytes'  => $file->getSize(),
+                'mime_client' => $file->getClientMimeType(),
+                'mime_detect' => $file->getMimeType(),
+                'tmp_path'    => $file->getPathname(),
+                'is_valid'    => $file->isValid(),
+                'php_error'   => method_exists($file, 'getError') ? $file->getError() : null,
+            ]);
+
+            if (! $file->isValid()) {
+                $err = $file->getError();
+                $map = [
+                    UPLOAD_ERR_INI_SIZE   => 'excede upload_max_filesize',
+                    UPLOAD_ERR_FORM_SIZE  => 'excede MAX_FILE_SIZE',
+                    UPLOAD_ERR_PARTIAL    => 'subida parcial',
+                    UPLOAD_ERR_NO_FILE    => 'sin archivo',
+                    UPLOAD_ERR_NO_TMP_DIR => 'falta tmp_dir',
+                    UPLOAD_ERR_CANT_WRITE => 'no se pudo escribir',
+                    UPLOAD_ERR_EXTENSION  => 'bloqueado por extensión',
+                ];
+                Log::error('❌ Archivo inválido', ['php_error_code' => $err, 'explain' => $map[$err] ?? 'desconocido']);
+                return response()->json(['traceId' => $traceId, 'error' => 'Archivo inválido: '.($map[$err] ?? 'desconocido')], 400);
+            }
+
+            try {
+                $employeeId    = (int)$request->input('employee_id');
+                $randomString  = Str::random(8);
+                $fileExtension = $file->getClientOriginalExtension();
+                $newFileName   = "{$employeeId}_{$randomString}.{$fileExtension}";
+
+                $uploadRequest = new Request();
+                $uploadRequest->files->set('file', $file);
+                $uploadRequest->merge([
+                    'file_name' => $newFileName,
+                    'carpeta'   => (string)$request->input('carpeta', ''),
+                ]);
+
+                $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
+                $status = $uploadResponse->getStatusCode();
+                $resp   = json_decode($uploadResponse->getContent(), true);
+
+                Log::info('↩️ Respuesta de upload()', ['status' => $status, 'body' => $resp]);
+
+                if ($status !== 200) {
+                    Log::error('🚫 upload() falló desde STORE', ['status' => $status, 'resp' => $resp]);
+                    return response()->json(['traceId' => $traceId, 'error' => 'Error al subir el documento', 'detail' => $resp], 500);
+                }
+
+                Log::info('✅ Archivo subido OK', ['new_name' => $newFileName, 'public_url' => $resp['public_url'] ?? null]);
+
+            } catch (\Throwable $e) {
+                Log::error('💥 Excepción subiendo archivo en STORE', [
+                    'msg'  => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ]);
+                return response()->json(['traceId' => $traceId, 'error' => 'Excepción al subir el archivo', 'detail' => $e->getMessage()], 500);
+            }
+        } else {
+            $newFileName = (int)$request->input('employee_id') . '_sin_documento_' . Str::random(6);
+            Log::info('🗂 No se recibió archivo; se asigna nombre genérico', ['new_name' => $newFileName]);
+        }
+
+        try {
+            $documentEmpleado = \App\Models\DocumentEmpleado::create([
+                'creacion'        => $now,
+                'edicion'         => $now,
+                'employee_id'     => (int)$request->input('employee_id'),
+                'name'            => $newFileName,
+                'nameDocument'    => $nameDocument,
+                'id_opcion'       => $idOpcion,
+                'description'     => $request->input('description'),
+                'expiry_date'     => $request->input('expiry_date'),
+                'expiry_reminder' => $request->input('expiry_reminder'),
+                'status'          => (int)$request->input('status', 1),
+            ]);
+            Log::info('📄 Documento creado en BD', ['id' => $documentEmpleado->id]);
+
+        } catch (\Throwable $e) {
+            Log::error('💥 Error al crear documento en BD', [
+                'msg'  => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            return response()->json(['traceId' => $traceId, 'error' => 'Error al guardar el documento', 'detail' => $e->getMessage()], 500);
+        }
+
+        $ms = (int)((microtime(true) - $t0) * 1000);
+        Log::info('✅ Fin STORE', ['dur_ms' => $ms]);
+
+        return response()->json([
+            'traceId'  => $traceId,
+            'message'  => 'Documento agregado exitosamente.',
+            'document' => $documentEmpleado,
+            'dur_ms'   => $ms,
+        ], 201);
+
+    } catch (\Throwable $e) {
+        Log::critical('⚡ Error inesperado STORE', [
+            'msg'  => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+
+        return response()->json([
+            'traceId' => $traceId,
+            'error'   => 'Error inesperado al procesar la solicitud.',
+            'detail'  => $e->getMessage(),
+        ], 500);
+    }
+}
+
+    /*
     public function store(Request $request)
     {
         try {
@@ -319,7 +498,7 @@ class DocumentOptionController extends Controller
                 'description'     => 'nullable|string|max:500',
                 'expiry_date'     => 'nullable|date',
                 'expiry_reminder' => 'nullable|integer',
-                'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120',
+                'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
                 'id_portal'       => 'required|integer',
                 'status'          => 'required|integer',
                 'carpeta'         => 'nullable|string|max:255',
@@ -411,7 +590,7 @@ class DocumentOptionController extends Controller
             return response()->json(['error' => 'Error inesperado al procesar la solicitud.'], 500);
         }
     }
-
+    */
     //  registrar  nuevos  documentos
     /*public function store(Request $request)
     {
@@ -424,7 +603,7 @@ class DocumentOptionController extends Controller
             'description'     => 'nullable|string|max:500',
             'expiry_date'     => 'nullable|date',
             'expiry_reminder' => 'nullable|integer',
-            'file'            => 'required|file|mimes:pdf,application/pdf,application/x-pdf,application/acrobat,application/vnd.pdf,jpg,jpeg,png|max:5120',
+            'file'            => 'required|file|mimes:pdf,application/pdf,application/x-pdf,application/acrobat,application/vnd.pdf,jpg,jpeg,png|max:10240',
 
             'id_portal'       => 'required|integer',
             'status'          => 'required|integer',
@@ -533,7 +712,7 @@ class DocumentOptionController extends Controller
             'description'     => 'nullable|string|max:500',
             'expiry_date'     => 'nullable|date',
             'expiry_reminder' => 'nullable|integer',
-            'file'            => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
+            'file'            => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:10240',
             'id_portal'       => 'required|integer',
             'carpeta'         => 'nullable|string|max:255',
 
@@ -835,8 +1014,8 @@ class DocumentOptionController extends Controller
 
         // Construir path base
         $basePath = env('APP_ENV') === 'local'
-        ? env('LOCAL_IMAGE_PATH')
-        : env('PROD_IMAGE_PATH');
+            ? env('LOCAL_IMAGE_PATH')
+            : env('PROD_IMAGE_PATH');
 
         $fileName = $document->nameDocument ?? null;
 
