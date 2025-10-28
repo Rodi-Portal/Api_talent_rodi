@@ -14,8 +14,8 @@ class CorsMiddleware
 
         // Lista de orígenes permitidos
         $allowedOrigins = [
-            'https://portal.talentsafecontrol.com',
-            'https://rodicontrol.rodi.com.mx',
+            'https://sandbox.talentsafecontrol.com',
+            'https://dev.rodi.com.mx',
             'http://localhost',
             'http://localhost:8080',
             'http://localhost:8000',
