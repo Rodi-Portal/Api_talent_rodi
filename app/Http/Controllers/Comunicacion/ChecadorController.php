@@ -3,33 +3,16 @@ namespace App\Http\Controllers\Comunicacion;
 
 use App\Http\Controllers\Controller;
 use App\Models\Comunicacion\ChecadorMapping;
-use Illuminate\Http\Request; // Modelo Eloquent para checador_mappings
+use App\Services\Asistencia\AsistenciaServicio;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
 
-
-// Para leer XLSX/XLS
-
-/**
- * Controlador de Checador:
- * - Administrar configuraciones de mapeo (listado y guardado)
- * - Importar CSV/XLSX normalizando columnas (id empleado, fecha/hora, tipo, dispositivo)
- *
- * Convenciones:
- *  - id_portal: proviene del front (en tu UI está fijo/solo lectura)
- *  - id_cliente: requerido al importar (no usamos branch_key del archivo)
- *  - config_json: puede venir como {"map": {...}} o directamente {...}. Se toleran ambas.
- */
 class ChecadorController extends Controller
 {
-    /**
-     * GET /checador/mappings?id_portal=1[&id_cliente=70]
-     * Lista las configuraciones de mapeo para un portal (y opcionalmente para una sucursal).
-     */
+    /** ========================= MAPPINGS ========================= */
     public function indexMappings(Request $req)
     {
         $portalId   = (int) ($req->query('id_portal') ?? $req->query('portal_id'));
@@ -44,16 +27,6 @@ class ChecadorController extends Controller
         return response()->json($items);
     }
 
-    /**
-     * POST /checador/mappings
-     * Guarda una configuración de mapeo para un portal (y opcionalmente sucursal).
-     * Espera:
-     * - id_portal (int)
-     * - id_cliente (int|null)
-     * - nombre (string)
-     * - headers_fingerprint (string|null)  // huella simple de headers para reconocimiento
-     * - config_json (array|json)           // puede venir como {"map":{...}} o {...}
-     */
     public function storeMapping(Request $req)
     {
         $data = $req->validate([
@@ -69,8 +42,8 @@ class ChecadorController extends Controller
         }
 
         $row = ChecadorMapping::create([
-            'portal_id'           => (int) $data['id_portal'],    // 👈 ojo
-            'sucursal_id'         => $data['id_cliente'] ?? null, // 👈 ojo
+            'portal_id'           => (int) $data['id_portal'],
+            'sucursal_id'         => $data['id_cliente'] ?? null,
             'nombre'              => $data['nombre'],
             'headers_fingerprint' => $data['headers_fingerprint'] ?? null,
             'config_json'         => $data['config_json'],
@@ -80,22 +53,246 @@ class ChecadorController extends Controller
         return response()->json(['ok' => true, 'id' => $row->id]);
     }
 
-    /**
-     * POST /checador/import
-     * Importa un archivo de checadas, normalizando según la configuración del front.
-     * Requiere:
-     * - id_portal   (int)
-     * - id_cliente (int)     // obligatorio: ya no usamos branch_key del archivo
-     * - file        (csv|txt|xlsx|xls)
-     * - config_json (json)    // puede venir como {"map":{...}} o {...}
-     */
+    /** ========================= IMPORT ========================= */
+    /*
+        public function import(Request $req)
+        {
+            $debug = filter_var($req->input('debug', $req->query('debug', false)), FILTER_VALIDATE_BOOLEAN);
+            $CONN  = 'portal_main';
+
+            // ===== Validación =====
+            $req->validate([
+                'id_portal'   => 'required|integer',
+                'id_cliente'  => 'required|integer',
+                'file'        => 'required|file|mimes:csv,txt,xlsx,xls',
+                'config_json' => 'required',
+            ]);
+
+            $portalId   = (int) $req->input('id_portal');
+            $sucursalId = (int) $req->input('id_cliente');
+            $file       = $req->file('file');
+
+            Log::info('[ChecadorImport] inicio', [
+                'portal'  => $portalId,
+                'cliente' => $sucursalId,
+                'file'    => $file ? $file->getClientOriginalName() : null,
+                'ext'     => $file ? strtolower($file->getClientOriginalExtension()) : null,
+                'size'    => $file ? $file->getSize() : null,
+                'debug'   => $debug,
+            ]);
+
+            // ===== Config =====
+            $cfg = $this->parseConfigFromRequest($req);
+            if (! is_array($cfg) || empty($cfg)) {
+                return response()->json(['ok' => false, 'msg' => 'config_json vacío o inválido'], 422);
+            }
+            $cfg['datetime']                  = $cfg['datetime'] ?? [];
+            $cfg['datetime']['mode']          = $cfg['datetime']['mode'] ?? 'single';
+            $cfg['datetime']['excelBase']     = $cfg['datetime']['excelBase'] ?? '1900';
+            $cfg['datetime']['offsetMinutes'] = (int) ($cfg['datetime']['offsetMinutes'] ?? 0);
+            $cfg['datetime']['format']        = $cfg['datetime']['format'] ?? 'Y-m-d H:i:s';
+            $cfg['datetime']['dateFmt']       = $cfg['datetime']['dateFmt'] ?? 'Y-m-d';
+            $cfg['datetime']['timeFmt']       = $cfg['datetime']['timeFmt'] ?? 'H:i:s';
+
+            Log::info('[ChecadorImport] cfg columnas', [
+                'emp_col'   => $cfg['employee_key']['col'] ?? '',
+                'name_col'  => $cfg['employee_name']['col'] ?? '',
+                'dt_mode'   => $cfg['datetime']['mode'] ?? '',
+                'dt_col'    => $cfg['datetime']['col'] ?? '',
+                'dateCol'   => $cfg['datetime']['dateCol'] ?? '',
+                'timeCol'   => $cfg['datetime']['timeCol'] ?? '',
+                'serialCol' => $cfg['datetime']['serialCol'] ?? '',
+                'excelBase' => $cfg['datetime']['excelBase'] ?? '1900',
+                'type_col'  => $cfg['type']['col'] ?? '',
+            ]);
+
+            // ===== Archivo → filas =====
+            $rows    = $this->readFileToRows($file);
+            $headers = array_keys($rows[0] ?? []);
+            Log::info('[ChecadorImport] archivo leído', ['rows' => count($rows), 'headers' => $headers]);
+            if (! count($rows)) {
+                return response()->json(['ok' => false, 'msg' => 'Archivo vacío o sin encabezados reconocibles'], 422);
+            }
+
+            // ===== Validación previa (muestra) — solo si existe el helper =====
+            if (is_callable([$this, 'validatePreview'])) {
+                $sample                   = array_slice($rows, 0, 50);
+                [$okPreview, $errPreview] = $this->validatePreview($sample, $cfg);
+                if (! $okPreview) {
+                    Log::warning('[ChecadorImport] validatePreview FALLÓ', ['reason' => $errPreview]);
+                    return response()->json(['ok' => false, 'msg' => $errPreview], 422);
+                }
+            } else {
+                Log::warning('[ChecadorImport] validatePreview no existe en el controlador; se omite esta verificación.');
+            }
+
+            // ===== Índices de empleados (por id_empleado y por nombre normalizado) =====
+            // Nota: este helper debe ser el que te pasé (firma: ($conn, $portalId, $sucursalId) => [byKey, byName])
+            [$empByKey, $empByName] = $this->buildEmployeeIndexes($CONN, $portalId, $sucursalId);
+
+            // ===== Bucle principal (UPSERT) =====
+            $insertados   = 0;
+            $actualizados = 0;
+            $errores      = 0;
+            $WHY_MAX      = 120;
+            $why          = [];
+
+            foreach ($rows as $idx => $row) {
+                $norm = $this->normalizeRow($row, $cfg);
+
+                // --- Resolver empleado: por key o por nombre ---
+                $ek    = trim((string) ($norm['employee_key'] ?? ''));
+                $empId = null;
+
+                if ($ek !== '' && isset($empByKey[$ek])) {
+                    $empId = (int) $empByKey[$ek];
+                }
+                if (! $empId && ! empty($cfg['employee_name']['col'])) {
+                    $nombreRaw = (string) ($row[$cfg['employee_name']['col']] ?? '');
+                    if ($nombreRaw !== '') {
+                        $nomKey = $this->normalizeName($nombreRaw); // <- quita acentos y puntuación (incl. ".")
+                        $empId  = isset($empByName[$nomKey]) ? (int) $empByName[$nomKey] : null;
+                    }
+                }
+                if (! $empId) {
+                    $errores++;
+                    if ($debug && count($why) < $WHY_MAX) {
+                        $why[] = ['i' => $idx, 'reason' => 'empleado_no_encontrado', 'ek' => $ek, 'name' => ($row[$cfg['employee_name']['col'] ?? ''] ?? null)];
+                    }
+                    continue;
+                }
+
+                // --- datetime ---
+                $dt = trim((string) ($norm['datetime'] ?? ''));
+                if ($dt === '') {
+                    $errores++;
+                    if ($debug && count($why) < $WHY_MAX) {
+                        $why[] = ['i' => $idx, 'reason' => 'sin_datetime', 'raw_dt' => $this->whyRawDatetime($row, $cfg)];
+                    }
+                    continue;
+                }
+                $fecha = substr($dt, 0, 10);
+
+                // --- tipo/clase tolerante ---
+                $typeCol        = $cfg['type']['col'] ?? '';
+                $typeRaw        = $typeCol ? (string) ($row[$typeCol] ?? '') : ($norm['type_raw'] ?? '');
+                $typeNor        = $this->mapTypeTolerant((string) $typeRaw, $cfg['type']['dict'] ?? []);
+                [$tipo, $clase] = $this->mapTipoYClase($typeNor, $typeRaw);
+
+                // Fallback mínimo porque 'tipo' es NOT NULL en tu tabla
+                if ($tipo === null) {
+                    $needle = $this->normalizeText((string) $typeRaw);
+                    if ($needle !== '') {
+                        if (str_contains($needle, 'entrada') || str_contains($needle, 'in')) {
+                            $tipo = 'in';
+                        } elseif (str_contains($needle, 'salida') || str_contains($needle, 'out')) {
+                            $tipo = 'out';
+                        }
+                    }
+                    if ($tipo === null) {
+                        $tipo = 'in';
+                    }
+
+                    if ($clase === null) {
+                        $clase = 'work';
+                    }
+
+                }
+
+                // --- UPSERT por llave natural (portal+cliente+empleado+check_time) ---
+                $uniq = [
+                    'id_portal'   => $portalId,
+                    'id_cliente'  => $sucursalId,
+                    'id_empleado' => $empId,
+                    'check_time'  => $dt,
+                ];
+
+                try {
+                    $existing = DB::connection($CONN)->table('checadas')->where($uniq)->first();
+
+                    if (! $existing) {
+                        // INSERT NUEVO
+                        DB::connection($CONN)->table('checadas')->insert([
+                            'id_portal'   => $uniq['id_portal'],
+                            'id_cliente'  => $uniq['id_cliente'],
+                            'id_empleado' => $uniq['id_empleado'],
+                            'check_time'  => $uniq['check_time'],
+                            'fecha'       => $fecha,
+                            'tipo'        => $tipo, // NOT NULL
+                            'clase'       => $clase ?? 'work',
+                            'dispositivo' => $norm['device'] ?: null,
+                            'origen'      => $this->originFromFile($file),
+                            'observacion' => null,
+                            'hash'        => sha1($portalId . '|' . $sucursalId . '|' . $empId . '|' . $dt),
+                            'creado_en'   => now(),
+                        ]);
+                        $insertados++;
+                    } else {
+                        // UPDATE EXISTENTE (no pisar con nulls; no usamos 'actualizado_en' pues no existe en la tabla)
+                        $update = [
+                            'fecha'  => $fecha,
+                            'origen' => $this->originFromFile($file),
+                        ];
+                        if (! empty($norm['device'])) {
+                            $update['dispositivo'] = $norm['device'];
+                        }
+
+                        if ($tipo !== null) {
+                            $update['tipo'] = $tipo;
+                        }
+
+                        if ($clase !== null) {
+                            $update['clase'] = $clase;
+                        }
+
+                        DB::connection($CONN)->table('checadas')->where($uniq)->update($update);
+                        $actualizados++;
+                    }
+                } catch (\Throwable $e) {
+                    $errores++;
+                    Log::error('[ChecadorImport] error en UPSERT', [
+                        'i'    => $idx, 'error' => $e->getMessage(),
+                        'uniq' => $uniq, 'dt'   => $dt, 'tipo' => $tipo, 'clase' => $clase,
+                    ]);
+                    if ($debug && count($why) < $WHY_MAX) {
+                        $why[] = ['i' => $idx, 'reason' => 'db_error', 'msg' => $e->getMessage(), 'uniq' => $uniq];
+                    }
+                }
+            }
+
+            Log::info('[ChecadorImport] fin', [
+                'insertados'   => $insertados,
+                'actualizados' => $actualizados,
+                'errores'      => $errores,
+            ]);
+            if ($debug && $why) {
+                Log::debug('[ChecadorImport] detalles de descarte (muestra)', ['why' => array_slice($why, 0, 30)]);
+            }
+
+            // ===== Respuesta =====
+            if ($insertados === 0 && $actualizados === 0) {
+                return response()->json([
+                    'ok'    => false,
+                    'msg'   => 'Nada importado. Revisa ID/nombre de empleado, fecha/hora y tipo.',
+                    'stats' => compact('insertados', 'actualizados', 'errores'),
+                    'why'   => $debug ? array_slice($why, 0, 30) : null,
+                ], 422);
+            }
+
+            return response()->json([
+                'ok'    => true,
+                'msg'   => $errores ? 'Importado con observaciones' : 'Importación completa',
+                'stats' => compact('insertados', 'actualizados', 'errores'),
+                'why'   => $debug ? array_slice($why, 0, 30) : null,
+            ], $errores ? 207 : 200);
+        }
+    */
     public function import(Request $req)
     {
-        // ===== 0) Debug & conexión =====
         $debug = filter_var($req->input('debug', $req->query('debug', false)), FILTER_VALIDATE_BOOLEAN);
-        $CONN  = 'portal_main'; // usa la misma conexión donde viven empleados/checadas
+        $CONN  = 'portal_main';
 
-        // ===== 1) Validación básica =====
+        // ===== Validación =====
         $req->validate([
             'id_portal'   => 'required|integer',
             'id_cliente'  => 'required|integer',
@@ -116,14 +313,11 @@ class ChecadorController extends Controller
             'debug'   => $debug,
         ]);
 
-        // ===== 2) Config =====
+        // ===== Config =====
         $cfg = $this->parseConfigFromRequest($req);
         if (! is_array($cfg) || empty($cfg)) {
-            Log::warning('[ChecadorImport] config_json vacío/invalid');
             return response()->json(['ok' => false, 'msg' => 'config_json vacío o inválido'], 422);
         }
-
-        // Defaults datetime
         $cfg['datetime']                  = $cfg['datetime'] ?? [];
         $cfg['datetime']['mode']          = $cfg['datetime']['mode'] ?? 'single';
         $cfg['datetime']['excelBase']     = $cfg['datetime']['excelBase'] ?? '1900';
@@ -132,265 +326,665 @@ class ChecadorController extends Controller
         $cfg['datetime']['dateFmt']       = $cfg['datetime']['dateFmt'] ?? 'Y-m-d';
         $cfg['datetime']['timeFmt']       = $cfg['datetime']['timeFmt'] ?? 'H:i:s';
 
-        if ($debug) {
-            $cfgLog = $cfg;
-            if (isset($cfgLog['type']['dict']) && is_array($cfgLog['type']['dict'])) {
-                // evitar logs enormes: solo muestra primeras 12 claves del dict
-                $cfgLog['type']['dict'] = array_slice($cfgLog['type']['dict'], 0, 12, true);
-            }
-            Log::debug('[ChecadorImport] config normalizada', $cfgLog);
-        }
+        Log::info('[ChecadorImport] cfg columnas', [
+            'emp_col'   => $cfg['employee_key']['col'] ?? '',
+            'name_col'  => $cfg['employee_name']['col'] ?? '',
+            'dt_mode'   => $cfg['datetime']['mode'] ?? '',
+            'dt_col'    => $cfg['datetime']['col'] ?? '',
+            'dateCol'   => $cfg['datetime']['dateCol'] ?? '',
+            'timeCol'   => $cfg['datetime']['timeCol'] ?? '',
+            'serialCol' => $cfg['datetime']['serialCol'] ?? '',
+            'excelBase' => $cfg['datetime']['excelBase'] ?? '1900',
+            'type_col'  => $cfg['type']['col'] ?? '',
+        ]);
 
-        // ===== 3) Leer archivo =====
+        // ===== Archivo → filas =====
         $rows    = $this->readFileToRows($file);
         $headers = array_keys($rows[0] ?? []);
-        Log::info('[ChecadorImport] archivo leído', [
-            'rows'    => count($rows),
-            'headers' => $headers,
-        ]);
-
-        // ===== 4) Validación rápida con muestra =====
-        $sample                   = array_slice($rows, 0, 20);
-        [$okPreview, $errPreview] = $this->validatePreview($sample, $cfg);
-        if (! $okPreview) {
-            Log::warning('[ChecadorImport] validatePreview FALLÓ', [
-                'reason'      => $errPreview,
-                'sample_rows' => count($sample),
-            ]);
-            return response()->json(['ok' => false, 'msg' => $errPreview], 422);
+        Log::info('[ChecadorImport] archivo leído', ['rows' => count($rows), 'headers' => $headers]);
+        if (! count($rows)) {
+            return response()->json(['ok' => false, 'msg' => 'Archivo vacío o sin encabezados reconocibles'], 422);
         }
-        if ($debug) {
-            // Loguear cómo se ve la normalización de las primeras filas
-            $normPreview = [];
-            foreach ($sample as $i => $r) {
-                $n             = $this->normalizeRow($r, $cfg);
-                $normPreview[] = [
-                    'i'            => $i,
-                    'employee_key' => $n['employee_key'],
-                    'datetime'     => $n['datetime'],
-                    'type'         => $n['type'],
-                    'device'       => $n['device'],
-                ];
+
+        // ===== Validación previa (muestra) — si existe =====
+        if (is_callable([$this, 'validatePreview'])) {
+            $sample                   = array_slice($rows, 0, 50);
+            [$okPreview, $errPreview] = $this->validatePreview($sample, $cfg);
+            if (! $okPreview) {
+                Log::warning('[ChecadorImport] validatePreview FALLÓ', ['reason' => $errPreview]);
+                return response()->json(['ok' => false, 'msg' => $errPreview], 422);
             }
-            Log::debug('[ChecadorImport] preview normalizada', ['rows' => $normPreview]);
+        } else {
+            Log::warning('[ChecadorImport] validatePreview no existe; se omite.');
         }
 
-        // ===== 5) Insertar normalizado =====
-        $insertados = 0;
-        $duplicados = 0;
-        $errores    = 0;
+        // ===== Índices de empleados (por id_empleado "usuario" y por nombre normalizado) =====
+        // Deben mapear al PK REAL empleados.id
+        [$empByKey, $empByName] = $this->buildEmployeeIndexes($CONN, $portalId, $sucursalId);
 
-        // Para diagnosticar: guarda razones de descarte (limitado)
-        $WHY_MAX = 80;
-        $why     = [];
+        // ===== Bucle principal (UPSERT) =====
+        $insertados   = 0;
+        $actualizados = 0;
+        $errores      = 0;
+        $WHY_MAX      = 120;
+        $why          = [];
+
+        // Grupos tocados (empId => [fecha => true]) y fechas del archivo
+        $touched     = [];
+        $datesInFile = []; // set de 'Y-m-d'
 
         foreach ($rows as $idx => $row) {
-            $norm = $this->normalizeRow($row, $cfg); // employee_key, datetime, type, type_raw, device
+            $norm = $this->normalizeRow($row, $cfg);
 
-            if (! $norm['employee_key']) {
+            // --- Resolver empleado ---
+            $ek    = trim((string) ($norm['employee_key'] ?? ''));
+            $empId = null;
+
+            if ($ek !== '' && isset($empByKey[$ek])) {
+                $empId = (int) $empByKey[$ek]; // PK real: empleados.id
+            }
+            if (! $empId && ! empty($cfg['employee_name']['col'])) {
+                $nombreRaw = (string) ($row[$cfg['employee_name']['col']] ?? '');
+                if ($nombreRaw !== '') {
+                    $nomKey = $this->normalizeName($nombreRaw);
+                    $empId  = isset($empByName[$nomKey]) ? (int) $empByName[$nomKey] : null;
+                }
+            }
+            if (! $empId) {
                 $errores++;
                 if ($debug && count($why) < $WHY_MAX) {
-                    $why[] = ['i' => $idx, 'reason' => 'sin_employee_key', 'row' => $row];
+                    $why[] = ['i' => $idx, 'reason' => 'empleado_no_encontrado', 'ek' => $ek, 'name' => ($row[$cfg['employee_name']['col'] ?? ''] ?? null)];
                 }
                 continue;
             }
-            if (! $norm['datetime']) {
+
+            // --- datetime ---
+            $dt = trim((string) ($norm['datetime'] ?? ''));
+            if ($dt === '') {
                 $errores++;
                 if ($debug && count($why) < $WHY_MAX) {
-                    $why[] = ['i' => $idx, 'reason' => 'sin_datetime', 'row' => $row];
+                    $why[] = ['i' => $idx, 'reason' => 'sin_datetime', 'raw_dt' => $this->whyRawDatetime($row, $cfg)];
                 }
                 continue;
             }
+            $fecha               = substr($dt, 0, 10);
+            $datesInFile[$fecha] = true; // set
 
-            // Lookup del empleado en la misma conexión
-            $emp = DB::connection($CONN)->table('empleados')
-                ->where('id_portal', $portalId)
-                ->where('id_cliente', $sucursalId)
-                ->where('id_empleado', $norm['employee_key'])
-                ->first();
+            // --- tipo/clase tolerante ---
+            $typeCol        = $cfg['type']['col'] ?? '';
+            $typeRaw        = $typeCol ? (string) ($row[$typeCol] ?? '') : ($norm['type_raw'] ?? '');
+            $typeNor        = $this->mapTypeTolerant((string) $typeRaw, $cfg['type']['dict'] ?? []);
+            [$tipo, $clase] = $this->mapTipoYClase($typeNor, $typeRaw);
 
-            if (! $emp) {
-                $errores++;
-                if ($debug && count($why) < $WHY_MAX) {
-                    $why[] = [
-                        'i'            => $idx,
-                        'reason'       => 'empleado_no_encontrado',
-                        'employee_key' => $norm['employee_key'],
-                        'row'          => $row,
-                    ];
+            if ($tipo === null) {
+                $needle = $this->normalizeText((string) $typeRaw);
+                if ($needle !== '') {
+                    if (str_contains($needle, 'entrada') || str_contains($needle, 'in')) {
+                        $tipo = 'in';
+                    } elseif (str_contains($needle, 'salida') || str_contains($needle, 'out')) {
+                        $tipo = 'out';
+                    }
                 }
-                continue;
+                if ($tipo === null) {
+                    $tipo = 'in';
+                }
+
+                if ($clase === null) {
+                    $clase = 'work';
+                }
+
             }
-            $idEmpleado = (int) $emp->id;
 
-            $dt    = $norm['datetime']; // "YYYY-MM-DD HH:mm:ss"
-            $fecha = substr($dt, 0, 10);
-
-            // tipo/clase
-            [$tipo, $clase] = $this->mapTipoYClase($norm['type'], $norm['type_raw'] ?? null);
-
-            // hash idempotente
-            $hash = sha1($idEmpleado . '|' . $dt . '|' . ($tipo ?: 'NULL') . '|' . ($clase ?: 'NULL'));
+            // --- UPSERT por llave natural (portal+cliente+empleado+check_time) ---
+            $uniq = [
+                'id_portal'   => $portalId,
+                'id_cliente'  => $sucursalId,
+                'id_empleado' => $empId, // PK real
+                'check_time'  => $dt,
+            ];
 
             try {
-                DB::connection($CONN)->table('checadas')->insert([
-                    'id_portal'   => $portalId,
-                    'id_cliente'  => $sucursalId,
-                    'id_empleado' => $idEmpleado,
-                    'fecha'       => $fecha,
-                    'check_time'  => $dt,
-                    'tipo'        => $tipo,  // 'in'|'out'|null
-                    'clase'       => $clase, // 'work'|'break'|'meal'|...|null
-                    'dispositivo' => $norm['device'] ?: null,
-                    'origen'      => $this->originFromFile($file),
-                    'observacion' => null,
-                    'hash'        => $hash,
-                    'creado_en'   => now(),
-                ]);
-                $insertados++;
-            } catch (\Throwable $e) {
-                $msg = strtolower($e->getMessage() ?? '');
-                if (Str::contains($msg, ['duplicate', 'unique'])) {
-                    $duplicados++;
-                    if ($debug && count($why) < $WHY_MAX) {
-                        $why[] = [
-                            'i'      => $idx,
-                            'reason' => 'duplicate_key',
-                            'hash'   => $hash,
-                            'dt'     => $dt,
-                            'emp_id' => $idEmpleado,
-                        ];
-                    }
-                } else {
-                    $errores++;
-                    Log::error('[ChecadorImport] error insertando fila', [
-                        'i'     => $idx,
-                        'error' => $e->getMessage(),
-                        'row'   => $row,
-                        'norm'  => ['emp_id' => $idEmpleado, 'dt' => $dt, 'tipo' => $tipo, 'clase' => $clase],
+                $existing = DB::connection($CONN)->table('checadas')->where($uniq)->first();
+
+                if (! $existing) {
+                    DB::connection($CONN)->table('checadas')->insert([
+                        'id_portal'   => $uniq['id_portal'],
+                        'id_cliente'  => $uniq['id_cliente'],
+                        'id_empleado' => $uniq['id_empleado'],
+                        'check_time'  => $uniq['check_time'],
+                        'fecha'       => $fecha,
+                        'tipo'        => $tipo,
+                        'clase'       => $clase ?? 'work',
+                        'dispositivo' => $norm['device'] ?: null,
+                        'origen'      => $this->originFromFile($file),
+                        'observacion' => null,
+                        'hash'        => sha1($portalId . '|' . $sucursalId . '|' . $empId . '|' . $dt),
+                        'creado_en'   => now(),
                     ]);
-                    if ($debug && count($why) < $WHY_MAX) {
-                        $why[] = ['i' => $idx, 'reason' => 'insert_error', 'error' => $e->getMessage()];
+                    $insertados++;
+                } else {
+                    $update = [
+                        'fecha'  => $fecha,
+                        'origen' => $this->originFromFile($file),
+                    ];
+                    if (! empty($norm['device'])) {
+                        $update['dispositivo'] = $norm['device'];
                     }
+                    if ($tipo !== null) {
+                        $update['tipo'] = $tipo;
+                    }
+
+                    if ($clase !== null) {
+                        $update['clase'] = $clase;
+                    }
+
+                    DB::connection($CONN)->table('checadas')->where($uniq)->update($update);
+                    $actualizados++;
+                }
+
+                // Marcar grupo tocado para evaluación
+                $touched[$empId][$fecha] = true;
+
+            } catch (\Throwable $e) {
+                $errores++;
+                Log::error('[ChecadorImport] error en UPSERT', [
+                    'i'    => $idx, 'error' => $e->getMessage(),
+                    'uniq' => $uniq, 'dt'   => $dt, 'tipo' => $tipo, 'clase' => $clase,
+                ]);
+                if ($debug && count($why) < $WHY_MAX) {
+                    $why[] = ['i' => $idx, 'reason' => 'db_error', 'msg' => $e->getMessage(), 'uniq' => $uniq];
                 }
             }
         }
 
-        // ===== 6) Fin & logs =====
+                                           // ===== Post-proceso: evaluar TODOS los empleados activos en TODAS las fechas del archivo =====
+        $dates = array_keys($datesInFile); // fechas presentes en el archivo
+        if (! empty($dates)) {
+            // 1) Empleados activos (status=1) de la sucursal
+            $activos = DB::connection($CONN)->table('empleados')
+                ->where('id_portal', $portalId)
+                ->where('id_cliente', $sucursalId)
+                ->where('status', 1)
+                ->pluck('id') // PK real
+                ->all();
+
+                               // 2) Construir grupos únicos emp-fecha
+            $groupsAssoc = []; // "empId|fecha" => true
+            $groups      = [];
+
+            // a) ya tocados por el archivo
+            foreach ($touched as $empId => $fechas) {
+                foreach (array_keys($fechas) as $f) {
+                    $key = $empId . '|' . $f;
+                    if (! isset($groupsAssoc[$key])) {
+                        $groupsAssoc[$key] = true;
+                        $groups[]          = [
+                            'portalId'   => $portalId,
+                            'clienteId'  => $sucursalId,
+                            'empleadoId' => (int) $empId,
+                            'fecha'      => $f,
+                        ];
+                    }
+                }
+            }
+
+            // b) todos los activos en todas las fechas del archivo
+            foreach ($activos as $empId) {
+                $empId = (int) $empId;
+                foreach ($dates as $f) {
+                    $key = $empId . '|' . $f;
+                    if (! isset($groupsAssoc[$key])) {
+                        $groupsAssoc[$key] = true;
+                        $groups[]          = [
+                            'portalId'   => $portalId,
+                            'clienteId'  => $sucursalId,
+                            'empleadoId' => $empId,
+                            'fecha'      => $f,
+                        ];
+                    }
+                }
+            }
+
+            // 3) Evaluar en lote con la MISMA conexión
+            if (! empty($groups)) {
+                try {
+                    /** @var \App\Services\Asistencia\AsistenciaServicio $svc */
+                    $svc     = app(\App\Services\Asistencia\AsistenciaServicio::class)->withConnection($CONN);
+                    $results = $svc->evaluateBatch($groups);
+                    Log::info('[ChecadorImport] evaluación aplicada', [
+                        'empleados_activos' => count($activos),
+                        'fechas'            => count($dates),
+                        'grupos'            => count($groups),
+                        'results'           => $results,
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::error('[ChecadorImport] fallo evaluando asistencia', ['error' => $e->getMessage()]);
+                }
+            }
+        }
+
         Log::info('[ChecadorImport] fin', [
-            'portal'     => $portalId,
-            'cliente'    => $sucursalId,
-            'insertados' => $insertados,
-            'duplicados' => $duplicados,
-            'errores'    => $errores,
-            'why_count'  => $debug ? count($why) : 0,
+            'insertados'   => $insertados,
+            'actualizados' => $actualizados,
+            'errores'      => $errores,
         ]);
         if ($debug && $why) {
-            // Dump controlado de razones (capado a WHY_MAX)
-            Log::debug('[ChecadorImport] detalles de descarte', ['why' => $why]);
+            Log::debug('[ChecadorImport] detalles de descarte (muestra)', ['why' => array_slice($why, 0, 30)]);
+        }
+
+        // ===== Respuesta =====
+        if ($insertados === 0 && $actualizados === 0) {
+            return response()->json([
+                'ok'    => false,
+                'msg'   => 'Nada importado. Revisa ID/nombre de empleado, fecha/hora y tipo.',
+                'stats' => compact('insertados', 'actualizados', 'errores'),
+                'why'   => $debug ? array_slice($why, 0, 30) : null,
+            ], 422);
         }
 
         return response()->json([
             'ok'    => true,
-            'msg'   => 'Importación completa',
-            'stats' => compact('insertados', 'duplicados', 'errores'),
-        ]);
+            'msg'   => $errores ? 'Importado con observaciones' : 'Importación completa',
+            'stats' => compact('insertados', 'actualizados', 'errores'),
+            'why'   => $debug ? array_slice($why, 0, 30) : null,
+        ], $errores ? 207 : 200);
     }
 
-    /* ========================= Helpers internos ========================= */
+    /** ========================= HELPERS ========================= */
 
-    /**
-     * Mapea un "tipo" crudo usando un diccionario tolerante (ignora mayúsculas, acentos, espacios).
-     * Ej.: "IN", "in", "Entrada", "entrada" → "entrada"
-     */
-    private function mapTypeTolerant(string $raw, array $dict): ?string
+    /** Lee config_json soportando string, array o archivo (Blob) */
+    private function parseConfigFromRequest(Request $req): array
     {
-        if ($raw === '') {
-            return null;
+        $rawInput = $req->input('config_json');
+        if (! $rawInput && $req->hasFile('config_json')) {
+            try { $rawInput = file_get_contents($req->file('config_json')->getRealPath());} catch (\Throwable $e) {$rawInput = null;}
         }
-
-        // 1) Coincidencia exacta tal cual
-        if (array_key_exists($raw, $dict)) {
-            return $dict[$raw];
+        if (is_array($rawInput)) {
+            $raw = $rawInput;
+        } elseif (is_string($rawInput)) {
+            $raw = json_decode($rawInput, true);
+        } else {
+            $raw = null;
         }
-
-        // 2) Normalizar y comparar claves del dict
-        $norm = $this->normalizeText($raw);
-        foreach ($dict as $k => $v) {
-            if ($this->normalizeText((string) $k) === $norm) {
-                return $v;
-            }
-
+        if (is_array($raw) && array_key_exists('map', $raw) && is_array($raw['map'])) {
+            return $raw['map']; // venía { map: {...} }
         }
-        return null;
+        return is_array($raw) ? $raw : [];
     }
 
-    /**
-     * Normaliza texto: trim, minúsculas, sin acentos, espacios colapsados.
-     */
-    private function normalizeText(string $s): string
+    /** Normalización de NOMBRE para indexar/buscar: minúsculas, sin acentos y espacios colapsados */
+    private function normalizeName(string $s): string
     {
         $s = trim(mb_strtolower($s));
-        // Quitar acentos/diacríticos
         if (class_exists('\Normalizer')) {
             $s = \Normalizer::normalize($s, \Normalizer::FORM_D);
             $s = preg_replace('/\p{Mn}+/u', '', $s);
         } else {
             $s = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s) ?: $s;
         }
-        // Colapsar múltiples espacios
         $s = preg_replace('/\s+/u', ' ', $s);
         return $s;
     }
 
-    /**
-     * Suma/resta un offset en minutos a una fecha/hora en string "Y-m-d H:i:s".
-     * Útil cuando el archivo viene en otra zona horaria.
-     */
-    private function applyOffset(string $dtStr, int $minutes): string
+    /** Normaliza clave de tipo (quita acentos, espacios, signos) */
+    private function normalizeTypeKey(string $s): string
     {
-        try {
-            $dt       = new \DateTime($dtStr, new \DateTimeZone('UTC'));
-            $interval = new \DateInterval('PT' . abs($minutes) . 'M');
-            if ($minutes >= 0) {$dt->add($interval);} else { $dt->sub($interval);}
-            return $dt->format('Y-m-d H:i:s');
-        } catch (\Throwable $e) {
-            return $dtStr;
-        }
+        $s = $this->normalizeName($s);
+        $s = preg_replace('/[^a-z0-9]+/u', '', $s);
+        return $s;
     }
 
-    /**
-     * Convierte serial de Excel a "Y-m-d H:i:s".
-     * Soporta base "1900" (Windows) y "1904" (Mac).
-     */
+    /** Map de tipo tolerante (match exacto, case-insensitive, y normalizado) */
+    private function mapTypeTolerant(?string $raw, array $dict): ?string
+    {
+        $raw = (string) ($raw ?? '');
+        if ($raw === '') {
+            return null;
+        }
 
-    /**
-     * Devuelve "excel" o "csv" según la extensión del archivo subido.
-     */
-    private function originFromFile($file): string
+        // match exacto
+        if (array_key_exists($raw, $dict)) {
+            return $dict[$raw];
+        }
+
+        // normalizado
+        $needle = $this->n($raw);
+        foreach ($dict as $k => $v) {
+            if ($this->n((string) $k) === $needle) {
+                return $v;
+            }
+
+        }
+
+        // heurística simple: "entrada"/"salida"
+        if (str_contains($needle, 'entrada')) {
+            return 'entrada';
+        }
+
+        if (str_contains($needle, 'salida')) {
+            return 'salida';
+        }
+
+        return null;
+    }
+
+    /** Construye índices de empleados: por id_empleado (TRIM) y por nombre completo */
+/** Precarga empleados de la sucursal para resolver rápido por id_empleado o por nombre completo. */
+// Normaliza texto (minúsculas, sin acentos, espacios colapsados)
+    private function n(string $s): string
+    {
+        $s = trim(mb_strtolower($s));
+        if (class_exists('\Normalizer')) {
+            $s = \Normalizer::normalize($s, \Normalizer::FORM_D);
+            $s = preg_replace('/\p{Mn}+/u', '', $s);
+        } else {
+            $s2 = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s);
+            if ($s2 !== false) {
+                $s = $s2;
+            }
+
+        }
+        return preg_replace('/\s+/u', ' ', $s);
+    }
+
+// Carga una sola vez los empleados de la sucursal y arma 2 mapas:
+//  byKey[ id_empleado_trim ] = empleado
+//  byName[ nombre_normalizado ] = empleado
+    private function buildEmployeeIndexes(string $conn, int $portalId, int $sucursalId): array
+    {
+        $rows = DB::connection($conn)->table('empleados')
+            ->select('id', 'id_empleado', 'nombre', 'paterno', 'materno')
+            ->where('id_portal', $portalId)
+            ->where('id_cliente', $sucursalId)
+            ->get();
+
+        $byKey  = []; // id_empleado -> id
+        $byName = []; // nombre normalizado -> id
+
+        foreach ($rows as $e) {
+            $id  = (int) $e->id;
+            $key = trim((string) ($e->id_empleado ?? ''));
+            if ($key !== '') {
+                $byKey[$key] = $id;
+            }
+
+            $nombre  = trim((string) ($e->nombre ?? ''));
+            $paterno = trim((string) ($e->paterno ?? ''));
+            $materno = trim((string) ($e->materno ?? ''));
+
+            // 👇 ignora placeholders
+            if ($materno === '.' || $materno === '-' || $materno === '_') {
+                $materno = '';
+            }
+
+            // guarda dos variantes: con y sin materno
+            $full = trim("$nombre $paterno $materno");
+            $two  = trim("$nombre $paterno");
+
+            if ($full !== '') {
+                $byName[$this->normalizeName($full)] = $id;
+            }
+
+            if ($two !== '') {
+                $byName[$this->normalizeName($two)] = $id;
+            }
+
+        }
+
+        return [$byKey, $byName];
+    }
+
+    private function normalizeText(string $s): string
+    {
+        $s = trim(mb_strtolower($s));
+        if (class_exists('\Normalizer')) {
+            $s = \Normalizer::normalize($s, \Normalizer::FORM_D);
+            $s = preg_replace('/\p{Mn}+/u', '', $s);
+        } else {
+            $s = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s) ?: $s;
+        }
+        return preg_replace('/\s+/u', ' ', $s);
+    }
+
+    /** Hint compacto para logs */
+    private function whyHint(array $row, array $cfg)
+    {
+        return [
+            'emp_col'  => $cfg['employee_key']['col'] ?? null,
+            'emp_val'  => ($cfg['employee_key']['col'] ?? null) ? ($row[$cfg['employee_key']['col']] ?? null) : null,
+            'name_col' => $cfg['employee_name']['col'] ?? null,
+            'name_val' => ($cfg['employee_name']['col'] ?? null) ? ($row[$cfg['employee_name']['col']] ?? null) : null,
+            'dt_mode'  => $cfg['datetime']['mode'] ?? null,
+            'dt_val'   => $this->whyRawDatetime($row, $cfg),
+            'type_col' => $cfg['type']['col'] ?? null,
+            'type_val' => ($cfg['type']['col'] ?? null) ? ($row[$cfg['type']['col']] ?? null) : null,
+        ];
+    }
+
+    /** Validación de muestra: acepta EK o Nombre + fecha/hora */
+    private function validatePreviewAcceptingName(array $sample, array $cfg, array $empByName): array
+    {
+        if (! $sample) {
+            return [false, 'Archivo vacío'];
+        }
+
+        $ok    = 0;
+        $total = 0;
+        $fails = [];
+        foreach ($sample as $row) {
+            $n = $this->normalizeRow($row, $cfg);
+            $total++;
+
+            $hasEmp = (trim((string) ($n['employee_key'] ?? '')) !== '');
+            if (! $hasEmp) {
+                $nameCol = $cfg['employee_name']['col'] ?? null;
+                $nameVal = $nameCol ? trim((string) ($row[$nameCol] ?? '')) : '';
+                if ($nameVal !== '') {
+                    $hasEmp = isset($empByName[$this->normalizeName($nameVal)]);
+                }
+            }
+
+            if ($hasEmp && ($n['datetime'] ?? '') !== '') {
+                $ok++;
+            } elseif (count($fails) < 10) {
+                $fails[] = [
+                    'name'     => ($cfg['employee_name']['col'] ?? null) ? ($row[$cfg['employee_name']['col']] ?? null) : null,
+                    'fechaRaw' => $this->whyRawDatetime($row, $cfg),
+                ];
+            }
+        }
+
+        $rate = $ok / max(1, $total);
+        if ($rate < 0.7) {
+            $lines = array_map(function ($f) {
+                $name = $f['name'] ?: '(sin nombre)';
+                $val  = is_scalar($f['fechaRaw']) ? (string) $f['fechaRaw'] : json_encode($f['fechaRaw']);
+                return "• {$name} | fecha=\"{$val}\"";
+            }, $fails);
+            $msg = "Sin vista previa\nAjusta columnas, formatos o sucursal.\n\nDiagnóstico:\n\n"
+            . "Filas OK: {$ok}/{$total}\nEjemplos (máx " . count($lines) . "):\n\n"
+            . implode("\n", $lines);
+            return [false, $msg];
+        }
+        return [true, null];
+    }
+
+    /** ---------- Normalización fila (back en espejo del front) ---------- */
+    private function normalizeRow(array $row, array $cfg): array
+    {
+        // ID empleado
+        $ekCol       = $cfg['employee_key']['col'] ?? null;
+        $employeeKey = $ekCol ? trim((string) ($row[$ekCol] ?? '')) : '';
+
+        // Fecha/hora
+        $mode      = $cfg['datetime']['mode'] ?? 'single';
+        $offset    = (int) ($cfg['datetime']['offsetMinutes'] ?? 0);
+        $excelBase = $cfg['datetime']['excelBase'] ?? '1900';
+        $dtStr     = '';
+
+        if ($mode === 'single') {
+            $col = $cfg['datetime']['col'] ?? null;
+            $fmt = $cfg['datetime']['format'] ?? 'Y-m-d H:i:s';
+            $raw = (string) ($row[$col] ?? '');
+
+            // Si es numérico → serial Excel
+            if ($raw !== '' && is_numeric($raw)) {
+                $dtStr = $this->fromExcelSerialToYmdHms($raw, $excelBase);
+            }
+            if ($dtStr === '') {
+                $dtStr = $this->parseDateTimeTolerant($raw, $fmt, $excelBase);
+            }
+        } elseif ($mode === 'split') {
+            $dcol = $cfg['datetime']['dateCol'] ?? null;
+            $tcol = $cfg['datetime']['timeCol'] ?? null;
+            $dfmt = $cfg['datetime']['dateFmt'] ?? 'Y-m-d';
+            $tfmt = $cfg['datetime']['timeFmt'] ?? 'H:i:s';
+            $d    = $this->parseDate($row[$dcol] ?? '', $dfmt);
+            $t    = $this->parseTime($row[$tcol] ?? '', $tfmt);
+            if ($d && $t) {
+                $dtStr = $d . ' ' . $t;
+            }
+
+        } elseif ($mode === 'excel_serial') {
+            $scol  = $cfg['datetime']['serialCol'] ?? null;
+            $dtStr = $this->fromExcelSerialToYmdHms($row[$scol] ?? null, $excelBase);
+        }
+
+        if ($dtStr && $offset !== 0) {
+            $dtStr = $this->applyOffset($dtStr, $offset);
+        }
+
+        // Tipo (tolerante)
+        $type    = null;
+        $typeRaw = null;
+        if (! empty($cfg['type']['col'])) {
+            $typeRaw = trim((string) ($row[$cfg['type']['col']] ?? ''));
+            $dict    = $cfg['type']['dict'] ?? [];
+            $type    = $this->mapTypeTolerant($typeRaw, $dict);
+        }
+
+        // Dispositivo (opcional)
+        $device = ! empty($cfg['device']['col']) ? trim((string) ($row[$cfg['device']['col']] ?? '')) : '';
+
+        return [
+            'employee_key' => $employeeKey,
+            'datetime'     => $dtStr,
+            'type'         => $type ?: null,
+            'type_raw'     => $typeRaw ?: null,
+            'device'       => $device ?: null,
+            'raw'          => $row,
+        ];
+    }
+
+    /** ---------- Parser tolerante (AM/PM español + serial si aplica) ---------- */
+    private function normalizeAmPm(string $s): string
+    {
+        // "02:31:56 p. m." -> "02:31:56 PM"
+        $s = preg_replace('/\s*a\.?\s*m\.?/iu', ' AM', $s);
+        $s = preg_replace('/\s*p\.?\s*m\.?/iu', ' PM', $s);
+        return trim($s);
+    }
+
+    private function parseDateTimeTolerant(string $val, string $fmt, string $excelBase = '1900'): string
+    {
+        $val = trim($val);
+        if ($val === '') {
+            return '';
+        }
+
+        if (is_numeric($val)) {
+            return $this->fromExcelSerialToYmdHms((float) $val, $excelBase);
+        }
+
+        $v  = $this->normalizeAmPm($val);
+        $ts = \DateTime::createFromFormat($fmt, $v);
+        if ($ts instanceof \DateTime) {
+            return $ts->format('Y-m-d H:i:s');
+        }
+
+        $fallbacks = [
+            'Y-m-d H:i:s', 'Y-m-d H:i',
+            'd/m/Y H:i:s', 'd/m/Y H:i',
+            'm/d/Y H:i:s', 'm/d/Y H:i',
+            'd/m/Y h:i:s A', 'd/m/Y h:i A',
+            'm/d/Y h:i:s A', 'm/d/Y h:i A',
+            'Y-m-d\TH:i:s', 'Y-m-d\TH:i',
+        ];
+        foreach ($fallbacks as $f) {
+            $ts = \DateTime::createFromFormat($f, $v);
+            if ($ts instanceof \DateTime) {
+                return $ts->format('Y-m-d H:i:s');
+            }
+
+        }
+        $t = strtotime($v);
+        return $t !== false ? date('Y-m-d H:i:s', $t) : '';
+    }
+
+    private function parseDate($val, string $fmt): string
+    {
+        $val = is_scalar($val) ? (string) $val : '';
+        $ts  = \DateTime::createFromFormat($fmt, $val);
+        if ($ts instanceof \DateTime) {
+            return $ts->format('Y-m-d');
+        }
+
+        $t = strtotime($this->normalizeAmPm($val));
+        return $t !== false ? date('Y-m-d', $t) : '';
+    }
+
+    private function parseTime($val, string $fmt): string
+    {
+        $val = is_scalar($val) ? (string) $val : '';
+        $ts  = \DateTime::createFromFormat($fmt, $this->normalizeAmPm($val));
+        if ($ts instanceof \DateTime) {
+            return $ts->format('H:i:s');
+        }
+
+        $t = strtotime($this->normalizeAmPm($val));
+        return $t !== false ? date('H:i:s', $t) : '';
+    }
+
+    private function phpFormat(string $fmt): string
+    {return $fmt;}
+
+    /** Lectura CSV/XLSX → filas asociativas */
+    private function readFileToRows($file): array
     {
         $ext = strtolower($file->getClientOriginalExtension());
-        return in_array($ext, ['xlsx', 'xls']) ? 'excel' : 'csv';
+        if (in_array($ext, ['xlsx', 'xls'])) {
+            $spreadsheet = IOFactory::load($file->getPathname());
+            $ws          = $spreadsheet->getSheet(0);
+            return $this->sheetToAssoc($ws);
+        }
+
+        $rows = [];
+        if (($h = fopen($file->getPathname(), 'r')) !== false) {
+            $firstLine = fgets($h);
+            rewind($h);
+            $delim   = $this->guessDelimiter((string) $firstLine);
+            $headers = null;
+            while (($data = fgetcsv($h, 0, $delim)) !== false) {
+                if ($headers === null) {$headers = $this->cleanHeaders($data);
+                    continue;}
+                $rows[] = @array_combine($headers, $data) ?: [];
+            }
+            fclose($h);
+        }
+        return $rows;
     }
 
-    /**
-     * Lee la primera hoja de un XLSX/XLS y la convierte a arreglo de filas asociativas.
-     * Primera fila = encabezados.
-     */
     private function sheetToAssoc(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $ws): array
     {
-        $rows = $ws->toArray(null, true, true, true); // índices de columna (A,B,C...)
+        $rows = $ws->toArray(null, true, true, true);
         if (count($rows) < 2) {
             return [];
         }
 
-        // Fila 1 → headers
         $headers = $this->cleanHeaders(array_values($rows[1]));
         $out     = [];
-
         for ($r = 2; $r <= count($rows); $r++) {
-            $row = $rows[$r];
-            if (! $row) {
+            $row = $rows[$r];if (! $row) {
                 continue;
             }
 
@@ -406,264 +1000,6 @@ class ChecadorController extends Controller
         return $out;
     }
 
-    /**
-     * Valida una muestra de filas ya normalizadas: al menos 70% deben tener id_empleado + datetime.
-     */
-    private function validatePreview(array $sample, array $cfg): array
-    {
-        if (! $sample) {
-            return [false, 'Archivo vacío'];
-        }
-
-        $ok    = 0;
-        $total = 0;
-        $fails = [];
-        foreach ($sample as $row) {
-            $n = $this->normalizeRow($row, $cfg);
-            $total++;
-            if ($n['employee_key'] && $n['datetime']) {
-                $ok++;
-            } elseif (count($fails) < 5) {
-                $fails[] = [
-                    'employee_key' => $n['employee_key'],
-                    'datetime'     => $n['datetime'],
-                    'seen_headers' => array_slice(array_keys($row), 0, 10),
-                    'map'          => [
-                        'employee_col' => $cfg['employee_key']['col'] ?? null,
-                        'mode'         => $cfg['datetime']['mode'] ?? null,
-                        'col'          => $cfg['datetime']['col'] ?? null,
-                        'dateCol'      => $cfg['datetime']['dateCol'] ?? null,
-                        'timeCol'      => $cfg['datetime']['timeCol'] ?? null,
-                        'serialCol'    => $cfg['datetime']['serialCol'] ?? null,
-                        'format'       => $cfg['datetime']['format'] ?? null,
-                    ],
-                ];
-            }
-        }
-
-        $rate = $ok / max(1, $total);
-        if ($rate < 0.7) {
-            $msg = 'Formato de fecha/hora o columnas no reconocido. '
-            . "Filas OK: {$ok}/{$total}. Ejemplos: " . json_encode($fails);
-            return [false, $msg];
-        }
-        return [true, null];
-    }
-
-/**
- * Lee config_json desde el Request tolerando:
- *  - string JSON (input normal)
- *  - array (ya decodificado)
- *  - archivo (cuando el front lo envía como Blob en FormData)
- * Retorna SIEMPRE el objeto de mapeo (si venía como {"map": {...}} devuelve {...}).
- */
-    private function parseConfigFromRequest(Request $req): array
-    {
-        // 1) Intentar como input "normal"
-        $rawInput = $req->input('config_json');
-
-        // 2) Si no viene por input, revisar si vino como archivo (Blob)
-        if (! $rawInput && $req->hasFile('config_json')) {
-            try {
-                $rawInput = file_get_contents($req->file('config_json')->getRealPath());
-            } catch (\Throwable $e) {
-                $rawInput = null;
-            }
-        }
-
-        // 3) Si ya es array, úsalo; si es string intenta decodificarlo
-        if (is_array($rawInput)) {
-            $raw = $rawInput;
-        } elseif (is_string($rawInput)) {
-            $raw = json_decode($rawInput, true);
-        } else {
-            $raw = null;
-        }
-
-        // 4) Si viene como {"map": {...}} regresa {...}
-        if (is_array($raw) && array_key_exists('map', $raw) && is_array($raw['map'])) {
-            return $raw['map'];
-        }
-
-        // 5) Si ya es el mapa plano, regresa tal cual
-        return is_array($raw) ? $raw : [];
-    }
-
-    /**
-     * Normaliza UNA fila del archivo según el mapeo.
-     * Salida: employee_key, datetime (Y-m-d H:i:s), type, device.
-     */
-    private function normalizeRow(array $row, array $cfg): array
-    {
-        // --- ID empleado ---
-        $ekCol       = $cfg['employee_key']['col'] ?? null;
-        $employeeKey = $ekCol ? trim((string) ($row[$ekCol] ?? '')) : '';
-
-        // --- Fecha/hora ---
-        $mode      = $cfg['datetime']['mode'] ?? 'single';
-        $offset    = (int) ($cfg['datetime']['offsetMinutes'] ?? 0);
-        $excelBase = $cfg['datetime']['excelBase'] ?? '1900';
-        $dtStr     = '';
-
-        if ($mode === 'single') {
-            $col   = $cfg['datetime']['col'] ?? null;
-            $fmt   = $cfg['datetime']['format'] ?? 'Y-m-d H:i:s';
-            $dtStr = $this->parseDateTime((string) ($row[$col] ?? ''), $fmt);
-        } elseif ($mode === 'split') {
-            $dcol = $cfg['datetime']['dateCol'] ?? null;
-            $tcol = $cfg['datetime']['timeCol'] ?? null;
-            $dfmt = $cfg['datetime']['dateFmt'] ?? 'Y-m-d';
-            $tfmt = $cfg['datetime']['timeFmt'] ?? 'H:i:s';
-            $d    = $this->parseDate((string) ($row[$dcol] ?? ''), $dfmt);
-            $t    = $this->parseTime((string) ($row[$tcol] ?? ''), $tfmt);
-            if ($d && $t) {
-                $dtStr = $d . ' ' . $t;
-            }
-
-        } elseif ($mode === 'excel_serial') {
-            $scol  = $cfg['datetime']['serialCol'] ?? null;
-            $dtStr = $this->fromExcelSerialToYmdHms($row[$scol] ?? null, $excelBase);
-        }
-
-        if ($dtStr && $offset !== 0) {
-            $dtStr = $this->applyOffset($dtStr, $offset);
-        }
-
-        // --- Tipo de marca ---
-        $type    = null;
-        $typeRaw = null;
-        if (! empty($cfg['type']['col'])) {
-            $typeRaw = trim((string) ($row[$cfg['type']['col']] ?? ''));
-            $dict    = $cfg['type']['dict'] ?? [];
-            $type    = $this->mapTypeTolerant($typeRaw, $dict);
-        }
-
-        // --- Dispositivo (opcional) ---
-        $device = ! empty($cfg['device']['col']) ? trim((string) ($row[$cfg['device']['col']] ?? '')) : '';
-
-        return [
-            'employee_key' => $employeeKey,
-            'datetime'     => $dtStr,        // "YYYY-MM-DD HH:mm:ss"
-            'type'         => $type ?: null, // 'entrada'|'salida'|'descanso_entrada'|'descanso_salida'|null
-            'type_raw'     => $typeRaw ?: null,
-            'device'       => $device ?: null,
-            'raw'          => $row,
-        ];
-    }
-
-    /**
-     * Intenta parsear una fecha/hora según formato; como fallback, strtotime().
-     * Ej. formatos: Y-m-d H:i:s, d/m/Y H:i, etc.
-     */
-    private function parseDateTime(string $val, string $fmt): string
-    {
-        $val = trim($val);
-        if ($val === '') {
-            return '';
-        }
-
-        // Primero intenta con el formato declarado
-        $ts = \DateTime::createFromFormat($this->phpFormat($fmt), $val);
-        if ($ts instanceof \DateTime) {
-            return $ts->format('Y-m-d H:i:s');
-        }
-
-        // Fallbacks comunes
-        $fallbacks = [
-            'Y-m-d H:i',
-            'd/m/Y H:i:s',
-            'd/m/Y H:i',
-            'd-m-Y H:i:s',
-            'd-m-Y H:i',
-            'Y/m/d H:i:s',
-            'Y/m/d H:i',
-            'Y-m-d\TH:i:s',
-            'Y-m-d\TH:i',
-        ];
-        foreach ($fallbacks as $f) {
-            $ts = \DateTime::createFromFormat($f, $val);
-            if ($ts instanceof \DateTime) {
-                return $ts->format('Y-m-d H:i:s');
-            }
-
-        }
-
-        // Último recurso: strtotime
-        $t = strtotime($val);
-        if ($t !== false) {
-            return date('Y-m-d H:i:s', $t);
-        }
-
-        return '';
-    }
-
-    /**
-     * Parsea solo fecha.
-     */
-    private function parseDate(string $val, string $fmt): string
-    {
-        $ts = \DateTime::createFromFormat($this->phpFormat($fmt), $val) ?: (strtotime($val) ? new \DateTime($val) : null);
-        return $ts ? $ts->format('Y-m-d') : '';
-    }
-
-    /**
-     * Parsea solo hora.
-     */
-    private function parseTime(string $val, string $fmt): string
-    {
-        $ts = \DateTime::createFromFormat($this->phpFormat($fmt), $val) ?: (strtotime($val) ? new \DateTime($val) : null);
-        return $ts ? $ts->format('H:i:s') : '';
-    }
-
-    /**
-     * En este caso, el formato ya viene "en estilo PHP" desde el front (Y-m-d H:i:s, d/m/Y, H:i, etc.).
-     * Si en el futuro recibes tokens tipo moment.js, aquí los mapearías.
-     */
-    private function phpFormat(string $fmt): string
-    {
-        return $fmt;
-    }
-
-    /**
-     * Lee un archivo subido (CSV/TXT/XLS/XLSX) y devuelve arreglo de filas asociativas.
-     * - Para Excel: usa PhpSpreadsheet.
-     * - Para CSV/TXT: detecta delimitador entre ',', ';', '\t' o '|'.
-     */
-    private function readFileToRows($file): array
-    {
-        $ext = strtolower($file->getClientOriginalExtension());
-
-        // Excel (XLSX/XLS)
-        if (in_array($ext, ['xlsx', 'xls'])) {
-            $spreadsheet = IOFactory::load($file->getPathname());
-            $ws          = $spreadsheet->getSheet(0);
-            return $this->sheetToAssoc($ws);
-        }
-
-        // CSV / TXT con detección simple de delimitador
-        $rows = [];
-        if (($h = fopen($file->getPathname(), 'r')) !== false) {
-            $firstLine = fgets($h);
-            rewind($h);
-
-            $delim = $this->guessDelimiter((string) $firstLine); // ',', ';', '\t' o '|'
-
-            $headers = null;
-            while (($data = fgetcsv($h, 0, $delim)) !== false) {
-                if ($headers === null) {
-                    $headers = $this->cleanHeaders($data); // 👈 aquí
-                    continue;
-                }
-                $rows[] = @array_combine($headers, $data) ?: [];
-            }
-            fclose($h);
-        }
-        return $rows;
-    }
-
-    /**
-     * Heurística muy simple para adivinar el delimitador del CSV.
-     */
     private function guessDelimiter(string $firstLine): string
     {
         $candidates = [",", "\t", ";", "|"];
@@ -676,52 +1012,107 @@ class ChecadorController extends Controller
         }
         return $best;
     }
-    /**
-     * Decide 'tipo' ('in'|'out') y 'clase' ('work'|'break'|'meal'|'personal'|'other')
-     * a partir del type normalizado y del texto crudo (para distinguir 'meal' vs 'break').
-     */
+    /** Devuelve "excel" o "csv" según la extensión del archivo subido. */
+    private function originFromFile($file): string
+    {
+        try { $ext = strtolower($file->getClientOriginalExtension() ?: '');} catch (\Throwable $e) {$ext = '';}
+        return in_array($ext, ['xlsx', 'xls'], true) ? 'excel' : 'csv';
+    }
+
     private function mapTipoYClase(?string $normType, ?string $rawType): array
     {
-        $norm = $normType ?: '';
-        $raw  = $this->normalizeText((string) $rawType);
+        $norm = (string) ($normType ?? '');
+        $raw  = $this->n((string) $rawType);
 
-        // ¿suena a comida?
-        $looksMeal = false;
-        foreach (['lunch', 'comida', 'meal', 'almuerzo', 'lunch out', 'meal out', 'comida salida'] as $kw) {
-            if ($kw !== '' && str_contains($raw, $kw)) {$looksMeal = true;
-                break;}
-        }
+        $looksMeal = str_contains($raw, 'lunch') || str_contains($raw, 'comida') || str_contains($raw, 'meal') || str_contains($raw, 'almuerzo');
 
         switch ($norm) {
             case 'entrada':return ['in', 'work'];
             case 'salida':return ['out', 'work'];
             case 'descanso_entrada':return ['out', $looksMeal ? 'meal' : 'break'];
             case 'descanso_salida':return ['in', $looksMeal ? 'meal' : 'break'];
-            default: return [null, null]; // si no vino el tipo, lo dejamos null
+            default: return [null, null];
         }
     }
+
     private function fromExcelSerialToYmdHms($num, string $base = '1900'): string
     {
-        $n = (float) $num;
-        if ($n <= 0) {
+        $n = (float) $num;if ($n <= 0) {
             return '';
         }
 
-        $epoch = ($base === '1904') ? '1904-01-01 00:00:00' : '1899-12-30 00:00:00';
-        $dt    = \DateTime::createFromFormat('Y-m-d H:i:s', $epoch, new \DateTimeZone('UTC'));
-        // segundos con fracción
-        $seconds = (int) floor($n * 86400);
+        $epochStr = ($base === '1904') ? '1904-01-01 00:00:00' : '1899-12-30 00:00:00';
+        $dt       = \DateTime::createFromFormat('Y-m-d H:i:s', $epochStr, new \DateTimeZone('UTC'));
+        $seconds  = (int) floor($n * 86400);
         $dt->modify('+' . $seconds . ' seconds');
         return $dt->format('Y-m-d H:i:s');
     }
+
     private function cleanHeaders(array $headers): array
     {
         return array_map(function ($h) {
             $h = (string) $h;
-            // Quitar BOM si viniera pegado y espacios
-            $h = preg_replace('/^\xEF\xBB\xBF/', '', $h);
+            $h = preg_replace('/^\xEF\xBB\xBF/', '', $h); // BOM
             return trim($h);
         }, $headers);
+    }
+    // === Añade esto dentro de ChecadorController ===
+
+/** Valida una muestra antes de importar.
+ * Acepta que falte employee_key si viene nombre; exige fecha/hora parseada. */
+    private function validatePreview(array $sample, array $cfg): array
+    {
+        if (! $sample) {
+            return [false, 'Archivo vacío'];
+        }
+
+        $ok    = 0;
+        $total = 0;
+        $fails = [];
+        foreach ($sample as $row) {
+            $n = $this->normalizeRow($row, $cfg);
+            $total++;
+
+            $hasEmpKey = ! empty($n['employee_key']);
+            $nameCol   = $cfg['employee_name']['col'] ?? '';
+            $hasName   = $nameCol !== '' && ! empty($row[$nameCol]);
+            $hasDT     = ! empty($n['datetime']);
+
+            if (($hasEmpKey || $hasName) && $hasDT) {
+                $ok++;
+            } elseif (count($fails) < 10) {
+                $fails[] = [
+                    'emp_key'  => $hasEmpKey ? $n['employee_key'] : null,
+                    'name'     => $hasName ? (string) $row[$nameCol] : null,
+                    'fechaRaw' => $this->whyRawDatetime($row, $cfg),
+                ];
+            }
+        }
+
+        $rate = $ok / max(1, $total);
+        if ($rate < 0.5) {
+            // Mensaje compacto para ver rápido por qué falla
+            return [false, 'Formato de columnas/fechas no reconocido. OK: ' . $ok . '/' . $total . '. Ejemplos: ' . json_encode($fails)];
+        }
+        return [true, null];
+    }
+
+/** Devuelve el valor “crudo” de fecha/hora según el modo declarado, para diagnóstico. */
+    private function whyRawDatetime(array $row, array $cfg)
+    {
+        $mode = $cfg['datetime']['mode'] ?? 'single';
+        if ($mode === 'single') {
+            $c = $cfg['datetime']['col'] ?? '';
+            return $c !== '' ? ($row[$c] ?? null) : null;
+        }
+        if ($mode === 'excel_serial') {
+            $c = $cfg['datetime']['serialCol'] ?? '';
+            return $c !== '' ? ($row[$c] ?? null) : null;
+        }
+        // split
+        $dc = $cfg['datetime']['dateCol'] ?? '';
+        $tc = $cfg['datetime']['timeCol'] ?? '';
+        return trim(($dc !== '' ? ($row[$dc] ?? '') : '') . ' ' . ($tc !== '' ? ($row[$tc] ?? '') : ''));
     }
 
 }

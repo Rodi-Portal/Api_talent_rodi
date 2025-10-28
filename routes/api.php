@@ -26,6 +26,7 @@ use App\Http\Controllers\Empleados\EviarEmpleadoRodi;
 use App\Http\Controllers\Empleados\LaboralesController;
 use App\Http\Controllers\Empleados\MedicalInfoController;
 use App\Http\Controllers\Empleados\MensajeriaController;
+use App\Http\Controllers\Empleados\IncidenciasController;
 use App\Http\Controllers\Empleados\NotificacionController;
 use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
@@ -136,6 +137,9 @@ Route::middleware(['api'])->group(function () {
     Route::post('/empleados/registro_prenomina', [LaboralesController::class, 'guardarPrenomina']);
     Route::get('/empleados/obtener_prenomina_masiva_ultima', [LaboralesController::class, 'empleadosMasivoPrenomina']);
     Route::post('/empleados/registro_prenomina_masiva', [LaboralesController::class, 'guardarPrenominaMasiva']);
+    // Incidencias pre nomina 
+    Route::post('/incidencias/preview', [IncidenciasController::class, 'preview']);
+
 
     //***************  Fin para  los  laborales del empleado ********************/
 
@@ -179,6 +183,11 @@ Route::middleware(['api'])->group(function () {
     Route::post  ('/politicas-asistencia',            [PoliticasAsistenciaController::class, 'store']);
     Route::put   ('/politicas-asistencia/{id}',       [PoliticasAsistenciaController::class, 'update']);
     Route::delete('/politicas-asistencia/{id}',       [PoliticasAsistenciaController::class, 'destroy']);
+    // Festivos por política
+    Route::get   ('/politicas-asistencia/{id}/festivos',[PoliticasAsistenciaController::class, 'listHolidays']);
+    Route::post  ('/politicas-asistencia/{id}/festivos',[PoliticasAsistenciaController::class, 'saveHolidays']);
+    Route::delete('/politicas-asistencia/{id}/festivos/{festivoId}',
+    [PoliticasAsistenciaController::class, 'destroyHoliday']);
 
     //***************  Fin Politicas Asitencia  ****************/
 

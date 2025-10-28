@@ -5,76 +5,22 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 class PoliticaAsistencia extends Model
 {
-    /** Nombre de la tabla */
     protected $table = 'politica_asistencia';
     protected $connection = 'portal_main';
-
-    /** PK */
     protected $primaryKey = 'id';
 
-    /** Timestamps personalizados */
     const CREATED_AT = 'creado_en';
     const UPDATED_AT = 'actualizado_en';
 
-    /** Asignación masiva */
-    protected $fillable = [
-        'id_portal',
-        'id_cliente',
-        'nombre',
+    // ===== Constantes útiles =====
+    public const SCOPE_PORTAL   = 'PORTAL';
+    public const SCOPE_SUCURSAL = 'SUCURSAL';
+    public const SCOPE_EMPLEADO = 'EMPLEADO';
 
-        // Horario base
-        'hora_entrada',
-        'hora_salida',
-        'trabaja_sabado',
-        'trabaja_domingo',
-
-        // Retardos y faltas
-        'tolerancia_minutos',
-        'retardos_por_falta',
-        'contar_salida_temprano',
-
-        // Descuentos
-        'descuento_retardo_modo',
-        'descuento_retardo_valor',
-        'descuento_falta_modo',
-        'descuento_falta_valor',
-
-        // Horas extra
-        'calcular_extras',
-        'criterio_extra',
-        'horas_dia_empleado',
-        'minutos_gracia_extra',
-        'tope_horas_extra',
-
-        // Metadatos
-        'estado',
-    ];
-
-    /** Conversión de tipos */
-    protected $casts = [
-        'id_portal'               => 'integer',
-        'id_cliente'              => 'integer',
-        'trabaja_sabado'          => 'boolean',
-        'trabaja_domingo'         => 'boolean',
-        'tolerancia_minutos'      => 'integer',
-        'retardos_por_falta'      => 'integer',
-        'contar_salida_temprano'  => 'boolean',
-
-        'descuento_retardo_valor' => 'decimal:2',
-        'descuento_falta_valor'   => 'decimal:2',
-
-        'calcular_extras'         => 'boolean',
-        'horas_dia_empleado'      => 'decimal:2',
-        'minutos_gracia_extra'    => 'integer',
-        'tope_horas_extra'        => 'decimal:2',
-
-        // 'hora_entrada' y 'hora_salida' las dejamos como string (TIME en MySQL)
-    ];
-
-    /** Constantes de enumeración */
     public const ESTADO_BORRADOR  = 'borrador';
     public const ESTADO_PUBLICADA = 'publicada';
 
@@ -86,103 +32,183 @@ class PoliticaAsistencia extends Model
     public const FALTA_PORCENTAJE    = 'porcentaje_dia';
     public const FALTA_FIJO          = 'fijo';
 
-    public const EXTRA_SOBRE_SALIDA    = 'sobre_salida';
-    public const EXTRA_SOBRE_HORAS_DIA  = 'sobre_horas_dia';
+    public const EXTRA_SOBRE_SALIDA   = 'sobre_salida';
+    public const EXTRA_SOBRE_HORAS_DIA = 'sobre_horas_dia';
 
-    /* ===========================
-     * Relaciones (opcionales)
-     * =========================== */
+    protected $fillable = [
+        // Tenancy / alcance básico (incluye legado: id_cliente, id_empleado único)
+        'id_portal','id_cliente','id_empleado','scope',
+        // Identidad / vigencia
+        'nombre','vigente_desde','vigente_hasta','timezone',
+        // Jornada
+        'hora_entrada','hora_salida','trabaja_sabado','trabaja_domingo',
+        // Retardos / faltas
+        'tolerancia_minutos','retardos_por_falta','contar_salida_temprano',
+        'descuento_retardo_modo','descuento_retardo_valor',
+        'descuento_falta_modo','descuento_falta_valor',
+        'usar_descuento_falta_laboral',
+        // Extras
+        'calcular_extras','criterio_extra','horas_dia_empleado',
+        'minutos_gracia_extra','tope_horas_extra',
+        // JSON / estado
+        'horario_json','reglas_json','estado',
+    ];
 
-    // Si tienes modelos Portal / Cliente(Sucursal), descomenta y ajusta:
-    // public function portal(){ return $this->belongsTo(Portal::class, 'id_portal'); }
-    // public function sucursal(){ return $this->belongsTo(Cliente::class, 'id_cliente'); }
+    protected $casts = [
+        'id_portal' => 'integer',
+        'id_cliente' => 'integer',
+        'trabaja_sabado' => 'boolean',
+        'trabaja_domingo' => 'boolean',
+        'tolerancia_minutos' => 'integer',
+        'retardos_por_falta' => 'integer',
+        'contar_salida_temprano' => 'boolean',
+        'descuento_retardo_valor' => 'decimal:2',
+        'descuento_falta_valor' => 'decimal:2',
+        'usar_descuento_falta_laboral' => 'boolean',
+        'calcular_extras' => 'boolean',
+        'horas_dia_empleado' => 'decimal:2',
+        'minutos_gracia_extra' => 'integer',
+        'tope_horas_extra' => 'decimal:2',
+        'vigente_desde' => 'date',
+        'vigente_hasta' => 'date',
+    ];
 
-    /* ===========================
-     * Scopes útiles
-     * =========================== */
+    /* ============================================================
+     *  Relaciones (opcional: actívalas si tienes los modelos)
+     * ============================================================ */
+    /*
+    public function empleados()
+    {
+        return $this->belongsToMany(
+            \App\Models\Empleado::class,
+            'politica_asistencia_empleado',
+            'id_politica_asistencia',
+            'id_empleado'
+        )->usingConnection($this->getConnectionName());
+    }
 
-    /** Políticas del portal */
+    public function clientes()
+    {
+        return $this->belongsToMany(
+            \App\Models\Cliente::class,
+            'politica_asistencia_cliente',
+            'id_politica_asistencia',
+            'id_cliente'
+        )->usingConnection($this->getConnectionName());
+    }
+    */
+
+    // Referencia simple (legado)
+    // public function cliente(){ return $this->belongsTo(\App\Models\Cliente::class, 'id_cliente'); }
+
+    /* ============================================================
+     *  Scopes básicos
+     * ============================================================ */
     public function scopeDelPortal(Builder $q, int $idPortal): Builder
     {
         return $q->where('id_portal', $idPortal);
     }
 
-    /** Publicadas */
     public function scopePublicadas(Builder $q): Builder
     {
         return $q->where('estado', self::ESTADO_PUBLICADA);
     }
 
-    /** Por sucursal (id_cliente) o globales (NULL) */
-    public function scopeParaSucursalOGlobal(Builder $q, ?int $idCliente): Builder
-    {
-        return $q->where(function ($qq) use ($idCliente) {
-            $qq->where('id_cliente', $idCliente)
-               ->orWhereNull('id_cliente');
-        });
-    }
-
-    /** Exactamente para sucursal */
     public function scopeDeSucursal(Builder $q, int $idCliente): Builder
     {
         return $q->where('id_cliente', $idCliente);
     }
 
-    /** Global (id_cliente NULL) */
     public function scopeGlobal(Builder $q): Builder
     {
         return $q->whereNull('id_cliente');
     }
 
-    /* ===========================
-     * Resolución de política efectiva (estática)
-     * Prioridad: empleado -> sucursal -> portal (global)
-     * =========================== */
+    /* ============================================================
+     *  Helpers de pivotes (sin modelos relacionados)
+     *  — garantizan usar la conexión 'portal_main'
+     * ============================================================ */
 
     /**
-     * Resuelve la política efectiva para un empleado dado.
-     *
-     * @param int $idPortal
-     * @param int|null $idCliente  Sucursal del empleado (id_cliente)
-     * @param int|null $idPoliticaEmpleado  Si el empleado tiene política específica (columna empleado.id_politica)
-     * @return PoliticaAsistencia|null
+     * Sincroniza los ids de empleados en la tabla pivote.
+     * Acepta strings/ints; normaliza a string (como viene del front).
      */
-    public static function resolverParaEmpleado(
-        int $idPortal,
-        ?int $idCliente,
-        ?int $idPoliticaEmpleado
-    ): ?self {
-        // 1) Si el empleado tiene política específica y está publicada
-        if ($idPoliticaEmpleado) {
-            $empPolicy = static::query()
-                ->delPortal($idPortal)
-                ->where('id', $idPoliticaEmpleado)
-                ->publicadas()
-                ->first();
-            if ($empPolicy) {
-                return $empPolicy;
-            }
+    public function syncEmpleados(array $ids): void
+    {
+        $ids = array_values(array_unique(array_map('strval', $ids)));
+        $conn = DB::connection($this->getConnectionName());
+
+        $conn->table('politica_asistencia_empleado')
+            ->where('id_politica_asistencia', $this->id)
+            ->delete();
+
+        if (!empty($ids)) {
+            $conn->table('politica_asistencia_empleado')->insert(
+                array_map(fn($eid) => [
+                    'id_politica_asistencia' => $this->id,
+                    'id_empleado'            => $eid,
+                ], $ids)
+            );
+        }
+    }
+
+    /**
+     * Sincroniza los ids de clientes (sucursales) en la tabla pivote.
+     */
+    public function syncClientes(array $ids): void
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        $conn = DB::connection($this->getConnectionName());
+
+        $conn->table('politica_asistencia_cliente')
+            ->where('id_politica_asistencia', $this->id)
+            ->delete();
+
+        if (!empty($ids)) {
+            $conn->table('politica_asistencia_cliente')->insert(
+                array_map(fn($cid) => [
+                    'id_politica_asistencia' => $this->id,
+                    'id_cliente'             => $cid,
+                ], $ids)
+            );
+        }
+    }
+
+    /**
+     * Sincroniza alcance completo según scope:
+     *  - EMPLEADO  => ids_empleados (pivote) y limpia clientes
+     *  - SUCURSAL  => ids_clientes (pivote) y limpia empleados
+     *  - PORTAL    => limpia ambos
+     *
+     * @param string $scope One of PORTAL|SUCURSAL|EMPLEADO
+     * @param array $idsEmpleados
+     * @param array $idsClientes
+     */
+    public function syncAlcance(string $scope, array $idsEmpleados = [], array $idsClientes = []): void
+    {
+        if ($scope === self::SCOPE_EMPLEADO) {
+            $this->syncEmpleados($idsEmpleados);
+            $this->syncClientes([]); // limpia
+            // opcional: almacenar id_empleado legado cuando solo venga 1
+            $this->id_empleado = count($idsEmpleados) === 1 ? (string)$idsEmpleados[0] : null;
+            $this->id_cliente  = null;
+            $this->scope       = self::SCOPE_EMPLEADO;
+        } elseif ($scope === self::SCOPE_SUCURSAL) {
+            $this->syncClientes($idsClientes);
+            $this->syncEmpleados([]); // limpia
+            // opcional: id_cliente legado cuando solo venga 1
+            $this->id_cliente  = count($idsClientes) === 1 ? (int)$idsClientes[0] : null;
+            $this->id_empleado = null;
+            $this->scope       = self::SCOPE_SUCURSAL;
+        } else { // PORTAL
+            $this->syncEmpleados([]);
+            $this->syncClientes([]);
+            $this->id_empleado = null;
+            $this->id_cliente  = null;
+            $this->scope       = self::SCOPE_PORTAL;
         }
 
-        // 2) Buscar por sucursal (id_cliente) publicada más reciente
-        if ($idCliente) {
-            $byBranch = static::query()
-                ->delPortal($idPortal)
-                ->deSucursal($idCliente)
-                ->publicadas()
-                ->orderByDesc('actualizado_en')
-                ->first();
-            if ($byBranch) {
-                return $byBranch;
-            }
-        }
-
-        // 3) Global del portal (id_cliente NULL) publicada más reciente
-        return static::query()
-            ->delPortal($idPortal)
-            ->global()
-            ->publicadas()
-            ->orderByDesc('actualizado_en')
-            ->first();
+        // guarda los campos de “legado”/scope si cambiaron
+        $this->save();
     }
 }
