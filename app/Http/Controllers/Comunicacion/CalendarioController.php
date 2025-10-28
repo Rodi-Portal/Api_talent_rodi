@@ -6,7 +6,9 @@ use App\Models\CalendarioEvento;
 use App\Models\ClienteTalent;
 use App\Models\Empleado;
 use App\Models\EventosOption;
+use App\Services\Asistencia\AsistenciaServicio;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Response;
 
 class CalendarioController extends Controller
@@ -324,16 +326,37 @@ class CalendarioController extends Controller
 
     public function eliminarEvento($id)
     {
-        $evento = CalendarioEvento::findOrFail($id);
+        $CONN = 'portal_main';
 
-        // Solo marca como eliminado
+        // 1) Soft delete del evento
+        $evento            = \App\Models\CalendarioEvento::findOrFail($id);
         $evento->eliminado = 1;
         $evento->save();
 
-        // *** LÓGICA PARA PRENÓMINA ***
+        // 2) Compensación + re-evaluación de asistencia
+        try {
+            /** @var AsistenciaServicio $svc */
+            $svc = app(AsistenciaServicio::class)->withConnection($CONN);
+
+            // Esto:
+            // - Si el evento eliminado era Falta → inserta IN/OUT a horas de política y re-evalúa
+            // - Si era Retardo → asegura IN a hora de entrada y re-evalúa
+            // - Si era Salida anticipada → asegura OUT a hora de salida y re-evalúa
+            // - Limpia eventos auto (Falta/Retardo/Salida) del día y vuelve a calcular
+            $svc->handleCalendarEventDeletion((int) $evento->id);
+
+        } catch (\Throwable $e) {
+            Log::error('[Calendario] Error en compensación post-delete', [
+                'evento_id' => $id,
+                'msg'       => $e->getMessage(),
+            ]);
+            // No interrumpimos la respuesta; el evento ya se borró.
+        }
+
+        // 3) (Opcional) Prenómina — tu lógica de siempre.
         /*
     if ($evento->id_periodo_nomina && in_array((int) $evento->id_tipo, [1, 4])) {
-        // Aquí irá la lógica para actualizar prenómina y laborales
+        // actualizar prenómina/laborales aquí…
     }
     */
 

@@ -394,8 +394,8 @@ class ChecadasController extends Controller
         // nombre completo
         if ($has('nombre_completo')) {
             $nombreExpr = 'nombre_completo';
-        } elseif ($has('nombres') || $has('paterno') || $has('materno')) {
-            $n          = $has('nombres') ? 'nombres' : "''";
+        } elseif ($has('nombre') || $has('paterno') || $has('materno')) {
+            $n          = $has('nombre') ? 'nombre' : "''";
             $ap         = $has('paterno') ? 'paterno' : "''";
             $am         = $has('materno') ? 'materno' : "''";
             $nombreExpr = DB::raw("CONCAT_WS(' ', $n, $ap, $am) as nombre_completo");
