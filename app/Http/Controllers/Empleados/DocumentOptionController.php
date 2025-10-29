@@ -869,7 +869,7 @@ class DocumentOptionController extends Controller
         // Devolver los documentos
         return response()->json(['documentos' => $documentosConOpciones], 200);
     }
-
+/*
     public function updateDocuments(Request $request, $id)
     {
         Log::info('🔁 Entró a updateDocuments', [
@@ -999,7 +999,144 @@ class DocumentOptionController extends Controller
         Log::info("✅ Documento actualizado correctamente", ['id' => $id]);
 
         return response()->json(['message' => 'Documento actualizado correctamente.'], 200);
+    }*/
+ public function updateDocuments(Request $request, $id)
+{
+    Log::info('🔁 Entró a updateDocuments', [
+        'id'      => $id,
+        'request' => $request->all(),
+    ]);
+
+    if (count($request->except(['id', '_method'])) === 0) {
+        Log::warning('⚠️ No se enviaron datos útiles');
+        return response()->json(['message' => 'No se enviaron datos, considera eliminar el documento.'], 400);
     }
+
+    $carpeta     = (string) $request->input('carpeta');
+    $docAnterior = (string) $request->input('doc_anterior');
+    /** @var \Illuminate\Http\UploadedFile|null $file */
+    $file        = $request->file('file');
+
+    // Mapeos de carpeta -> modelo / tabla de opciones
+    $mapaCarpetas = [
+        '_documentEmpleado' => \App\Models\DocumentEmpleado::class,
+        '_cursos'           => \App\Models\CursoEmpleado::class,
+        '_examEmpleado'     => \App\Models\ExamEmpleado::class,
+    ];
+    $carpetaATabla = [
+        '_documentEmpleado' => 'documentos',
+        '_examEmpleado'     => 'examenes',
+        '_cursos'           => 'cursos',
+    ];
+
+    $modelClass = $mapaCarpetas[$carpeta] ?? null;
+    if (!$modelClass) {
+        Log::error("❌ Carpeta no reconocida: [$carpeta]");
+        return response()->json(['message' => 'Carpeta no reconocida.'], 400);
+    }
+
+    /** @var \Illuminate\Database\Eloquent\Model $document */
+    $document = $modelClass::find($id);
+    if (!$document) {
+        Log::error("❌ Documento no encontrado en modelo [$modelClass] con ID [$id]");
+        return response()->json(['message' => 'Documento no encontrado.'], 404);
+    }
+
+    // Normalizar nombres/extensiones
+    $docAnteriorBase = $docAnterior ? basename($docAnterior) : '';
+    $originalBase    = $docAnteriorBase !== '' ? $docAnteriorBase : (basename((string)$document->name) ?: '');
+    $originalExt     = strtolower(pathinfo($originalBase, PATHINFO_EXTENSION));
+    $baseNoExt       = $originalBase !== '' ? pathinfo($originalBase, PATHINFO_FILENAME) : null;
+
+    // === Subida con backup (NO eliminar previo) ===
+    if ($file) {
+        $incomingExt = strtolower($file->getClientOriginalExtension() ?: '');
+
+        // Decidir nombre final de destino segun extensiones y marcadores
+        if ($originalBase === '') {
+            // No había nombre previo: genera uno usando la extensión real del archivo entrante
+            $nuevoNombre = time() . '_' . uniqid() . ($incomingExt ? ".{$incomingExt}" : '');
+            Log::info("🆕 No había nombre previo; se genera nuevo con ext real: {$nuevoNombre}");
+        } else {
+            if (str_contains($originalBase, '_sin_') || $originalExt === '') {
+                // Evitar perpetuar _sin_ o sin extensión: generar nombre limpio con ext real
+                $nuevoNombre = ($baseNoExt ?: time().'_'.uniqid()) . ($incomingExt ? ".{$incomingExt}" : '');
+                Log::info("✏️ Ajuste por '_sin_'/sin ext; nuevo nombre: {$nuevoNombre}");
+            } else {
+                if ($originalExt === $incomingExt) {
+                    // Misma extensión (incluye PDF→PDF): conservar el mismo nombre
+                    $nuevoNombre = $originalBase;
+                    Log::info("📎 Misma extensión (.{$originalExt}); se conserva el nombre: {$nuevoNombre}");
+                } else {
+                    // Extensión cambió: ajustar nombre para que coincida con el tipo real subido
+                    $nuevoNombre = ($baseNoExt ?: time().'_'.uniqid()) . ($incomingExt ? ".{$incomingExt}" : '');
+                    Log::info("🔄 Extensión cambió de .{$originalExt} a .{$incomingExt}; nuevo nombre: {$nuevoNombre}");
+                }
+            }
+        }
+
+        // Subir (backup + overwrite del nombre final)
+        Log::info("📥 Subiendo nuevo archivo: {$nuevoNombre}");
+        $uploadReq = new Request([
+            'file_name' => $nuevoNombre,
+            'carpeta'   => $carpeta,
+        ]);
+        $uploadReq->files->set('file', $file);
+
+        $uploadResponse = app(DocumentController::class)->upload($uploadReq);
+        if ($uploadResponse->getStatusCode() !== 200) {
+            Log::error("❌ Falló la carga del archivo nuevo.");
+            return $uploadResponse; // retorna JSON de error de upload()
+        }
+
+        // Guardar el nombre final en BD (por si la extensión cambió)
+        $document->name = $nuevoNombre;
+    } else {
+        // Sin archivo entrante: conservar explícito si llegó doc_anterior; si no, dejar el actual
+        if ($docAnteriorBase !== '') {
+            Log::info("📎 Sin archivo; se conserva el documento anterior: {$docAnteriorBase}");
+            $document->name = $docAnteriorBase;
+        }
+    }
+
+    // === Tipo de documento: id_opcion / nameDocument ===
+    if ($request->filled('name') && isset($carpetaATabla[$carpeta])) {
+        $name      = (string) $request->input('name');
+        $id_portal = $request->input('id_portal');
+        $tabla     = $carpetaATabla[$carpeta];
+
+        $response = $this->buscar_insertar_opcion(new Request([
+            'id_portal' => $id_portal,
+            'name'      => $name,
+            'tabla'     => $tabla,
+        ]));
+        $data = json_decode($response->getContent(), true);
+        Log::info("🚀 Respuesta de buscar_insertar_opcion:", $data);
+
+        if (isset($data['id_opciones'])) {
+            $document->id_opcion    = $data['id_opciones'];
+            $document->nameDocument = null;
+            Log::info("📝 Se asignó id_opcion = {$data['id_opciones']} y se limpió nameDocument");
+        } else {
+            $document->nameDocument = $name;
+            Log::info("📝 No se encontró opción, se asignó nameDocument = {$name}");
+        }
+    }
+
+    // === Campos adicionales ===
+    foreach (['expiry_date', 'expiry_reminder', 'status', 'description'] as $field) {
+        if ($request->filled($field)) {
+            $document->$field = $request->input($field);
+            Log::info("📝 Campo actualizado [{$field}]: {$document->$field}");
+        }
+    }
+
+    $document->save();
+    Log::info("✅ Documento actualizado correctamente", ['id' => $id]);
+
+    return response()->json(['message' => 'Documento actualizado correctamente.'], 200);
+}
+
 
     public function deleteDocument(Request $request)
     {
