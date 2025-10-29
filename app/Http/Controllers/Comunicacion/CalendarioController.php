@@ -56,90 +56,68 @@ class CalendarioController extends Controller
 
     public function getEventosPorClientes(Request $request)
     {
-        /*\Log::info('[getEventosPorClientes] FULL REQUEST', [
-            'all'               => $request->all(),
-            'query'             => $request->query(),
-            'input_id_cliente'  => $request->input('id_cliente'),
-            'input_id_empleado' => $request->input('id_empleado'),
-        ]); */
+                                           // --- Lee rango (end exclusivo por convención de calendar) ---
+        $start = $request->input('start'); // "YYYY-MM-DD HH:MM:SS" o "YYYY-MM-DD"
+        $end   = $request->input('end');
 
-        // 1. Procesar por id_empleado SOLO si existe la clave (aunque sea vacío)
+        // Normaliza a DateTime si vienen en formato solo-fecha
+        if ($start && preg_match('/^\d{4}-\d{2}-\d{2}$/', $start)) {
+            $start .= ' 00:00:00';
+        }
+
+        if ($end && preg_match('/^\d{4}-\d{2}-\d{2}$/', $end)) {
+            $end .= ' 00:00:00';
+        }
+
+        // Construye query base según filtros de empleado/cliente
+        $query = CalendarioEvento::with('tipo')->where('eliminado', 0);
+
         if ($request->has('id_empleado')) {
-            $id_empleados = $request->input('id_empleado');
-            if (is_string($id_empleados)) {
-                $id_empleados = explode(',', $id_empleados);
-            }
-            if (! is_array($id_empleados)) {
-                $id_empleados = [$id_empleados];
-            }
-
-            $id_empleados = array_filter($id_empleados);
-
-            //\Log::info('[getEventosPorClientes] Filtrando por id_empleado:', $id_empleados);
-
-            if (! empty($id_empleados)) {
-                $eventos = CalendarioEvento::with('tipo')
-                    ->whereIn('id_empleado', $id_empleados)
-                    ->get();
-            } else {
-                $eventos = collect();
-            }
+            $ids = $request->input('id_empleado');
+            if (is_string($ids)) {$ids = explode(',', $ids);}
+            if (! is_array($ids)) {$ids = [$ids];}
+            $ids = array_filter($ids);
+            $query->whereIn('id_empleado', $ids ?: [-1]); // evita todo si vacío
         } else {
-            // 2. Si no hay id_empleado, procesar por id_cliente
-            $id_clientes = $request->input('id_cliente');
-            if (is_string($id_clientes)) {
-                $id_clientes = explode(',', $id_clientes);
-            }
-            if (! is_array($id_clientes)) {
-                $id_clientes = [$id_clientes];
-            }
+            $cli = $request->input('id_cliente');
+            if (is_string($cli)) {$cli = explode(',', $cli);}
+            if (! is_array($cli)) {$cli = [$cli];}
+            $cli = array_filter($cli);
 
-            $id_clientes = array_filter($id_clientes);
-
-            // \Log::info('[getEventosPorClientes] Filtrando por id_cliente:', $id_clientes);
-
-            if (! empty($id_clientes)) {
-                $empleadosIds = Empleado::whereIn('id_cliente', $id_clientes)->pluck('id');
-                // \Log::info('[getEventosPorClientes] IDs de empleados encontrados:', $empleadosIds->toArray());
-
+            if (! empty($cli)) {
+                $empleadosIds = Empleado::whereIn('id_cliente', $cli)->pluck('id');
                 if ($empleadosIds->isEmpty()) {
-                    // \Log::warning('[getEventosPorClientes] No se encontraron empleados para los clientes indicados');
-                    $eventos = collect();
-                } else {
-                    $eventos = CalendarioEvento::with('tipo')
-                        ->whereIn('id_empleado', $empleadosIds)
-                        ->where('eliminado', 0)
-                        ->get();
+                    return response()->json(['eventos' => []]);
                 }
+                $query->whereIn('id_empleado', $empleadosIds);
             } else {
-                // \Log::warning('[getEventosPorClientes] id_clientes vacío o no es array');
-                $eventos = collect();
+                // si no hay ni empleado ni cliente -> sin resultados
+                return response()->json(['eventos' => []]);
             }
         }
 
-        // \Log::info('[getEventosPorClientes] Total de eventos encontrados:', ['count' => $eventos->count()]);
-        if ($eventos->count()) {
-            // \Log::info('[getEventosPorClientes] PRIMER EVENTO RAW:', $eventos->first()->toArray());
+        // --- Filtro por rango (usa tu índice idx_eliminado_rango e idx_emp_rango) ---
+        if ($start && $end) {
+            // Intersección: inicio < end_exclusivo  AND  fin > start_inclusivo
+            $query->where('inicio', '<', $end)
+                ->where('fin', '>', $start);
         }
+
+        // Ordena para aprovechar índice compuesto
+        $eventos = $query->orderBy('id_empleado')->orderBy('inicio')->limit(2000)->get();
 
         $result = $eventos->map(function ($evento) {
-            // Toma el empleado relacionado y concatena los campos si existen
             $empleado       = $evento->empleado;
-            $nombreCompleto = '';
-            if ($empleado) {
-                $nombreCompleto = trim(
-                    ($empleado->nombre ?? '') . ' ' .
-                    ($empleado->paterno ?? '') . ' ' .
-                    ($empleado->materno ?? '')
-                );
-            }
+            $nombreCompleto = $empleado
+                ? trim(($empleado->nombre ?? '') . ' ' . ($empleado->paterno ?? '') . ' ' . ($empleado->materno ?? ''))
+                : '';
 
             return [
                 'id'              => $evento->id,
                 'title'           => $evento->tipo->name ?? 'Evento',
                 'tipo_evento'     => $evento->tipo->name ?? 'evento',
-                'start'           => $evento->inicio,
-                'end'             => $evento->fin,
+                'start'           => $evento->inicio, // FECHA INICIO (inclusiva)
+                'end'             => $evento->fin,    // FECHA FIN (inclusiva en BD)
                 'backgroundColor' => $evento->tipo->color ?? '#a78bfa',
                 'descripcion'     => $evento->descripcion,
                 'archivo'         => $evento->archivo,
@@ -148,8 +126,6 @@ class CalendarioController extends Controller
                 'id_periodo'      => $evento->id_periodo_nomina,
             ];
         });
-
-        //  \Log::info('[getEventosPorClientes] Primer evento mapeado:', $result->all() ?? []);
 
         return response()->json(['eventos' => $result]);
     }
