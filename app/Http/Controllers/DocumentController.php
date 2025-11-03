@@ -27,7 +27,7 @@ class DocumentController extends Controller
         // === Validación ===
         try {
             $request->validate([
-                'file'      => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
+                'file'      => 'required|file|mimes:pdf,jpg,jpeg,png|max:15360',
                 'file_name' => 'required|string',
                 'carpeta'   => 'nullable|string',
             ]);
