@@ -1016,8 +1016,8 @@ class DocumentOptionController extends Controller
             'name'            => ['nullable', 'string', 'max:255'],
             'description'     => ['nullable', 'string', 'max:2000'],
             'expiry_date'     => ['nullable', 'date'],
-            'expiry_reminder' => ['nullable'], // puede ser "0"
-            'status'          => ['nullable'], // puede ser "0"
+            'expiry_reminder' => ['nullable'],   // puede ser "0"
+            'status'          => ['nullable'],   // puede ser "0"
             'doc_anterior'    => ['nullable', 'string', 'max:255'],
             'id_portal'       => ['nullable', 'integer'],
             'employee_id'     => ['nullable', 'integer'],
@@ -1025,7 +1025,7 @@ class DocumentOptionController extends Controller
         ]);
 
         // 2) No caer en falso "sin datos"
-        $sinCampos = empty($request->except(['id', '_method'])) && ! $request->hasFile('file');
+        $sinCampos = empty($request->except(['id','_method'])) && !$request->hasFile('file');
         if ($sinCampos) {
             Log::warning('⚠️ No se enviaron datos útiles (sin campos ni archivo)');
             return response()->json(['message' => 'No se enviaron datos, considera eliminar el documento.'], 400);
@@ -1036,7 +1036,7 @@ class DocumentOptionController extends Controller
         /** @var \Illuminate\Http\UploadedFile|null $file */
         $file = $request->file('file');
 
-        // 3) Mapas de carpeta → modelo / tabla
+        // 3) Mapa carpeta → modelo / tabla opciones
         $mapaCarpetas = [
             '_documentEmpleado' => \App\Models\DocumentEmpleado::class,
             '_cursos'           => \App\Models\CursoEmpleado::class,
@@ -1049,38 +1049,36 @@ class DocumentOptionController extends Controller
         ];
 
         $modelClass = $mapaCarpetas[$carpeta] ?? null;
-        if (! $modelClass) {
+        if (!$modelClass) {
             Log::error("❌ Carpeta no reconocida: [$carpeta]");
             return response()->json(['message' => 'Carpeta no reconocida.'], 400);
         }
 
         /** @var \Illuminate\Database\Eloquent\Model $document */
         $document = $modelClass::find($id);
-        if (! $document) {
+        if (!$document) {
             Log::error("❌ Documento no encontrado en modelo [$modelClass] con ID [$id]");
             return response()->json(['message' => 'Documento no encontrado.'], 404);
         }
 
         DB::beginTransaction();
         try {
-            // 4) Nombres previos (solo por si no llega archivo)
+            $input           = $request->all();
             $docAnteriorBase = $docAnterior ? basename($docAnterior) : '';
+            $publicUrl       = null;
 
-            // 5) SI LLEGA ARCHIVO → nombre nuevo + upload + update name en BD
-            $publicUrl = null;
+            // 4) ARCHIVO: si llega, generar NOMBRE NUEVO y subir
             if ($file) {
                 $ext   = strtolower($file->getClientOriginalExtension() ?: 'bin');
-                $empId = (string) ($request->input('employee_id') ?? $document->employee_id ?? 'emp');
-                $tipo  = (string) ($request->input('name') ?? $document->nameDocument ?? 'documento');
+                $empId = (string) ($input['employee_id'] ?? $document->employee_id ?? 'emp');
+                $tipo  = (string) ($input['name'] ?? $document->nameDocument ?? 'documento');
                 $slug  = Str::slug(str_replace('_sin_', '', $tipo), '-') ?: 'doc';
                 $stamp = date('YmdHis');
                 $rand  = substr(sha1(uniqid('', true)), 0, 6);
 
-                // ⚠️ Nombre siempre NUEVO cuando hay archivo
                 $nuevoNombre = "EMP{$empId}_{$slug}_{$stamp}_{$rand}.{$ext}";
                 Log::info("🆕 Generado nombre NUEVO: {$nuevoNombre}");
 
-                // Usa tu controlador de upload (ya hace backup y coloca en destino)
                 $uploadReq = new Request([
                     'file_name' => $nuevoNombre,
                     'carpeta'   => $carpeta,
@@ -1091,30 +1089,28 @@ class DocumentOptionController extends Controller
                 if ($uploadResp->getStatusCode() !== 200) {
                     Log::error("❌ Falló la carga del archivo nuevo (upload).");
                     DB::rollBack();
-                    return $uploadResp; // devuelve el error del upload
+                    return $uploadResp;
                 }
 
-                // Intenta extraer publicUrl de la respuesta (si lo devuelve)
                 $uploadData = json_decode($uploadResp->getContent(), true);
                 if (is_array($uploadData) && isset($uploadData['publicUrl'])) {
                     $publicUrl = $uploadData['publicUrl'];
                 }
 
-                // Persistir SIEMPRE el nuevo nombre
                 $document->name = $nuevoNombre;
 
             } else {
-                // 6) SIN archivo → conservar el anterior si viene explícito
+                // Sin archivo: conserva doc_anterior si lo envían
                 if ($docAnteriorBase !== '') {
                     Log::info("📎 Sin archivo; se conserva doc_anterior: {$docAnteriorBase}");
                     $document->name = $docAnteriorBase;
                 }
             }
 
-            // 7) Tipo de documento (id_opcion / nameDocument)
-            if ($request->has('name') && isset($carpetaATabla[$carpeta])) {
-                $name      = (string) $request->input('name', '');
-                $id_portal = $request->input('id_portal');
+            // 5) Tipo de documento (id_opcion / nameDocument) — permite vaciar
+            if (array_key_exists('name', $input) && isset($carpetaATabla[$carpeta])) {
+                $name      = (string) ($input['name'] ?? '');
+                $id_portal = $input['id_portal'] ?? null;
                 $tabla     = $carpetaATabla[$carpeta];
 
                 $resp = $this->buscar_insertar_opcion(new Request([
@@ -1130,41 +1126,73 @@ class DocumentOptionController extends Controller
                     $document->nameDocument = null;
                     Log::info("📝 id_opcion={$data['id_opciones']} / nameDocument=null");
                 } else {
-                    $document->nameDocument = $name !== '' ? $name : null;
+                    $document->nameDocument = ($name !== '') ? $name : null;
                     Log::info("📝 nameDocument={$document->nameDocument}");
                 }
             }
 
-            // 8) Campos extra (usar has() para aceptar "0"; normalizar "" → null)
-            $table = $document->getTable();
-            $metas = ['expiry_date', 'expiry_reminder', 'status', 'description', 'employee_id']; // ← sin id_portal
+            // 6) Metadatos (sin id_portal) — usar conexión del modelo para Schema
+            $table      = $document->getTable();
+            $conn       = $document->getConnectionName() ?: config('database.default');
+            $schemaConn = Schema::connection($conn);
 
-            foreach ($metas as $field) {
-                if ($request->has($field)) {
-                    if (Schema::hasColumn($table, $field)) {
-                        $val = $request->input($field);
-                        if ($val === '') {
-                            $val = null;
-                        }
-                        // normaliza vacío
-                        $document->$field = $val;
-                        Log::info("📝 Meta actualizado [{$field}] en {$table}: " . var_export($val, true));
-                    } else {
-                        Log::warning("⚠️ Meta [{$field}] NO existe en {$table}; se omite.");
+            // campos lógicos que aceptas en el request
+            $metasLogicos = ['expiry_date','expiry_reminder','status','description','employee_id'];
+
+            // posibles alias por si cambia el nombre en DB (description ya existe en tu fillable)
+            $alias = [
+                'description'     => ['description','descripcion','notes','observaciones'],
+                'expiry_date'     => ['expiry_date','fecha_expira','fecha_vencimiento'],
+                'expiry_reminder' => ['expiry_reminder','recordatorio','dias_aviso'],
+                'status'          => ['status','estado','estatus'],
+                'employee_id'     => ['employee_id','id_empleado'],
+            ];
+
+            foreach ($metasLogicos as $logical) {
+                if (!array_key_exists($logical, $input)) {
+                    continue; // no vino ese campo
+                }
+
+                // Normaliza valor (permite vaciar)
+                $val = $input[$logical];
+                if ($val === '' || $val === null) {
+                    $val = null;
+                }
+
+                // Encuentra columna real (primer alias que exista en ESTA conexión)
+                $posibles = $alias[$logical] ?? [$logical];
+                $colname  = null;
+                foreach ($posibles as $cand) {
+                    if ($schemaConn->hasColumn($table, $cand)) {
+                        $colname = $cand;
+                        break;
                     }
+                }
+
+                if ($colname) {
+                    // casteo simple para status/employee_id si vienen string numérico
+                    if (in_array($colname, ['status','employee_id'], true) && $val !== null) {
+                        $val = is_numeric($val) ? (int) $val : $val;
+                    }
+                    $document->setAttribute($colname, $val);
+                    Log::info("📝 Meta actualizado [{$logical}] → [{$colname}] en {$conn}.{$table}: " . var_export($val, true));
+                } else {
+                    Log::warning("⚠️ No hay columna para [{$logical}] en {$conn}.{$table} (probadas: ".implode(',', $posibles).")");
                 }
             }
 
+            // 7) Guardar
+            Log::info('🧾 Cambios detectados', ['changes' => $document->getChanges()]);
             $document->save();
-            DB::commit();
 
+            DB::commit();
             Log::info("✅ Documento actualizado correctamente", ['id' => $id, 'name' => $document->name]);
 
             return response()->json([
                 'message'   => 'Documento actualizado correctamente.',
                 'id'        => (int) $id,
                 'name'      => $document->name,
-                'publicUrl' => $publicUrl, // puede venir null si upload() no lo devuelve
+                'publicUrl' => $publicUrl, // puede ser null si upload() no lo devuelve
             ], 200);
 
         } catch (\Throwable $e) {
@@ -1178,6 +1206,8 @@ class DocumentOptionController extends Controller
             return response()->json(['message' => 'Error al actualizar el documento.'], 500);
         }
     }
+
+
 
     public function deleteDocument(Request $request)
     {
