@@ -33,7 +33,7 @@ class CursosController extends Controller
         $cursos = $cliente->cursos->map(function ($curso) use ($cliente) {
             $estado = $this->getEstadoCurso1($curso->expiry_date);
             return [
-                'curso'            => $curso->name,
+                'curso'            => $curso->nameDocument,
                 'empleado'         => 'ID: ' . $curso->empleado->id_empleado . ' - ' . $curso->empleado->nombre . ' ' . $curso->empleado->paterno . ' ' . $curso->empleado->materno ?? 'Sin asignar',
                 'fecha_expiracion' => $curso->expiry_date,
                 'estado'           => $estado,
