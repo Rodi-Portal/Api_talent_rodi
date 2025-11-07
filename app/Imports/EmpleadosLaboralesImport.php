@@ -3,81 +3,82 @@ namespace App\Imports;
 
 use App\Models\Empleado;
 use App\Models\LaboralesEmpleado;
+use App\Services\SatCatalogosService;
 use Maatwebsite\Excel\Concerns\OnEachRow;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Row;
 
 class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
 {
-    protected $idCliente;
+    protected int $idCliente;
+    protected SatCatalogosService $sat;
 
-    public function __construct($idCliente)
+    public function __construct(int $idCliente, SatCatalogosService $sat)
     {
         $this->idCliente = $idCliente;
+        $this->sat       = $sat;
     }
-    protected $mapTipoContrato = [
-        'Indefinido'                    => 'Indefinido',
-        '1 mes de prueba'               => '1 mes de prueba',
-        '3 meses de prueba'             => '3 meses de prueba',
-        'Contrato por obra determinada' => 'Contrato por obra determinada',
-        'Contrato por temporada'        => 'Contrato por temporada',
-        'Contrato a tiempo parcial'     => 'Contrato a tiempo parcial',
-        'Contrato a tiempo completo'    => 'Contrato a tiempo completo',
-        'Por honorarios'                => 'Por honorarios',
-        'Contratación directa'          => 'Contratación directa',
-        'Contrato de prácticas'         => 'Contrato de prácticas',
-        'Contrato de aprendizaje'       => 'Contrato de aprendizaje',
-        'Contrato de interinidad'       => 'Contrato de interinidad',
-        'Contrato temporal'             => 'Contrato temporal',
-        'Contrato eventual'             => 'Contrato eventual',
-        'Otro'                          => 'Otro',
-    ];
 
-    protected $mapTipoRegimen = [
-        '0'  => 'Ninguno',
-        '1'  => 'Asimilados Acciones',
-        '2'  => 'Asimilados Comisionistas',
-        '3'  => 'Asimilados Honorarios',
-        '4'  => 'Integrantes Soc. Civiles',
-        '5'  => 'Miembros Consejos',
-        '6'  => 'Miembros Coop. Producción',
-        '7'  => 'Otros Asimilados',
-        '8'  => 'Indemnización o Separación',
-        '9'  => 'Jubilados',
-        '10' => 'Jubilados o Pensionados',
-        '11' => 'Otro Régimen',
-        '12' => 'Pensionados',
-        '13' => 'Sueldos y Salarios',
-    ];
+    /** Normaliza strings (minúsculas + trim) o null si viene vacío/“--” */
+    private function norm(?string $v): ?string
+    {
+        if ($v === null) {
+            return null;
+        }
 
-    protected $mapTipoJornada = [
-        'ninguno'  => 'ninguno',
-        'diurna'   => 'diurna',
-        'mixta'    => 'mixta',
-        'nocturna' => 'nocturna',
-        'otra'     => 'otra',
-    ];
+        $t = trim((string) $v);
+        if ($t === '' || $t === '--') {
+            return null;
+        }
 
-    protected $periodicidades = [
-        '01' => 'Diario',
-        '02' => 'Semanal',
-        '03' => 'Quincenal',
-        '04' => 'Mensual',
-        '05' => 'Bimestral',
-        '06' => 'Unidad obra',
-        '07' => 'Comisión',
-        '08' => 'Precio alzado',
-        '09' => 'Otra Periodicidad',
-    ];
+        // normaliza acentos/espacios extra
+        $t = preg_replace('/\s+/u', ' ', $t);
+        return mb_strtolower($t);
+    }
+
+    /** Invierte un mapa clave=>descripcion a descripcion(normalizada)=>clave */
+    private function invert(array $mapClaveDesc): array
+    {
+        $out = [];
+        foreach ($mapClaveDesc as $clave => $desc) {
+            $out[$this->norm($desc)] = $clave;
+        }
+        return $out;
+    }
+
+    /** Devuelve [clave,desc] resolviendo entrada que puede ser clave o descripción */
+    private function resolverClaveYDesc(?string $raw, array $claveDesc, array $descClave): array
+    {
+        $n = $this->norm($raw);
+        if ($n === null) {
+            return [null, null];
+        }
+
+        // 1) Si vino la clave SAT directa (e.g. "04")
+        if (isset($claveDesc[$n])) {
+            $clave = $n;
+            $desc  = $claveDesc[$clave] ?? null;
+            return [$clave, $desc];
+        }
+
+        // 2) Si vino descripción (e.g. "Mensual")
+        if (isset($descClave[$n])) {
+            $clave = $descClave[$n];
+            $desc  = $claveDesc[$clave] ?? null;
+            return [$clave, $desc];
+        }
+
+        // 3) No se reconoció
+        return [null, null];
+    }
 
     public function onRow(Row $row)
     {
-
         static $validatedHeaders = false;
 
         $rowArray = $row->toArray();
 
-        // Validación de cabeceras (solo en la primera fila)
+        // ===== Validación de cabeceras (solo una vez) =====
         if (! $validatedHeaders) {
             $requiredHeaders = [
                 'id',
@@ -85,30 +86,24 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
                 'tipo_regimen',
                 'tipo_jornada',
                 'periodicidad_pago',
-                // Agrega los campos obligatorios que necesites validar
             ];
 
-            $headersFromFile = array_map(
-                fn($val) => mb_strtolower(trim($val)),
-                array_keys($rowArray)
-            );
-            \Log::debug('Cabeceras detectadas:', $headersFromFile);
+            $headersFromFile = array_map(fn($val) => mb_strtolower(trim($val)), array_keys($rowArray));
+            \Log::debug('Cabeceras detectadas en import laborales:', $headersFromFile);
 
-            $missingHeaders = array_filter($requiredHeaders, fn($header) => ! in_array($header, $headersFromFile));
-
-            if (! empty($missingHeaders)) {
-                $missing = implode(', ', $missingHeaders);
+            $missing = array_filter($requiredHeaders, fn($h) => ! in_array($h, $headersFromFile, true));
+            if (! empty($missing)) {
                 throw new \Exception(
-                    "El archivo seleccionado no es válido para  actualizar Informacion Laboral. Faltan campos clave. \n " .
-                    "Por favor, tenga cuidado y asegúrese de cargar el archivo correcto con el formato esperado."
+                    "El archivo seleccionado no es válido para actualizar Información Laboral. " .
+                    "Faltan cabeceras: " . implode(', ', $missing)
                 );
             }
-
             $validatedHeaders = true;
         }
 
+        // ===== Datos base de la fila =====
         $row   = $row->toArray();
-        $clean = fn($val) => (trim((string) $val) === '' || trim((string) $val) === '--') ? null : trim((string) $val);
+        $clean = fn($v) => (trim((string) $v) === '' || trim((string) $v) === '--') ? null : trim((string) $v);
 
         $empleadoId = $clean($row['id'] ?? null);
         if (! $empleadoId) {
@@ -116,28 +111,55 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
         }
 
         $empleado = Empleado::find($empleadoId);
-
-        if (! $empleado || $empleado->id_cliente != $this->idCliente) {
+        if (! $empleado || (int) $empleado->id_cliente !== (int) $this->idCliente) {
             throw new \Exception(
-                "No fue posible actualizar los datos. El archivo contiene información de empleados que no pertenecen a esta sucursal. " .
-                "Asegúrate de usar el archivo correcto que corresponde al sucursal donde  intentas  actualizar la informacion."
+                "No fue posible actualizar los datos. El archivo contiene empleados que no pertenecen a esta sucursal."
             );
         }
 
-        // Limpieza de valores
+                                                           // ===== Catálogos SAT desde BD =====
+        $catContratos      = $this->sat->contratos();      // ['01'=>'Tiempo indeterminado', ...]
+        $catRegimenes      = $this->sat->regimenes();      // ['02'=>'Sueldos', '09'=>'Asimilados...', ...]
+        $catJornadas       = $this->sat->jornadas();       // ['01'=>'Diurna', ...]
+        $catPeriodicidades = $this->sat->periodicidades(); // ['01'=>'Diario','02'=>'Semanal',...]
+
+        // Invertidos para resolver por descripción
+        $invContratos      = $this->invert($catContratos);
+        $invRegimenes      = $this->invert($catRegimenes);
+        $invJornadas       = $this->invert($catJornadas);
+        $invPeriodicidades = $this->invert($catPeriodicidades);
+
+        // ===== Leer valores (pueden ser clave o descripción) =====
         $tipoContratoRaw     = $clean($row['tipo_contrato'] ?? null);
         $tipoRegimenRaw      = $clean($row['tipo_regimen'] ?? null);
-        $tipoJornadaRaw      = strtolower($clean($row['tipo_jornada'] ?? ''));
+        $tipoJornadaRaw      = $clean($row['tipo_jornada'] ?? null);
         $periodicidadPagoRaw = $clean($row['periodicidad_pago'] ?? null);
-        // Mapeo: obtener claves
-        $tipoContrato     = $this->mapTipoContrato[$tipoContratoRaw] ?? null;
-        $tipoRegimen      = array_search($tipoRegimenRaw, $this->mapTipoRegimen, true) ?? null;
-        $tipoJornada      = array_search($tipoJornadaRaw, $this->mapTipoJornada, true) ?? null;
-        $periodicidadPago = array_search($periodicidadPagoRaw, $this->periodicidades, true) ?? null;
 
-        // Este log muestra todas las claves de la fila importada
+        // ===== Resolver a [clave, descripción] =====
+        [$claveContrato, $descContrato]         = $this->resolverClaveYDesc($tipoContratoRaw, $catContratos, $invContratos);
+        [$claveRegimen, $descRegimen]           = $this->resolverClaveYDesc($tipoRegimenRaw, $catRegimenes, $invRegimenes);
+        [$claveJornada, $descJornada]           = $this->resolverClaveYDesc($tipoJornadaRaw, $catJornadas, $invJornadas);
+        [$clavePeriodicidad, $descPeriodicidad] = $this->resolverClaveYDesc($periodicidadPagoRaw, $catPeriodicidades, $invPeriodicidades);
+
+        // Logs si algo no mapeó
+        if ($tipoContratoRaw && ! $claveContrato) {
+            \Log::warning('Import laborales: tipo_contrato no reconocido', ['valor' => $tipoContratoRaw, 'id_empleado' => $empleadoId]);
+        }
+
+        if ($tipoRegimenRaw && ! $claveRegimen) {
+            \Log::warning('Import laborales: tipo_regimen no reconocido', ['valor' => $tipoRegimenRaw, 'id_empleado' => $empleadoId]);
+        }
+
+        if ($tipoJornadaRaw && ! $claveJornada) {
+            \Log::warning('Import laborales: tipo_jornada no reconocido', ['valor' => $tipoJornadaRaw, 'id_empleado' => $empleadoId]);
+        }
+
+        if ($periodicidadPagoRaw && ! $clavePeriodicidad) {
+            \Log::warning('Import laborales: periodicidad_pago no reconocida', ['valor' => $periodicidadPagoRaw, 'id_empleado' => $empleadoId]);
+        }
+
+        // ===== Días de descanso (encaja con tu export) =====
         $diasDescanso = [];
-
         foreach ([
             'lunes'     => 'Lunes',
             'martes'    => 'Martes',
@@ -147,24 +169,37 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
             'sabado'    => 'Sábado',
             'domingo'   => 'Domingo',
         ] as $campo => $nombreDia) {
-            $valor = strtolower($clean($row['descanso_' . $campo] ?? 'no'));
-
-            if ($valor === 'sí' || $valor === 'si') {
+            $val = $this->norm($row['descanso_' . $campo] ?? 'no');
+            if ($val === 'sí' || $val === 'si') {
                 $diasDescanso[] = $nombreDia;
             }
         }
 
-        $valorSindicato = strtolower($clean($row['pertenece_sindicato'] ?? ''));
+        // Sindicato
+        $valorSindicato = $this->norm($row['pertenece_sindicato'] ?? '');
+        $sindicato      = in_array($valorSindicato, ['sí', 'si'], true) ? 'SI' : 'NO';
 
-        // Si es "sí", "si", o "SI", entonces es "SI", todo lo demás es "NO"
-        $sindicato = in_array($valorSindicato, ['sí', 'si', 'SI']) ? 'SI' : 'NO';
+        // ===== Guardar: legacy = descripción; *_sat = clave SAT =====
+// ...dentro de updateOrCreate([...], [ ... ])
         LaboralesEmpleado::updateOrCreate(
-            ['id_empleado' => $empleadoId],
+            ['id_empleado' => (int) $empleadoId],
             [
-                'tipo_contrato'          => $tipoContrato,
-                'tipo_regimen'           => $tipoRegimen,
-                'tipo_jornada'           => $tipoJornada,
-                'periodicidad_pago'      => $periodicidadPago,
+                // Legacy (estos 3 pueden ir como descripción: caben en tus columnas)
+                'tipo_contrato'          => $descContrato ?? $tipoContratoRaw,
+                'tipo_regimen'           => $descRegimen ?? $tipoRegimenRaw,
+                'tipo_jornada'           => $descJornada ?? $tipoJornadaRaw,
+
+                                                                // ⚠️ ESTE es el que truenaba: la columna es VARCHAR(2)
+                                                                // Guarda SIEMPRE la CLAVE de 2 chars
+                'periodicidad_pago'      => $clavePeriodicidad, // <- clave ("04", "05", etc.)
+
+                // Claves SAT (todas cortas)
+                'tipo_contrato_sat'      => $claveContrato,
+                'tipo_regimen_sat'       => $claveRegimen,
+                'tipo_jornada_sat'       => $claveJornada,
+                'periodicidad_pago_sat'  => $clavePeriodicidad,
+
+                // Resto igual
                 'otro_tipo_contrato'     => $clean($row['otro_tipo_contrato'] ?? null),
                 'horas_dia'              => $clean($row['horas_dia'] ?? null),
                 'grupo_nomina'           => $clean($row['grupo_nomina'] ?? null),
@@ -182,8 +217,8 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
                 'descuento_ausencia'     => $clean($row['descuento_ausencia'] ?? null),
                 'descuento_ausencia_a'   => $clean($row['descuento_ausencia_asimilado'] ?? null),
                 'dias_descanso'          => json_encode($diasDescanso),
-                // Días de descanso
             ]
         );
+
     }
 }
