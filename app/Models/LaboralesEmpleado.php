@@ -8,30 +8,28 @@ class LaboralesEmpleado extends Model
 {
     use HasFactory;
 
-    // Nombre de la tabla en la base de datos
     protected $table = 'laborales_empleado';
-
-    // Llave primaria
     protected $primaryKey = 'id';
-
-    // Indicar si el ID es autoincremental (por defecto es true)
     public $incrementing = true;
-
-    // Si la tabla no tiene timestamps, se debe poner false
-    public $timestamps    = false;
-
+    public $timestamps = false;
     protected $connection = 'portal_main';
-  
-    // Definir los campos que se pueden asignar masivamente
+
+    // ✅ Claves SAT habilitadas para asignación masiva
     protected $fillable = [
         'id_empleado',
+        // Legacy (se quedan para histórico/visualización)
         'tipo_contrato',
         'otro_tipo_contrato',
         'tipo_regimen',
         'tipo_jornada',
+        'periodicidad_pago',
+        // ✅ Nuevas columnas SAT
+        'tipo_contrato_sat',
+        'tipo_regimen_sat',
+        'tipo_jornada_sat',
+        'periodicidad_pago_sat',
         'horas_dia',
         'grupo_nomina',
-        'periodicidad_pago',
         'dias_descanso',
         'vacaciones_disponibles',
         'sueldo_diario',
@@ -49,11 +47,13 @@ class LaboralesEmpleado extends Model
         'sindicato',
     ];
 
-    protected $hidden = [
-        'puesto',
+    // ✅ Para leer/escribir dias_descanso como arreglo automáticamente
+    protected $casts = [
+        'dias_descanso' => 'array',
     ];
 
-    // Definir la relación con la tabla empleados (asumiendo que existe un modelo Empleado)
+    protected $hidden = ['puesto'];
+
     public function empleado()
     {
         return $this->belongsTo(Empleado::class, 'id_empleado');
