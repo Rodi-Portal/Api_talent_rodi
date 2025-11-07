@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
-// <- ESTA LÍNEA FALTABA
 
 class LaboralesController extends Controller
 {
@@ -70,6 +69,11 @@ class LaboralesController extends Controller
                 'tipoContrato'          => 'nullable|string|max:255',
                 'tipoJornada'           => 'string|max:255',
                 'tipoRegimen'           => 'string|max:255',
+                // Claves SAT (no obligatorias por ahora)
+                'tipoContratoSat'       => 'nullable|string|size:2',
+                'tipoRegimenSat'        => 'nullable|string|size:2',
+                'tipoJornadaSat'        => 'nullable|string|size:2',
+                'periodicidadPagoSat'   => 'nullable|string|size:2',
                 'vacacionesDisponibles' => 'required|numeric|min:0',
                 'diasDescanso'          => 'array|min:0',
                 'diasDescanso.*'        => 'string|in:Lunes,Martes,Miércoles,Jueves,Viernes,Sábado,Domingo',
@@ -105,7 +109,7 @@ class LaboralesController extends Controller
                 'pago_dia_festivo'       => $request->pagoDiaFestivo,
                 'pago_dia_festivo_a'     => $request->pagoDiaFestivoA ?? null,
                 'pago_hora_extra'        => $request->pagoHoraExtra,
-                'pago_hora_extra_A'      => $request->pagoHoraExtraA ?? null,
+                'pago_hora_extra_a'      => $request->pagoHoraExtraA ?? null,
                 'periodicidad_pago'      => $request->periodicidadPago,
                 'prestamo_pendiente'     => $request->prestamoPendiente,
                 'sueldo_diario'          => $request->sueldoDiario,
@@ -114,6 +118,12 @@ class LaboralesController extends Controller
                 'tipo_contrato'          => $request->tipoContrato,
                 'tipo_jornada'           => $request->tipoJornada,
                 'tipo_regimen'           => $request->tipoRegimen,
+
+                'tipo_contrato_sat'      => $request->tipoContratoSat ?? null,
+                'tipo_regimen_sat'       => $request->tipoRegimenSat ?? null,
+                'tipo_jornada_sat'       => $request->tipoJornadaSat ?? null,
+                'periodicidad_pago_sat'  => $request->periodicidadPagoSat ?? null,
+
                 'sindicato'              => $request->sindicato,
                 'vacaciones_disponibles' => $request->vacacionesDisponibles,
                 'dias_descanso'          => json_encode($request->diasDescanso), // Guardar los días de descanso como un JSON
@@ -161,7 +171,13 @@ class LaboralesController extends Controller
             'tipoContrato'          => 'nullable|string|max:255',
             'tipoJornada'           => 'string|max:255',
             'tipoRegimen'           => 'string|max:255',
-            'sindicaro'             => 'string|max:255',
+            // Claves SAT (no obligatorias por ahora)
+            'tipoContratoSat'       => 'nullable|string|size:2',
+            'tipoRegimenSat'        => 'nullable|string|size:2',
+            'tipoJornadaSat'        => 'nullable|string|size:2',
+            'periodicidadPagoSat'   => 'nullable|string|size:2',
+
+            'sindicato'             => 'string|max:255',
             'vacacionesDisponibles' => 'required|numeric|min:0',
             'diasDescanso'          => 'array|min:0',
             'diasDescanso.*'        => 'string|in:Lunes,Martes,Miércoles,Jueves,Viernes,Sábado,Domingo',
@@ -198,6 +214,11 @@ class LaboralesController extends Controller
             'sueldo_mes'             => $request->sueldoMes,
             'tipo_contrato'          => $request->tipoContrato,
             'tipo_jornada'           => $request->tipoJornada,
+            'tipo_contrato_sat'      => $request->tipoContratoSat ?? $empleado->laborales->tipo_contrato_sat,
+            'tipo_regimen_sat'       => $request->tipoRegimenSat ?? $empleado->laborales->tipo_regimen_sat,
+            'tipo_jornada_sat'       => $request->tipoJornadaSat ?? $empleado->laborales->tipo_jornada_sat,
+            'periodicidad_pago_sat'  => $request->periodicidadPagoSat ?? $empleado->laborales->periodicidad_pago_sat,
+
             'prestamo_pendiente'     => $request->prestamoPendiente,
             'tipo_regimen'           => $request->tipoRegimen,
             'sindicato'              => $request->sindicato,
@@ -589,303 +610,303 @@ return response()->json($rows);
     // use Illuminate\Support\Facades\{Log, DB, Validator};
     // use App\Models\{PreNominaEmpleado, LaboralesEmpleado};
 
-    public function guardarPrenominaMasiva(Request $request)
-    {
-        /* ===== Helpers ===== */
-        $num = function ($v) {
-            if ($v === null || $v === '') {
-                return 0.0;
-            }
+public function guardarPrenominaMasiva(Request $request)
+{
+    /* ===== Helpers ===== */
+    $num = function ($v) {
+        if ($v === null || $v === '') {
+            return 0.0;
+        }
 
-            if (is_numeric($v)) {
-                return (float) $v;
-            }
-
-            if (is_string($v)) {
-                $v = str_replace(['$', ',', ' '], '', $v);
-                return is_numeric($v) ? (float) $v : 0.0;
-            }
-            if (is_bool($v)) {
-                return $v ? 1.0 : 0.0;
-            }
-
+        if (is_numeric($v)) {
             return (float) $v;
-        };
-        $int = function ($v) use ($num) {return (int) round($num($v));};
-        $jsonArr = function ($v) {
-            if ($v === null || $v === '' || $v === '{}' || $v === '[]') {
-                return [];
-            }
+        }
 
-            if (is_array($v)) {
-                return $v;
-            }
+        if (is_string($v)) {
+            $v = str_replace(['$', ',', ' '], '', $v);
+            return is_numeric($v) ? (float) $v : 0.0;
+        }
+        if (is_bool($v)) {
+            return $v ? 1.0 : 0.0;
+        }
 
-            if (is_string($v)) {
-                $d = json_decode($v, true);
-                return is_array($d) ? $d : [];
-            }
+        return (float) $v;
+    };
+    $int = function ($v) use ($num) {return (int) round($num($v));};
+    $jsonArr = function ($v) {
+        if ($v === null || $v === '' || $v === '{}' || $v === '[]') {
             return [];
-        };
-
-        /* ===== Logs de entrada ===== */
-        Log::info('PrenominaMasiva: headers', $request->headers->all());
-        Log::info('PrenominaMasiva: query', $request->query());
-        Log::info('PrenominaMasiva: raw', ['raw' => $request->getContent()]);
-        Log::info('PrenominaMasiva: body', $request->all());
-
-        /* ===== Validación ===== */
-        $validator = Validator::make($request->all(), [
-            'id_periodo_nomina'       => 'required|integer|exists:portal_main.periodos_nomina,id',
-            'datos'                   => 'required|array|min:1',
-
-            // PK real de empleados (guardada en pre_nomina_empleados.id_empleado)
-            'datos.*.id'              => 'required|integer|exists:portal_main.empleados,id',
-
-            // Totales mínimos
-            'datos.*.sueldo_base'     => 'required|numeric|min:0',
-            'datos.*.sueldo_total'    => 'required|numeric|min:0',
-            'datos.*.sueldo_total_a'  => 'required|numeric|min:0',
-            'datos.*.sueldo_total_t'  => 'required|numeric|min:0',
-
-            // Alias opcionales
-            'datos.*.codigo_empleado' => 'nullable|string',
-            'datos.*.id_empleado'     => 'nullable|string',
-        ]);
-
-        if ($validator->fails()) {
-            Log::error('Validación fallida en prenómina masiva:', $validator->errors()->toArray());
-            return response()->json([
-                'success' => false,
-                'message' => 'Datos inválidos',
-                'errors'  => $validator->errors(),
-            ], 422);
         }
 
-        $idPeriodoNomina = (int) $request->input('id_periodo_nomina');
-        $datos           = $request->input('datos', []);
-        Log::info('PrenominaMasiva: datos_count', ['count' => is_array($datos) ? count($datos) : 0]);
-        if (is_array($datos) && count($datos) > 0) {
-            Log::info('PrenominaMasiva: datos[0]_keys', ['keys' => array_keys($datos[0])]);
-            Log::info('PrenominaMasiva: datos[0]_sample', $datos[0]);
+        if (is_array($v)) {
+            return $v;
         }
 
-        $procesados   = [];
-        $errores      = [];
-        $creados      = 0;
-        $actualizados = 0;
+        if (is_string($v)) {
+            $d = json_decode($v, true);
+            return is_array($d) ? $d : [];
+        }
+        return [];
+    };
 
-        DB::beginTransaction();
-        // Solo depurar PRIMERA FILA
-        $soloPrimera = true;
+    /* ===== Logs de entrada ===== */
+    Log::info('PrenominaMasiva: headers', $request->headers->all());
+    Log::info('PrenominaMasiva: query', $request->query());
+    Log::info('PrenominaMasiva: raw', ['raw' => $request->getContent()]);
+    Log::info('PrenominaMasiva: body', $request->all());
 
-        try {
-            foreach ($datos as $index => $item) {
-                Log::info("Fila {$index} (raw)", $item);
+    /* ===== Validación ===== */
+    $validator = Validator::make($request->all(), [
+        'id_periodo_nomina'       => 'required|integer|exists:portal_main.periodos_nomina,id',
+        'datos'                   => 'required|array|min:1',
 
-                // PK real del empleado
-                $empleadoIdPk = (int) ($item['id'] ?? 0);
+        // PK real de empleados (guardada en pre_nomina_empleados.id_empleado)
+        'datos.*.id'              => 'required|integer|exists:portal_main.empleados,id',
 
-                // Regla: procesamos si PK válida y sueldo_base > 0
-                $sueldoBase = $num($item['sueldo_base'] ?? 0);
-                if ($empleadoIdPk <= 0 || $sueldoBase <= 0) {
-                    Log::warning("Fila {$index} saltada (empleadoIdPk o sueldo_base inválidos)", [
-                        'id' => $empleadoIdPk, 'sueldo_base' => $sueldoBase,
+        // Totales mínimos
+        'datos.*.sueldo_base'     => 'required|numeric|min:0',
+        'datos.*.sueldo_total'    => 'required|numeric|min:0',
+        'datos.*.sueldo_total_a'  => 'required|numeric|min:0',
+        'datos.*.sueldo_total_t'  => 'required|numeric|min:0',
+
+        // Alias opcionales
+        'datos.*.codigo_empleado' => 'nullable|string',
+        'datos.*.id_empleado'     => 'nullable|string',
+    ]);
+
+    if ($validator->fails()) {
+        Log::error('Validación fallida en prenómina masiva:', $validator->errors()->toArray());
+        return response()->json([
+            'success' => false,
+            'message' => 'Datos inválidos',
+            'errors'  => $validator->errors(),
+        ], 422);
+    }
+
+    $idPeriodoNomina = (int) $request->input('id_periodo_nomina');
+    $datos           = $request->input('datos', []);
+    Log::info('PrenominaMasiva: datos_count', ['count' => is_array($datos) ? count($datos) : 0]);
+    if (is_array($datos) && count($datos) > 0) {
+        Log::info('PrenominaMasiva: datos[0]_keys', ['keys' => array_keys($datos[0])]);
+        Log::info('PrenominaMasiva: datos[0]_sample', $datos[0]);
+    }
+
+    $procesados   = [];
+    $errores      = [];
+    $creados      = 0;
+    $actualizados = 0;
+
+    DB::beginTransaction();
+    // Solo depurar PRIMERA FILA
+    $soloPrimera = true;
+
+    try {
+        foreach ($datos as $index => $item) {
+            Log::info("Fila {$index} (raw)", $item);
+
+            // PK real del empleado
+            $empleadoIdPk = (int) ($item['id'] ?? 0);
+
+            // Regla: procesamos si PK válida y sueldo_base > 0
+            $sueldoBase = $num($item['sueldo_base'] ?? 0);
+            if ($empleadoIdPk <= 0 || $sueldoBase <= 0) {
+                Log::warning("Fila {$index} saltada (empleadoIdPk o sueldo_base inválidos)", [
+                    'id' => $empleadoIdPk, 'sueldo_base' => $sueldoBase,
+                ]);
+                if ($soloPrimera) {
+                    break;
+                }
+                // en modo depuración, terminamos
+                continue;
+            }
+
+            $codigoEmpleado = $item['codigo_empleado'] ?? ($item['id_empleado'] ?? null);
+
+            $datosEmpleado = [
+                'id_empleado'           => $empleadoIdPk,
+                'id_periodo_nomina'     => $idPeriodoNomina,
+
+                'sueldo_base'           => $num($item['sueldo_base'] ?? 0),
+                'sueldo_asimilado'      => $num($item['sueldo_asimilado'] ?? 0),
+
+                'horas_extras'          => $int($item['horas_extras'] ?? 0),
+                'pago_horas_extra'      => $num($item['pago_hora_extra'] ?? 0),
+                'pago_horas_extra_a'    => $num($item['pago_hora_extra_a'] ?? 0),
+
+                'dias_festivos'         => $int($item['dias_festivos'] ?? 0),
+                'pago_dias_festivos'    => $num($item['pago_dia_festivo'] ?? 0),
+                'pago_dias_festivos_a'  => $int($item['pago_dia_festivo_a'] ?? 0), // DECIMAL(10,0)
+
+                'dias_ausencia'         => $int($item['dias_ausencia'] ?? 0),
+                'descuento_ausencias'   => $num($item['descuento_ausencias'] ?? 0),
+                'descuento_ausencias_a' => $num($item['descuento_ausencias_a'] ?? 0),
+
+                'dias_vacaciones'       => $int($item['dias_vacaciones'] ?? 0),
+                'prima_vacacional'      => $num($item['prima_vacacional'] ?? 0),
+                'pago_vacaciones'       => $num($item['pago_vacaciones'] ?? 0),
+                'pago_vacaciones_a'     => $num($item['pago_vacaciones_a'] ?? 0),
+
+                'aguinaldo'             => $num($item['aguinaldo'] ?? 0),
+                'aguinaldo_a'           => $num($item['aguinaldo_a'] ?? 0),
+
+                // FE manda "prestamo" => columna "prestamos"
+                'prestamos'             => $num($item['prestamo'] ?? 0),
+
+                // JSON (el modelo los castea a array)
+                'prestaciones_extra'    => $jsonArr($item['prestaciones_extra'] ?? []),
+                'deducciones_extra'     => $jsonArr($item['deducciones_extra'] ?? []),
+                'prestaciones_extra_a'  => $jsonArr($item['prestaciones_extra_a'] ?? []),
+                'deducciones_extra_a'   => $jsonArr($item['deducciones_extra_a'] ?? []),
+
+                'sueldo_total'          => $num($item['sueldo_total'] ?? 0),
+                'sueldo_total_a'        => $num($item['sueldo_total_a'] ?? 0),
+                'sueldo_total_t'        => $num($item['sueldo_total_t'] ?? (
+                    $num($item['sueldo_total'] ?? 0) + $num($item['sueldo_total_a'] ?? 0)
+                )),
+
+                'creacion'              => now(),
+                'edicion'               => now(),
+            ];
+
+            Log::info("Fila {$index} (mapeado)", $datosEmpleado);
+
+            try {
+                // --- Guardado robusto ---
+                $valores = $datosEmpleado;
+                unset($valores['id_empleado'], $valores['id_periodo_nomina']);
+
+                $registro = PreNominaEmpleado::updateOrCreate(
+                    [
+                        'id_empleado'       => $empleadoIdPk,
+                        'id_periodo_nomina' => $idPeriodoNomina,
+                    ],
+                    $valores
+                );
+
+                // Verificar lo que quedó en BD
+                $confirm = $registro->fresh(['id', 'dias_vacaciones', 'prestamos', 'pago_vacaciones', 'pago_vacaciones_a']);
+                Log::info("Post-save (fresh)", [
+                    'id'                => $confirm->id,
+                    'dias_vacaciones'   => $confirm->dias_vacaciones,
+                    'prestamos'         => $confirm->prestamos,
+                    'pago_vacaciones'   => $confirm->pago_vacaciones,
+                    'pago_vacaciones_a' => $confirm->pago_vacaciones_a,
+                ]);
+
+                // Si por alguna razón vienen nulos/0, probamos un forceFill (descarta problemas de $fillable)
+                if ((int) $confirm->dias_vacaciones !== (int) $datosEmpleado['dias_vacaciones']
+                    || (string) $confirm->prestamos !== number_format($datosEmpleado['prestamos'], 2, '.', '')
+                ) {
+                    Log::warning('Valores no coinciden tras updateOrCreate. Intentando forceFill().', [
+                        'esperado_dias_vac'  => $datosEmpleado['dias_vacaciones'],
+                        'esperado_prestamos' => $datosEmpleado['prestamos'],
+                        'actual_dias_vac'    => $confirm->dias_vacaciones,
+                        'actual_prestamos'   => $confirm->prestamos,
                     ]);
-                    if ($soloPrimera) {
-                        break;
-                    }
-                    // en modo depuración, terminamos
-                    continue;
+
+                    $registro->forceFill($valores);
+                    $registro->save();
+
+                    $confirm2 = $registro->fresh(['id', 'dias_vacaciones', 'prestamos']);
+                    Log::info('Post-save (forceFill) ->', [
+                        'id'              => $confirm2->id,
+                        'dias_vacaciones' => $confirm2->dias_vacaciones,
+                        'prestamos'       => $confirm2->prestamos,
+                    ]);
                 }
 
-                $codigoEmpleado = $item['codigo_empleado'] ?? ($item['id_empleado'] ?? null);
+                // (Opcional) Ajuste de vacaciones disponibles
+                if ($datosEmpleado['dias_vacaciones'] > 0) {
+                    $laborales = LaboralesEmpleado::where('id_empleado', $empleadoIdPk)->first();
+                    if ($laborales) {
+                        $antes     = (int) $laborales->vacaciones_disponibles;
+                        $nuevoDisp = max(0, $antes - (int) $datosEmpleado['dias_vacaciones']);
+                        $laborales->update(['vacaciones_disponibles' => $nuevoDisp]);
 
-                $datosEmpleado = [
-                    'id_empleado'           => $empleadoIdPk,
-                    'id_periodo_nomina'     => $idPeriodoNomina,
-
-                    'sueldo_base'           => $num($item['sueldo_base'] ?? 0),
-                    'sueldo_asimilado'      => $num($item['sueldo_asimilado'] ?? 0),
-
-                    'horas_extras'          => $int($item['horas_extras'] ?? 0),
-                    'pago_horas_extra'      => $num($item['pago_hora_extra'] ?? 0),
-                    'pago_horas_extra_a'    => $num($item['pago_hora_extra_a'] ?? 0),
-
-                    'dias_festivos'         => $int($item['dias_festivos'] ?? 0),
-                    'pago_dias_festivos'    => $num($item['pago_dia_festivo'] ?? 0),
-                    'pago_dias_festivos_a'  => $int($item['pago_dia_festivo_a'] ?? 0), // DECIMAL(10,0)
-
-                    'dias_ausencia'         => $int($item['dias_ausencia'] ?? 0),
-                    'descuento_ausencias'   => $num($item['descuento_ausencias'] ?? 0),
-                    'descuento_ausencias_a' => $num($item['descuento_ausencias_a'] ?? 0),
-
-                    'dias_vacaciones'       => $int($item['dias_vacaciones'] ?? 0),
-                    'prima_vacacional'      => $num($item['prima_vacacional'] ?? 0),
-                    'pago_vacaciones'       => $num($item['pago_vacaciones'] ?? 0),
-                    'pago_vacaciones_a'     => $num($item['pago_vacaciones_a'] ?? 0),
-
-                    'aguinaldo'             => $num($item['aguinaldo'] ?? 0),
-                    'aguinaldo_a'           => $num($item['aguinaldo_a'] ?? 0),
-
-                    // FE manda "prestamo" => columna "prestamos"
-                    'prestamos'             => $num($item['prestamo'] ?? 0),
-
-                    // JSON (el modelo los castea a array)
-                    'prestaciones_extra'    => $jsonArr($item['prestaciones_extra'] ?? []),
-                    'deducciones_extra'     => $jsonArr($item['deducciones_extra'] ?? []),
-                    'prestaciones_extra_a'  => $jsonArr($item['prestaciones_extra_a'] ?? []),
-                    'deducciones_extra_a'   => $jsonArr($item['deducciones_extra_a'] ?? []),
-
-                    'sueldo_total'          => $num($item['sueldo_total'] ?? 0),
-                    'sueldo_total_a'        => $num($item['sueldo_total_a'] ?? 0),
-                    'sueldo_total_t'        => $num($item['sueldo_total_t'] ?? (
-                        $num($item['sueldo_total'] ?? 0) + $num($item['sueldo_total_a'] ?? 0)
-                    )),
-
-                    'creacion'              => now(),
-                    'edicion'               => now(),
-                ];
-
-                Log::info("Fila {$index} (mapeado)", $datosEmpleado);
-
-                try {
-                    // --- Guardado robusto ---
-                    $valores = $datosEmpleado;
-                    unset($valores['id_empleado'], $valores['id_periodo_nomina']);
-
-                    $registro = PreNominaEmpleado::updateOrCreate(
-                        [
-                            'id_empleado'       => $empleadoIdPk,
-                            'id_periodo_nomina' => $idPeriodoNomina,
-                        ],
-                        $valores
-                    );
-
-                    // Verificar lo que quedó en BD
-                    $confirm = $registro->fresh(['id', 'dias_vacaciones', 'prestamos', 'pago_vacaciones', 'pago_vacaciones_a']);
-                    Log::info("Post-save (fresh)", [
-                        'id'                => $confirm->id,
-                        'dias_vacaciones'   => $confirm->dias_vacaciones,
-                        'prestamos'         => $confirm->prestamos,
-                        'pago_vacaciones'   => $confirm->pago_vacaciones,
-                        'pago_vacaciones_a' => $confirm->pago_vacaciones_a,
-                    ]);
-
-                    // Si por alguna razón vienen nulos/0, probamos un forceFill (descarta problemas de $fillable)
-                    if ((int) $confirm->dias_vacaciones !== (int) $datosEmpleado['dias_vacaciones']
-                        || (string) $confirm->prestamos !== number_format($datosEmpleado['prestamos'], 2, '.', '')
-                    ) {
-                        Log::warning('Valores no coinciden tras updateOrCreate. Intentando forceFill().', [
-                            'esperado_dias_vac'  => $datosEmpleado['dias_vacaciones'],
-                            'esperado_prestamos' => $datosEmpleado['prestamos'],
-                            'actual_dias_vac'    => $confirm->dias_vacaciones,
-                            'actual_prestamos'   => $confirm->prestamos,
-                        ]);
-
-                        $registro->forceFill($valores);
-                        $registro->save();
-
-                        $confirm2 = $registro->fresh(['id', 'dias_vacaciones', 'prestamos']);
-                        Log::info('Post-save (forceFill) ->', [
-                            'id'              => $confirm2->id,
-                            'dias_vacaciones' => $confirm2->dias_vacaciones,
-                            'prestamos'       => $confirm2->prestamos,
-                        ]);
-                    }
-
-                    // (Opcional) Ajuste de vacaciones disponibles
-                    if ($datosEmpleado['dias_vacaciones'] > 0) {
-                        $laborales = LaboralesEmpleado::where('id_empleado', $empleadoIdPk)->first();
-                        if ($laborales) {
-                            $antes     = (int) $laborales->vacaciones_disponibles;
-                            $nuevoDisp = max(0, $antes - (int) $datosEmpleado['dias_vacaciones']);
-                            $laborales->update(['vacaciones_disponibles' => $nuevoDisp]);
-
-                            $procesados[] = [
-                                'empleado_pk'             => $empleadoIdPk,
-                                'codigo_empleado'         => $codigoEmpleado,
-                                'accion'                  => $registro->wasRecentlyCreated ? 'creado' : 'actualizado',
-                                'id_registro'             => $registro->id,
-                                'vacaciones_actualizadas' => [
-                                    'anterior'        => $antes,
-                                    'nueva'           => $nuevoDisp,
-                                    'dias_utilizados' => (int) $datosEmpleado['dias_vacaciones'],
-                                ],
-                            ];
-                        } else {
-                            $procesados[] = [
-                                'empleado_pk'     => $empleadoIdPk,
-                                'codigo_empleado' => $codigoEmpleado,
-                                'accion'          => $registro->wasRecentlyCreated ? 'creado' : 'actualizado',
-                                'id_registro'     => $registro->id,
-                                'nota'            => 'Sin laborales_empleado; no se ajustaron vacaciones disponibles',
-                            ];
-                            Log::warning("No se encontró laborales_empleado para empleado PK {$empleadoIdPk}");
-                        }
+                        $procesados[] = [
+                            'empleado_pk'             => $empleadoIdPk,
+                            'codigo_empleado'         => $codigoEmpleado,
+                            'accion'                  => $registro->wasRecentlyCreated ? 'creado' : 'actualizado',
+                            'id_registro'             => $registro->id,
+                            'vacaciones_actualizadas' => [
+                                'anterior'        => $antes,
+                                'nueva'           => $nuevoDisp,
+                                'dias_utilizados' => (int) $datosEmpleado['dias_vacaciones'],
+                            ],
+                        ];
                     } else {
                         $procesados[] = [
                             'empleado_pk'     => $empleadoIdPk,
                             'codigo_empleado' => $codigoEmpleado,
                             'accion'          => $registro->wasRecentlyCreated ? 'creado' : 'actualizado',
                             'id_registro'     => $registro->id,
+                            'nota'            => 'Sin laborales_empleado; no se ajustaron vacaciones disponibles',
                         ];
+                        Log::warning("No se encontró laborales_empleado para empleado PK {$empleadoIdPk}");
                     }
-
-                    // 🔎 Solo primera fila para depurar
-                    if ($soloPrimera) {
-                        DB::commit();
-                        return response()->json([
-                            'success' => true,
-                            'message' => 'Prenómina (fila de depuración) guardada',
-                            'data'    => [
-                                'creados'         => $registro->wasRecentlyCreated ? 1 : 0,
-                                'actualizados'    => $registro->wasRecentlyCreated ? 0 : 1,
-                                'procesados'      => $procesados,
-                                'errores_detalle' => $errores,
-                            ],
-                        ], 200);
-                    }
-
-                } catch (\Exception $e) {
-                    Log::error("Error procesando empleado PK {$empleadoIdPk}: {$e->getMessage()}", [
-                        'datos' => $datosEmpleado,
-                        'error' => $e->getMessage(),
-                    ]);
-
-                    $errores[] = [
+                } else {
+                    $procesados[] = [
                         'empleado_pk'     => $empleadoIdPk,
                         'codigo_empleado' => $codigoEmpleado,
-                        'error'           => $e->getMessage(),
+                        'accion'          => $registro->wasRecentlyCreated ? 'creado' : 'actualizado',
+                        'id_registro'     => $registro->id,
                     ];
                 }
-            } // foreach
 
-            DB::commit();
+                // 🔎 Solo primera fila para depurar
+                if ($soloPrimera) {
+                    DB::commit();
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Prenómina (fila de depuración) guardada',
+                        'data'    => [
+                            'creados'         => $registro->wasRecentlyCreated ? 1 : 0,
+                            'actualizados'    => $registro->wasRecentlyCreated ? 0 : 1,
+                            'procesados'      => $procesados,
+                            'errores_detalle' => $errores,
+                        ],
+                    ], 200);
+                }
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Prenómina procesada exitosamente',
-                'data'    => [
-                    'creados'         => $creados,
-                    'actualizados'    => $actualizados,
-                    'errores'         => count($errores),
-                    'procesados'      => $procesados,
-                    'errores_detalle' => $errores,
-                ],
-            ], 200);
+            } catch (\Exception $e) {
+                Log::error("Error procesando empleado PK {$empleadoIdPk}: {$e->getMessage()}", [
+                    'datos' => $datosEmpleado,
+                    'error' => $e->getMessage(),
+                ]);
 
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Error en prenómina masiva:', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al procesar prenómina masiva: ' . $e->getMessage(),
-            ], 500);
-        }
+                $errores[] = [
+                    'empleado_pk'     => $empleadoIdPk,
+                    'codigo_empleado' => $codigoEmpleado,
+                    'error'           => $e->getMessage(),
+                ];
+            }
+        } // foreach
+
+        DB::commit();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Prenómina procesada exitosamente',
+            'data'    => [
+                'creados'         => $creados,
+                'actualizados'    => $actualizados,
+                'errores'         => count($errores),
+                'procesados'      => $procesados,
+                'errores_detalle' => $errores,
+            ],
+        ], 200);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        Log::error('Error en prenómina masiva:', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+        return response()->json([
+            'success' => false,
+            'message' => 'Error al procesar prenómina masiva: ' . $e->getMessage(),
+        ], 500);
     }
+}
 
 }

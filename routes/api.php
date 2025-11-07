@@ -8,11 +8,13 @@ use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Auth\PermissionController;
+use App\Http\Controllers\Sat\SatCatalogosController;
 
 //use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
 use App\Http\Controllers\Comunicacion\ChecadasController;
 use App\Http\Controllers\Comunicacion\ChecadorController;
+use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
 use App\Http\Controllers\DocumentController;
@@ -23,13 +25,12 @@ use App\Http\Controllers\Empleados\DocumentOptionController;
 use App\Http\Controllers\Empleados\EmpleadoController;
 use App\Http\Controllers\Empleados\EvaluacionController;
 use App\Http\Controllers\Empleados\EviarEmpleadoRodi;
+use App\Http\Controllers\Empleados\IncidenciasController;
 use App\Http\Controllers\Empleados\LaboralesController;
 use App\Http\Controllers\Empleados\MedicalInfoController;
 use App\Http\Controllers\Empleados\MensajeriaController;
-use App\Http\Controllers\Empleados\IncidenciasController;
 use App\Http\Controllers\Empleados\NotificacionController;
 use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
-use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\PeriodoNominaController;
 use App\Http\Controllers\Plantillas\PlantillaController;
@@ -143,6 +144,20 @@ Route::middleware(['api'])->group(function () {
 
     //***************  Fin para  los  laborales del empleado ********************/
 
+    //***************  Inicio para  los  catalogos del SAT ********************/
+
+    Route::prefix('sat')->group(function () {
+        Route::get('/catalogos',        [SatCatalogosController::class, 'all']);          // todos en una sola llamada
+        Route::get('/contratos',        [SatCatalogosController::class, 'contratos']);
+        Route::get('/regimenes',        [SatCatalogosController::class, 'regimenes']);
+        Route::get('/jornadas',         [SatCatalogosController::class, 'jornadas']);
+        Route::get('/periodicidades',   [SatCatalogosController::class, 'periodicidades']);
+    });
+
+    
+    //***************  Fin para  los  catalogos del SAT ************************/
+
+
     //***************  Ruta para  los  Mensajeria del empleado ************************/
     Route::get('/plantillas', [PlantillaController::class, 'listar']);
     Route::post('/plantillas/vista-previa', [PlantillaController::class, 'vistaPrevia']);
@@ -178,16 +193,16 @@ Route::middleware(['api'])->group(function () {
     //***************  FIN Calendario  ****************/
 
     //***************  Inicio Politicas Asitencia  ****************/
-    Route::get   ('/politicas-asistencia',            [PoliticasAsistenciaController::class, 'index']);
-    Route::get   ('/politicas-asistencia/{id}',       [PoliticasAsistenciaController::class, 'show']);
-    Route::post  ('/politicas-asistencia',            [PoliticasAsistenciaController::class, 'store']);
-    Route::put   ('/politicas-asistencia/{id}',       [PoliticasAsistenciaController::class, 'update']);
-    Route::delete('/politicas-asistencia/{id}',       [PoliticasAsistenciaController::class, 'destroy']);
+    Route::get('/politicas-asistencia', [PoliticasAsistenciaController::class, 'index']);
+    Route::get('/politicas-asistencia/{id}', [PoliticasAsistenciaController::class, 'show']);
+    Route::post('/politicas-asistencia', [PoliticasAsistenciaController::class, 'store']);
+    Route::put('/politicas-asistencia/{id}', [PoliticasAsistenciaController::class, 'update']);
+    Route::delete('/politicas-asistencia/{id}', [PoliticasAsistenciaController::class, 'destroy']);
     // Festivos por política
-    Route::get   ('/politicas-asistencia/{id}/festivos',[PoliticasAsistenciaController::class, 'listHolidays']);
-    Route::post  ('/politicas-asistencia/{id}/festivos',[PoliticasAsistenciaController::class, 'saveHolidays']);
+    Route::get('/politicas-asistencia/{id}/festivos', [PoliticasAsistenciaController::class, 'listHolidays']);
+    Route::match(['PUT', 'POST'], '/politicas-asistencia/{id}/festivos', [PoliticasAsistenciaController::class, 'saveHolidays']);
     Route::delete('/politicas-asistencia/{id}/festivos/{festivoId}',
-    [PoliticasAsistenciaController::class, 'destroyHoliday']);
+        [PoliticasAsistenciaController::class, 'destroyHoliday']);
 
     //***************  Fin Politicas Asitencia  ****************/
 
