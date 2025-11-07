@@ -1,145 +1,105 @@
 <?php
-
 namespace App\Exports;
 
+use App\Services\SatCatalogosService;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithStyles;
 use Maatwebsite\Excel\Events\AfterSheet;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
 use PhpOffice\PhpSpreadsheet\NamedRange;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
-use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 
 class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyles, WithEvents
 {
     protected $empleados;
+    /** @var SatCatalogosService */
+    protected $sat;
 
     public function __construct($empleados)
     {
         $this->empleados = $empleados;
+        // ⚠️ Resolver servicio del contenedor; no necesitas cambiar tu controlador
+        $this->sat = app(SatCatalogosService::class);
     }
 
     public function collection()
     {
-        $mapTipoContrato = [
-            'Indefinido' => 'Indefinido',
-            '1 mes de prueba' => '1 mes de prueba',
-            '3 meses de prueba' => '3 meses de prueba',
-            'Contrato por obra determinada' => 'Contrato por obra determinada',
-            'Contrato por temporada' => 'Contrato por temporada',
-            'Contrato a tiempo parcial' => 'Contrato a tiempo parcial',
-            'Contrato a tiempo completo' => 'Contrato a tiempo completo',
-            'Por honorarios' => 'Por honorarios',
-            'Contratación directa' => 'Contratación directa',
-            'Contrato de prácticas' => 'Contrato de prácticas',
-            'Contrato de aprendizaje' => 'Contrato de aprendizaje',
-            'Contrato de interinidad' => 'Contrato de interinidad',
-            'Contrato temporal' => 'Contrato temporal',
-            'Contrato eventual' => 'Contrato eventual',
-            'Otro' => 'Otro',
-        ];
+        // Catálogos SAT (clave => descripción)
+        $contratos      = $this->sat->contratos();
+        $regimenes      = $this->sat->regimenes();
+        $jornadas       = $this->sat->jornadas();
+        $periodicidades = $this->sat->periodicidades();
 
-        $mapTipoRegimen = [
-            '0' => 'Ninguno',
-            '1' => 'Asimilados Acciones',
-            '2' => 'Asimilados Comisionistas',
-            '3' => 'Asimilados Honorarios',
-            '4' => 'Integrantes Soc. Civiles',
-            '5' => 'Miembros Consejos',
-            '6' => 'Miembros Coop. Producción',
-            '7' => 'Otros Asimilados',
-            '8' => 'Indemnización o Separación',
-            '9' => 'Jubilados',
-            '10' => 'Jubilados o Pensionados',
-            '11' => 'Otro Régimen',
-            '12' => 'Pensionados',
-            '13' => 'Sueldos y Salarios',
-        ];
+        // helper para mostrar '--' si viene vacío
+        $val = function ($v) {return ($v === null || $v === '') ? '--' : $v;};
 
-        $mapTipoJornada = [
-            'ninguno' => 'Ninguna',
-            'diurna' => 'Diurna',
-            'mixta' => 'Mixta',
-            'nocturna' => 'Nocturna',
-            'otra' => 'Otra',
-        ];
+        return collect($this->empleados)->map(function ($item) use ($val, $contratos, $regimenes, $jornadas, $periodicidades) {
+            // Descripciones SAT si hay clave; si no, legacy; si no, '--'
+            $descContrato = $contratos[$item->tipo_contrato_sat ?? ''] ?? $item->tipo_contrato ?? '--';
+            $descRegimen  = $regimenes[$item->tipo_regimen_sat ?? ''] ?? $item->tipo_regimen ?? '--';
+            $descJornada  = $jornadas[$item->tipo_jornada_sat ?? ''] ?? $item->tipo_jornada ?? '--';
+            $descPerio    = $periodicidades[$item->periodicidad_pago_sat ?? ''] ?? $item->periodicidad_pago ?? '--';
 
-        $periodicidades = [
-            '01' => 'Diurna',
-            '02' => 'Semanal',
-            '03' => 'Quincenal',
-            '04' => 'Mensual',
-            '05' => 'Bimestral',
-            '06' => 'Unidad obra',
-            '07' => 'Comisión',
-            '08' => 'Precio alzado',
-            '09' => 'Otra Periodicidad',
-        ];
+            // Días de descanso a columnas Sí/No
+            $dias = is_array($tmp = json_decode($item->dias_descanso ?? '[]', true)) ? $tmp : [];
+            $siNo = fn($d) => in_array($d, $dias) ? 'Sí' : 'No';
 
-       
+            // === DEVUELVE UN ARREGLO ORDENADO (match con headings) ===
+            return [
+                // A: ID (la tengo oculta en AfterSheet; quita la línea si quieres verla)
+                $val($item->id ?? null),
 
-        return collect($this->empleados)->map(function ($item) use ($mapTipoContrato, $mapTipoRegimen, $mapTipoJornada, $periodicidades) {
-            foreach ($item as $key => $value) {
-                if (is_null($value) || $value === '') {
-                    $item->$key = '--';
-                }
-            }
+                // B–AD: en el mismo orden de headings()
+                $val($item->id_empleado ?? null),
+                $val($item->nombre_completo ?? null),
+                $val($descContrato),
+                $val($item->otro_tipo_contrato ?? null),
+                $val($descRegimen),
+                $val($descJornada),
+                $val($item->horas_dia ?? null),
+                $val($item->grupo_nomina ?? null),
+                $val($descPerio),
+                $val($item->sindicato ?? null),
+                $val($item->vacaciones_disponibles ?? null),
+                $val($item->sueldo_diario ?? null),
+                $val($item->sueldo_asimilado ?? null),
+                $val($item->pago_dia_festivo ?? null),
+                $val($item->pago_dia_festivo_a ?? null),
+                $val($item->pago_hora_extra ?? null),
+                $val($item->pago_hora_extra_a ?? null),
+                $val($item->dias_aguinaldo ?? null),
+                $val($item->prima_vacacional ?? null),
+                $val($item->prestamo_pendiente ?? null),
+                $val($item->descuento_ausencia ?? null),
+                $val($item->descuento_ausencia_a ?? null),
 
-            $item->tipo_contrato = $mapTipoContrato[$item->tipo_contrato ?? ''] ?? $item->tipo_contrato;
-            $item->tipo_regimen = $mapTipoRegimen[$item->tipo_regimen ?? ''] ?? $item->tipo_regimen;
-            $item->tipo_jornada = $mapTipoJornada[$item->tipo_jornada ?? ''] ?? $item->tipo_jornada;
-            $item->periodicidad_pago = $periodicidades[$item->periodicidad_pago ?? ''] ?? $item->periodicidad_pago;
-
-            // Días de descanso a columnas
-            $dias = is_array($temp = json_decode($item->dias_descanso, true)) ? $temp : [];
-            $todos_los_dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-            foreach ($todos_los_dias as $dia) {
-                $col = 'dia_descanso_' . strtolower($this->limpiarAcentos($dia));
-                $item->$col = in_array($dia, $dias) ? 'Sí' : 'No';
-            }
-            unset($item->dias_descanso);
-
-            return $item;
+                // Días de descanso (X–AD)
+                $siNo('Lunes'),
+                $siNo('Martes'),
+                $siNo('Miércoles'),
+                $siNo('Jueves'),
+                $siNo('Viernes'),
+                $siNo('Sábado'),
+                $siNo('Domingo'),
+            ];
         });
     }
 
     public function headings(): array
     {
         return [
-            'ID',          //A
-            'ID Empleado',   //B
-            'Nombre Completo', // C
-            'Tipo Contrato', //D
-            'Otro Tipo Contrato',//E
-            'Tipo Régimen',//F
-            'Tipo Jornada',//G
-            'Horas Día',//H
-            'Grupo Nómina',//I
-            'Periodicidad Pago',//J
-            'Pertenece Sindicato',//K
-            'Vacaciones Disponibles',//L
-            'Sueldo Diario',//M
-            'Sueldo Diario Asimilado',//N
-            'Pago Día Festivo',//O
-            'Pago Día Festivo Asimilado',//P
-            'Pago Hora Extra',//Q
-            'Pago Hora Extra Asimilado',// R
-            'Días Aguinaldo', // S
-            'Prima Vacacional',// T
-            'Prestamo pendiente',// U
-            'Descuento Ausencia',//V
-            'Descuento Ausencia Asimilado',//W
-            'Descanso - Lunes',//X
-            'Descanso - Martes',//Y
-            'Descanso - Miércoles',//Z
-            'Descanso - Jueves',//AA
-            'Descanso - Viernes',//AB
-            'Descanso - Sábado',//AC
-            'Descanso - Domingo',//AD
+            'ID', 'ID Empleado', 'Nombre Completo', 'Tipo Contrato', 'Otro Tipo Contrato',
+            'Tipo Régimen', 'Tipo Jornada', 'Horas Día', 'Grupo Nómina', 'Periodicidad Pago',
+            'Pertenece Sindicato', 'Vacaciones Disponibles', 'Sueldo Diario', 'Sueldo Diario Asimilado',
+            'Pago Día Festivo', 'Pago Día Festivo Asimilado', 'Pago Hora Extra', 'Pago Hora Extra Asimilado',
+            'Días Aguinaldo', 'Prima Vacacional', 'Prestamo pendiente', 'Descuento Ausencia',
+            'Descuento Ausencia Asimilado', 'Descanso - Lunes', 'Descanso - Martes', 'Descanso - Miércoles',
+            'Descanso - Jueves', 'Descanso - Viernes', 'Descanso - Sábado', 'Descanso - Domingo',
         ];
     }
 
@@ -147,15 +107,8 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
     {
         return [
             1 => [
-                'font' => [
-                    'bold' => true,
-                    'color' => ['argb' => 'FFFFFFFF'],
-                    'size' => 14,
-                ],
-                'fill' => [
-                    'fillType' => Fill::FILL_SOLID,
-                    'startColor' => ['argb' => 'FF0000FF'],
-                ],
+                'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF'], 'size' => 14],
+                'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF0000FF']],
             ],
         ];
     }
@@ -164,45 +117,34 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
     {
         return [
             AfterSheet::class => function (AfterSheet $event) {
-                $sheet = $event->sheet->getDelegate();
-                $spreadsheet = $sheet->getParent();
+                // Carga catálogos dentro del closure (aquí sí existe $this)
+                $contratos      = $this->sat->contratos();
+                $regimenes      = $this->sat->regimenes();
+                $jornadas       = $this->sat->jornadas();
+                $periodicidades = $this->sat->periodicidades();
+
+                $sheet         = $event->sheet->getDelegate();
+                $spreadsheet   = $sheet->getParent();
                 $highestColumn = $sheet->getHighestColumn();
-                $highestRow = $sheet->getHighestRow();
+                $highestRow    = $sheet->getHighestRow();
                 $sheet->freezePane('D2');
 
-                // Crear hoja oculta de listas
+                // Crea hoja oculta de listas
                 if ($spreadsheet->sheetNameExists('listas')) {
-                    $spreadsheet->removeSheetByIndex($spreadsheet->getIndex($spreadsheet->getSheetByName('listas')));
+                    $spreadsheet->removeSheetByIndex(
+                        $spreadsheet->getIndex($spreadsheet->getSheetByName('listas'))
+                    );
                 }
                 $listSheet = $spreadsheet->createSheet();
                 $listSheet->setTitle('listas');
                 $listSheet->setSheetState(Worksheet::SHEETSTATE_HIDDEN);
 
                 $dropdowns = [
-                    'tipo_contrato' => [
-                        'Indefinido', '1 mes de prueba', '3 meses de prueba',
-                        'Contrato por obra determinada', 'Contrato por temporada',
-                        'Contrato a tiempo parcial', 'Contrato a tiempo completo',
-                        'Por honorarios', 'Contratación directa',
-                        'Contrato de prácticas', 'Contrato de aprendizaje',
-                        'Contrato indefinido', 'Contrato de interinidad',
-                        'Contrato temporal', 'Contrato eventual', 'Otro',
-                    ],
-                    'tipo_regimen' => [
-                        'Ninguno', 'Asimilados Acciones', 'Asimilados Comisionistas',
-                        'Asimilados Honorarios', 'Integrantes Soc. Civiles',
-                        'Miembros Consejos', 'Miembros Coop. Producción',
-                        'Otros Asimilados', 'Indemnización o Separación',
-                        'Jubilados', 'Jubilados o Pensionados', 'Otro Régimen',
-                        'Pensionados', 'Sueldos y Salarios',
-                    ],
-                    'tipo_jornada' => ['Ninguna', 'Diurna', 'Mixta', 'Nocturna', 'Otra'],
-                    'sindicato' => ['SI', 'NO'],
-
-                    'periodicidad_pago' => [
-                        'Diurna', 'Semanal', 'Quincenal', 'Mensual', 'Bimestral',
-                        'Unidad obra', 'Comisión', 'Precio alzado', 'Otra Periodicidad',
-                    ],
+                    'tipo_contrato'     => array_values($contratos),
+                    'tipo_regimen'      => array_values($regimenes),
+                    'tipo_jornada'      => array_values($jornadas),
+                    'periodicidad_pago' => array_values($periodicidades),
+                    'sindicato'         => ['SI', 'NO'],
                 ];
 
                 // Escribir listas y nombrarlas
@@ -222,10 +164,10 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
 
                 // Validación para días de descanso
                 $columnasDias = [
-                    'Lunes' => 'X', 'Martes' => 'Y', 'Miércoles' => 'Z',
-                    'Jueves' => 'AA', 'Viernes' => 'AB', 'Sábado' => 'AC', 'Domingo' => 'AD',
+                    'Lunes'   => 'X', 'Martes'  => 'Y', 'Miércoles' => 'Z', 'Jueves' => 'AA',
+                    'Viernes' => 'AB', 'Sábado' => 'AC', 'Domingo'  => 'AD',
                 ];
-                foreach ($columnasDias as $dia => $col) {
+                foreach ($columnasDias as $col) {
                     for ($row = 2; $row <= $highestRow; $row++) {
                         $this->aplicarValidacionLista($sheet, $col, $row, '"Sí,No"');
                     }
@@ -247,23 +189,16 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
 
                 // Estilo encabezado
                 $sheet->getStyle("A1:{$highestColumn}1")->applyFromArray([
-                    'fill' => [
-                        'fillType' => Fill::FILL_SOLID,
-                        'startColor' => ['rgb' => '0070C0'],
-                    ],
-                    'font' => [
-                        'color' => ['rgb' => 'FFFFFF'],
-                        'bold' => true,
-                        'size' => 12,
-                    ],
+                    'fill'      => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '0070C0']],
+                    'font'      => ['color' => ['rgb' => 'FFFFFF'], 'bold' => true, 'size' => 12],
                     'alignment' => [
                         'horizontal' => Alignment::HORIZONTAL_CENTER,
-                        'vertical' => Alignment::VERTICAL_CENTER,
-                        'wrapText' => false,
+                        'vertical'   => Alignment::VERTICAL_CENTER,
+                        'wrapText'   => false,
                     ],
                 ]);
 
-                // Ajuste de ancho dinámico
+                // Anchos
                 foreach ($this->headings() as $i => $heading) {
                     $colLetter = Coordinate::stringFromColumnIndex($i + 1);
                     $sheet->getColumnDimension($colLetter)->setWidth(strlen($heading) + 5);
@@ -293,7 +228,7 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
 
     private function limpiarAcentos($cadena)
     {
-        $originales = ['Á', 'É', 'Í', 'Ó', 'Ú', 'á', 'é', 'í', 'ó', 'ú', 'Ñ', 'ñ'];
+        $originales  = ['Á', 'É', 'Í', 'Ó', 'Ú', 'á', 'é', 'í', 'ó', 'ú', 'Ñ', 'ñ'];
         $modificadas = ['A', 'E', 'I', 'O', 'U', 'a', 'e', 'i', 'o', 'u', 'N', 'n'];
         return str_replace($originales, $modificadas, $cadena);
     }

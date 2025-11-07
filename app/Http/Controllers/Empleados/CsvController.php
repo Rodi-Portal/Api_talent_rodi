@@ -11,6 +11,7 @@ use App\Imports\EmpleadosImport;
 use App\Imports\EmpleadosLaboralesImport;
 use App\Imports\MedicalInfoImport;
 use App\Models\Empleado;
+use App\Services\SatCatalogosService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -285,55 +286,6 @@ class CsvController extends Controller
         return Excel::download(new EmpleadosGeneralExport($empleados), 'plantilla_general_info.xlsx');
     }
 
-    public function downloadTemplateLaboral(Request $request)
-    {
-        $id_cliente = $request->query('id_cliente');
-
-        if (! $id_cliente) {
-            Log::warning('No se proporcionó ID del cliente');
-            return response()->json(['error' => 'ID de cliente no proporcionado'], 400);
-        }
-
-        // Obtener empleados del mismo cliente con la información laboral
-        $empleados = DB::connection('portal_main')->table('empleados')
-            ->leftJoin('laborales_empleado as LAB', 'empleados.id', '=', 'LAB.id_empleado')
-            ->where('empleados.id_cliente', $id_cliente)
-            ->where('empleados.status', 1)
-            ->where('empleados.eliminado', 0)
-            ->select([
-                'empleados.id',
-                'empleados.id_empleado',
-                DB::raw("CONCAT_WS(' ', empleados.nombre, empleados.paterno, empleados.materno) as nombre_completo"),
-
-                // Campos de LAB
-                'LAB.tipo_contrato',
-                'LAB.otro_tipo_contrato',
-                'LAB.tipo_regimen',
-                'LAB.tipo_jornada',
-                'LAB.horas_dia',
-                'LAB.grupo_nomina',
-                'LAB.periodicidad_pago',
-                'LAB.sindicato',
-                'LAB.dias_descanso',
-                'LAB.vacaciones_disponibles',
-                'LAB.sueldo_diario',
-                'LAB.sueldo_asimilado',
-                'LAB.pago_dia_festivo',
-                'LAB.pago_dia_festivo_a',
-                'LAB.pago_hora_extra',
-                'LAB.pago_hora_extra_a',
-                'LAB.dias_aguinaldo',
-                'LAB.prima_vacacional',
-                'LAB.prestamo_pendiente',
-                'LAB.descuento_ausencia',
-                'LAB.descuento_ausencia_a',
-
-            ])
-            ->get();
-
-        return Excel::download(new EmpleadosLaboralesExport($empleados), 'plantilla_informacion_laboral.xlsx');
-    }
-
     public function importGeneralInfo(Request $request)
     {
         if (! $request->hasFile('file')) {
@@ -376,25 +328,85 @@ class CsvController extends Controller
         }
     }
 
+    public function downloadTemplateLaboral(Request $request)
+    {
+        $id_cliente = $request->query('id_cliente');
+        if (! $id_cliente) {
+            Log::warning('No se proporcionó ID del cliente');
+            return response()->json(['error' => 'ID de cliente no proporcionado'], 400);
+        }
+
+        $empleados = DB::connection('portal_main')->table('empleados')
+            ->leftJoin('laborales_empleado as LAB', 'empleados.id', '=', 'LAB.id_empleado')
+            ->where('empleados.id_cliente', $id_cliente)
+            ->where('empleados.status', 1)
+            ->where('empleados.eliminado', 0)
+            ->select([
+                'empleados.id',
+                'empleados.id_empleado',
+                DB::raw("CONCAT_WS(' ', empleados.nombre, empleados.paterno, empleados.materno) as nombre_completo"),
+
+                // Legacy (se quedan para referencia en la plantilla)
+                'LAB.tipo_contrato',
+                'LAB.otro_tipo_contrato',
+                'LAB.tipo_regimen',
+                'LAB.tipo_jornada',
+                'LAB.horas_dia',
+                'LAB.grupo_nomina',
+                'LAB.periodicidad_pago',
+                'LAB.sindicato',
+                'LAB.dias_descanso',
+                'LAB.vacaciones_disponibles',
+                'LAB.sueldo_diario',
+                'LAB.sueldo_asimilado',
+                'LAB.pago_dia_festivo',
+                'LAB.pago_dia_festivo_a',
+                'LAB.pago_hora_extra',
+                'LAB.pago_hora_extra_a',
+                'LAB.dias_aguinaldo',
+                'LAB.prima_vacacional',
+                'LAB.prestamo_pendiente',
+                'LAB.descuento_ausencia',
+                'LAB.descuento_ausencia_a',
+
+                // ✅ Claves SAT (para que el export pueda mostrar descripciones correctas)
+                'LAB.tipo_contrato_sat',
+                'LAB.tipo_regimen_sat',
+                'LAB.tipo_jornada_sat',
+                'LAB.periodicidad_pago_sat',
+            ])
+            ->get();
+
+        $sat = new SatCatalogosService();
+        return Excel::download(new EmpleadosLaboralesExport($empleados, $sat), 'plantilla_informacion_laboral.xlsx');
+    }
+
     public function uploadLaboralesInfo(Request $request)
     {
         $request->validate([
-            'file' => 'required|file|mimes:xlsx,xls,csv',
+            'file'       => 'required|file|mimes:xlsx,xls,csv',
+            'id_cliente' => 'required|integer',
         ]);
+
         if (! $request->hasFile('file')) {
             return response()->json(['error' => 'No se proporcionó un archivo'], 400);
         }
-        if (! $request->has('id_cliente')) {
-            return response()->json(['error' => 'No esta  asociado a una sucursal refresque la  pagina  e intentelo nuevamente'], 400);
-        }
 
-        $id_cliente = $request->input('id_cliente');
+        $idCliente = (int) $request->input('id_cliente');
 
         try {
-            Excel::import(new EmpleadosLaboralesImport($id_cliente), $request->file('file'));
+            // Mejor por el contenedor (respeta bindings/config)
+            $sat = app(SatCatalogosService::class);
+
+            Excel::import(
+                new EmpleadosLaboralesImport($idCliente, $sat),
+                $request->file('file')
+            );
 
             return response()->json(['message' => 'Importación completada correctamente.'], 200);
-        } catch (\Exception $e) {
+
+        } catch (\Throwable $e) {
+            \Log::error('uploadLaboralesInfo error', ['msg' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             return response()->json(['error' => 'Error al procesar el archivo: ' . $e->getMessage()], 500);
         }
     }
