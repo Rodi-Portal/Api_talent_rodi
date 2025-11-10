@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Empleados;
 use App\Http\Controllers\Controller; // Asegúrate de tener esta línea arriba para utilizar Log
 
 use App\Models\CursoEmpleado;
+use App\Models\Departamento;
 use App\Models\DocumentEmpleado;
 use App\Models\DomicilioEmpleado;
 use App\Models\Empleado;
@@ -11,10 +12,7 @@ use App\Models\EmpleadoCampoExtra;
 use App\Models\Evaluacion;
 use App\Models\ExamEmpleado;
 use App\Models\MedicalInfo;
-use App\Models\Departamento;       // <<<<<< necesario
-use App\Models\PuestoEmpleado;
 use Carbon\Carbon;
-use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -36,7 +34,12 @@ class EmpleadoController extends Controller
         $status     = $request->input('status');
 
         // Obtener todos los empleados con sus domicilios
-        $empleados = Empleado::with('domicilioEmpleado', 'camposExtra', )
+        $empleados = Empleado::with([
+            'domicilioEmpleado',
+            'camposExtra',
+            'depto:id,nombre',     // <-- relación correcta
+            'puestoRel:id,nombre', // <-- relación correcta
+        ])
             ->where('id_portal', $id_portal)
             ->where('id_cliente', $id_cliente)
             ->where('status', $status)
@@ -78,6 +81,9 @@ class EmpleadoController extends Controller
                 // Convertir el empleado a un array
                 $empleadoArray = $empleado->toArray();
 
+                // 👉 Agrega estos dos campos derivados:
+                $empleadoArray['departamento_nombre'] = $empleado->depto->nombre ?? null;
+                $empleadoArray['puesto_nombre']       = $empleado->puestoRel->nombre ?? null;
                 if (isset($empleadoArray['domicilio_empleado']) && is_array($empleadoArray['domicilio_empleado'])) {
                     $camposPermitidos = ['pais', 'estado', 'ciudad', 'colonia', 'calle', 'cp', 'num_int', 'num_ext'];
 
@@ -122,6 +128,9 @@ class EmpleadoController extends Controller
                 // Convertir el empleado a un array y agregar el statusDocuments
                 $empleadoArray = $empleado->toArray();
 
+                // 👉 Agrega estos dos campos derivados:
+                $empleadoArray['departamento_nombre'] = $empleado->depto->nombre ?? null;
+                $empleadoArray['puesto_nombre']       = $empleado->puestoRel->nombre ?? null;
                 if (isset($empleadoArray['domicilio_empleado']) && is_array($empleadoArray['domicilio_empleado'])) {
                     $camposPermitidos = ['pais', 'estado', 'ciudad', 'colonia', 'calle', 'cp', 'num_int', 'num_ext'];
 
@@ -565,7 +574,6 @@ class EmpleadoController extends Controller
     }
 
     // MEtodo  para  guardar  un empleado  desde  el modulo  employe
-
     // Método para guardar un empleado desde el módulo employee
     public function update(Request $request)
     {

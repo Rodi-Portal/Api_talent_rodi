@@ -9,17 +9,15 @@ class Departamento extends Model
     protected $table = 'departamentos';
     protected $connection = 'portal_main';
 
-    public $timestamps = true;
-    const CREATED_AT = 'creado_en';
-    const UPDATED_AT = 'actualizado_en';
+     public $timestamps = false; // usamos columnas creacion/edicion manuales
 
-    protected $fillable = ['id_portal','id_cliente','nombre_departamento'];
+    // Si tu app usa una conexión NO default, descomenta la siguiente línea:
+    // protected $connection = 'portal_main';
 
-    // ✅ (opcional útil)
-    protected $casts = [
-        'id_portal' => 'integer',
-        'id_cliente'=> 'integer',
+    protected $fillable = [
+        'id_portal', 'id_cliente', 'nombre', 'status', 'creacion', 'edicion',
     ];
+
 
     // ✅ (opcional) relación inversa, si luego te sirve listar empleados por dep:
     public function empleados()

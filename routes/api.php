@@ -8,10 +8,9 @@ use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Auth\PermissionController;
-use App\Http\Controllers\Sat\SatCatalogosController;
-
-//use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
+use App\Http\Controllers\Empleados\CatalogosController;
+//use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\ChecadasController;
 use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
@@ -37,6 +36,7 @@ use App\Http\Controllers\Plantillas\PlantillaController;
 use App\Http\Controllers\PreEmpleado\PreEmpleadoController;
 use App\Http\Controllers\ProyectosHistorialController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
 use App\Http\Controllers\WhatsAppController;
 use Illuminate\Http\Request;
@@ -138,25 +138,30 @@ Route::middleware(['api'])->group(function () {
     Route::post('/empleados/registro_prenomina', [LaboralesController::class, 'guardarPrenomina']);
     Route::get('/empleados/obtener_prenomina_masiva_ultima', [LaboralesController::class, 'empleadosMasivoPrenomina']);
     Route::post('/empleados/registro_prenomina_masiva', [LaboralesController::class, 'guardarPrenominaMasiva']);
-    // Incidencias pre nomina 
+    // Incidencias pre nomina
     Route::post('/incidencias/preview', [IncidenciasController::class, 'preview']);
-
 
     //***************  Fin para  los  laborales del empleado ********************/
 
     //***************  Inicio para  los  catalogos del SAT ********************/
 
     Route::prefix('sat')->group(function () {
-        Route::get('/catalogos',        [SatCatalogosController::class, 'all']);          // todos en una sola llamada
-        Route::get('/contratos',        [SatCatalogosController::class, 'contratos']);
-        Route::get('/regimenes',        [SatCatalogosController::class, 'regimenes']);
-        Route::get('/jornadas',         [SatCatalogosController::class, 'jornadas']);
-        Route::get('/periodicidades',   [SatCatalogosController::class, 'periodicidades']);
+        Route::get('/catalogos', [SatCatalogosController::class, 'all']); // todos en una sola llamada
+        Route::get('/contratos', [SatCatalogosController::class, 'contratos']);
+        Route::get('/regimenes', [SatCatalogosController::class, 'regimenes']);
+        Route::get('/jornadas', [SatCatalogosController::class, 'jornadas']);
+        Route::get('/periodicidades', [SatCatalogosController::class, 'periodicidades']);
     });
 
-    
     //***************  Fin para  los  catalogos del SAT ************************/
 
+    //***************  Inicio para  los  catalogos del Puestos y Departamentos ************************/
+
+    Route::get('catalogos/departamentos', [CatalogosController::class, 'departamentos']);
+    Route::get('catalogos/puestos', [CatalogosController::class, 'puestos']);
+    Route::post('catalogos/departamentos', [CatalogosController::class, 'crearDepartamento']); // opcional
+    Route::post('catalogos/puestos', [CatalogosController::class, 'crearPuesto']);
+    //***************  Fin para  los  catalogos del Puestos y Departamentos ************************/
 
     //***************  Ruta para  los  Mensajeria del empleado ************************/
     Route::get('/plantillas', [PlantillaController::class, 'listar']);
@@ -205,7 +210,6 @@ Route::middleware(['api'])->group(function () {
         [PoliticasAsistenciaController::class, 'destroyHoliday']);
 
     //***************  Fin Politicas Asitencia  ****************/
-
 
     //  obtener  el status  de general  de los empleados
     Route::get('/empleados/status', [EmpleadoController::class, 'getEmpleadosStatus']);
@@ -327,14 +331,12 @@ Route::middleware(['api'])->group(function () {
     //***************  Fin Permision ****************/
 
     Route::post('/send-notification', [WhatsAppController::class, 'sendMessage_notificacion_talentsafe']);
-        Route::post('/send-notification-ex', [WhatsAppController::class, 'sendMessage_notificacion_exempleados']);
+    Route::post('/send-notification-ex', [WhatsAppController::class, 'sendMessage_notificacion_exempleados']);
 
     Route::post('/send-notification-recordatorio', [WhatsAppController::class, 'sendMessage_recordatorio_portal']);
-  });
+});
 
 /*notificaciones  via  whatsapp modulo empleados*/
-
-
 
 /*Este  endpoint  es para   mostrar  avances  de los  candidatos  en pre empleo  */
 //Route::get('/check-avances', [AvanceController::class, 'checkAvances']);
