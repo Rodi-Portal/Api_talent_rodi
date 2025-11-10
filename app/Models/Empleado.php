@@ -34,6 +34,8 @@ class Empleado extends Model
         'status',
         'eliminado',
         'fecha_ingreso',
+        'id_departamento',
+        'id_puesto',
     ];
     protected $casts = [
         'fecha_nacimiento' => 'date:Y-m-d',
@@ -68,6 +70,8 @@ class Empleado extends Model
         return $this->belongsTo(ClienteTalent::class, 'id_cliente');
     }
 
+    public function depto(){ return $this->belongsTo(Departamento::class, 'id_departamento'); }
+    public function puestoRel(){ return $this->belongsTo(PuestoEmpleado::class, 'id_puesto'); }
     /**
      * Obtener los datos del empleado junto con sus relaciones.
      *
