@@ -11,6 +11,8 @@ use App\Models\EmpleadoCampoExtra;
 use App\Models\Evaluacion;
 use App\Models\ExamEmpleado;
 use App\Models\MedicalInfo;
+use App\Models\Departamento;       // <<<<<< necesario
+use App\Models\PuestoEmpleado;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -537,95 +539,6 @@ class EmpleadoController extends Controller
         ]);
     }
 
-    public function update(Request $request)
-    {
-
-        // Validación
-        $validator = Validator::make($request->all(), [
-            'id'                         => 'required|integer',
-            'edicion'                    => 'required|date',
-            'domicilio_empleado.id'      => 'required|integer',
-            'domicilio_empleado.pais'    => 'nullable|string|max:255',
-            'domicilio_empleado.estado'  => 'nullable|string|max:255',
-            'domicilio_empleado.ciudad'  => 'nullable|string|max:255',
-            'domicilio_empleado.colonia' => 'nullable|string|max:255',
-            'domicilio_empleado.calle'   => 'nullable|string|max:255',
-            'domicilio_empleado.cp'      => 'nullable|string|max:25',
-            'domicilio_empleado.num_int' => 'nullable|string|max:255',
-            'domicilio_empleado.num_ext' => 'nullable|string|max:255',
-            // ... otros campos del empleado ...
-        ]);
-
-        if ($validator->fails()) {
-            //  \Log::error('Validation errors:', $validator->errors()->toArray());
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-
-        try {
-            // Actualizar el empleado
-            $empleado = Empleado::findOrFail($request->id);
-            $empleado->update($request->only([
-                'creacion',
-                'edicion',
-                'nombre',
-                'paterno',
-                'materno',
-                'telefono',
-                'correo',
-                'departamento',
-                'puesto',
-                'rfc',
-                'nss',
-                'id_empleado',
-                'curp',
-                'foto',
-                'fecha_nacimiento',
-                'fecha_ingreso',
-                'status',
-                'eliminado',
-            ]));
-
-            // Actualizar el domicilio
-            $domicilio = DomicilioEmpleado::findOrFail($request->domicilio_empleado['id']);
-            $domicilio->update($request->domicilio_empleado);
-            if ($request->filled('campoExtra')) {
-                foreach ($request->campoExtra as $campo) {
-                    if (isset($campo['id'])) {
-                        // Actualizar campo existente
-                        $campoExistente = EmpleadoCampoExtra::where('id_empleado', $empleado->id)
-                            ->where('id', $campo['id'])
-                            ->first();
-
-                        if ($campoExistente) {
-                            $campoExistente->update([
-                                'nombre' => $campo['nombre'],
-                                'valor'  => $campo['valor'],
-                            ]);
-                        }
-                    } else {
-                        // Crear nuevo campo
-                        EmpleadoCampoExtra::create([
-                            'id_empleado' => $empleado->id,
-                            'nombre'      => $campo['nombre'],
-                            'valor'       => $campo['valor'],
-                        ]);
-                    }
-                }
-            }
-
-            // Log de éxito
-            //\Log::info('Empleado y domicilio actualizados correctamente.', ['empleado_id' => $empleado->id, 'domicilio_id' => $domicilio->id]);
-
-            return response()->json(['message' => 'Empleado y domicilio actualizados correctamente.'], 200);
-
-        } catch (ModelNotFoundException $e) {
-            // \Log::error('Model not found:', ['message' => $e->getMessage()]);
-            return response()->json(['error' => 'Empleado o domicilio no encontrado.'], 404);
-        } catch (Exception $e) {
-            //\Log::error('Error al actualizar:', ['message' => $e->getMessage()]);
-            return response()->json(['error' => 'Ocurrió un error al actualizar los datos.'], 500);
-        }
-    }
     public function show($id_empleado)
     {
         $medicalInfo = MedicalInfo::where('id_empleado', $id_empleado)->first();
@@ -653,10 +566,159 @@ class EmpleadoController extends Controller
 
     // MEtodo  para  guardar  un empleado  desde  el modulo  employe
 
+    // Método para guardar un empleado desde el módulo employee
+    public function update(Request $request)
+    {
+        // Validación
+        $validator = Validator::make($request->all(), [
+            'id'                         => 'required|integer',
+            'edicion'                    => 'required|date',
+            'domicilio_empleado.id'      => 'required|integer',
+            'domicilio_empleado.pais'    => 'nullable|string|max:255',
+            'domicilio_empleado.estado'  => 'nullable|string|max:255',
+            'domicilio_empleado.ciudad'  => 'nullable|string|max:255',
+            'domicilio_empleado.colonia' => 'nullable|string|max:255',
+            'domicilio_empleado.calle'   => 'nullable|string|max:255',
+            'domicilio_empleado.cp'      => 'nullable|string|max:25',
+            'domicilio_empleado.num_int' => 'nullable|string|max:255',
+            'domicilio_empleado.num_ext' => 'nullable|string|max:255',
+
+            // Campos para catálogos (opcionales)
+            'id_portal'                  => 'nullable|integer',
+            'id_cliente'                 => 'nullable|integer',
+            'id_departamento'            => 'nullable|integer|min:1',
+            'departamento'               => 'nullable|string|max:120',
+            'id_puesto'                  => 'nullable|integer|min:1',
+            'puesto'                     => 'nullable|string|max:120',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        try {
+            return DB::transaction(function () use ($request) {
+
+                // === Empleado base
+                $empleado = Empleado::findOrFail($request->id);
+
+                // Ámbito para catálogos: request o valores actuales del empleado
+                $portal  = (int) ($request->input('id_portal', $empleado->id_portal ?? 0));
+                $cliente = (int) ($request->input('id_cliente', $empleado->id_cliente ?? 0));
+
+                // Normaliza textos de request (evita strings de solo espacios)
+                $depTxtReq    = trim((string) ($request->input('departamento') ?? ''));
+                $puestoTxtReq = trim((string) ($request->input('puesto') ?? ''));
+
+                // === Resolver DEPARTAMENTO
+                if ($request->filled('id_departamento')) {
+                    $empleado->id_departamento = (int) $request->input('id_departamento');
+                    if ($d = Departamento::find($empleado->id_departamento)) {
+                        $empleado->departamento = $d->nombre; // sync legacy opcional
+                    }
+                } elseif ($depTxtReq !== '') {
+                    $dep = Departamento::firstOrCreate(
+                        ['id_portal' => $portal, 'id_cliente' => $cliente, 'nombre' => $depTxtReq],
+                        ['status' => 1]
+                    );
+                    $empleado->id_departamento = $dep->id;
+                    $empleado->departamento    = $dep->nombre; // legacy
+                } elseif (empty($empleado->id_departamento) && trim((string) $empleado->departamento) !== '') {
+                    // Fallback: usa el texto legacy ya guardado en BD
+                    $depLegacy = trim((string) $empleado->departamento);
+                    $dep       = Departamento::firstOrCreate(
+                        ['id_portal' => $portal, 'id_cliente' => $cliente, 'nombre' => $depLegacy],
+                        ['status' => 1]
+                    );
+                    $empleado->id_departamento = $dep->id;
+                    // $empleado->departamento ya tiene el texto legacy
+                }
+
+                // === Resolver PUESTO
+                if ($request->filled('id_puesto')) {
+                    $empleado->id_puesto = (int) $request->input('id_puesto');
+                    if ($p = PuestoEmpleado::find($empleado->id_puesto)) {
+                        $empleado->puesto = $p->nombre; // legacy
+                    }
+                } elseif ($puestoTxtReq !== '') {
+                    $p = PuestoEmpleado::firstOrCreate(
+                        ['id_portal' => $portal, 'id_cliente' => $cliente, 'nombre' => $puestoTxtReq],
+                        ['status' => 1]
+                    );
+                    $empleado->id_puesto = $p->id;
+                    $empleado->puesto    = $p->nombre; // legacy
+                } elseif (empty($empleado->id_puesto) && trim((string) $empleado->puesto) !== '') {
+                    // Fallback: usa el texto legacy ya guardado en BD
+                    $puestoLegacy = trim((string) $empleado->puesto);
+                    $p            = PuestoEmpleado::firstOrCreate(
+                        ['id_portal' => $portal, 'id_cliente' => $cliente, 'nombre' => $puestoLegacy],
+                        ['status' => 1]
+                    );
+                    $empleado->id_puesto = $p->id;
+                    // $empleado->puesto ya tiene el texto legacy
+                }
+
+                // === Actualizar datos simples del empleado
+                $empleado->fill($request->only([
+                    'creacion', 'edicion', 'nombre', 'paterno', 'materno', 'telefono', 'correo',
+                    'rfc', 'nss', 'id_empleado', 'curp', 'foto', 'fecha_nacimiento', 'fecha_ingreso',
+                    'status', 'eliminado',
+                    // 'departamento','puesto' // ya sincronizados arriba
+                ]));
+
+                $empleado->save();
+
+                // === Domicilio
+                $domicilio = DomicilioEmpleado::findOrFail($request->input('domicilio_empleado.id'));
+                $domicilio->update($request->input('domicilio_empleado'));
+
+                // === Campos extra
+                if ($request->filled('campoExtra') && is_array($request->campoExtra)) {
+                    foreach ($request->campoExtra as $campo) {
+                        if (! empty($campo['id'])) {
+                            $campoExistente = EmpleadoCampoExtra::where('id_empleado', $empleado->id)
+                                ->where('id', $campo['id'])
+                                ->first();
+                            if ($campoExistente) {
+                                $campoExistente->update([
+                                    'nombre' => $campo['nombre'] ?? '',
+                                    'valor'  => $campo['valor'] ?? '',
+                                ]);
+                            }
+                        } else {
+                            EmpleadoCampoExtra::create([
+                                'id_empleado' => $empleado->id,
+                                'nombre'      => $campo['nombre'] ?? '',
+                                'valor'       => $campo['valor'] ?? '',
+                            ]);
+                        }
+                    }
+                }
+
+                // === Respuesta con nombres resueltos
+                $departamentoNombre = optional(Departamento::find($empleado->id_departamento))->nombre;
+                $puestoNombre       = optional(PuestoEmpleado::find($empleado->id_puesto))->nombre;
+
+                return response()->json([
+                    'message' => 'Empleado y domicilio actualizados correctamente.',
+                    'data'    => array_merge($empleado->toArray(), [
+                        'departamento_nombre' => $departamentoNombre,
+                        'puesto_nombre'       => $puestoNombre,
+                    ]),
+                ], 200);
+            });
+
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['error' => 'Empleado o domicilio no encontrado.'], 404);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Ocurrió un error al actualizar los datos.'], 500);
+        }
+    }
+
     public function store(Request $request)
     {
-        // Validar los campos requeridos
-        $validatedData = $request->validate([
+        // Validación
+        $validated = $request->validate([
             'creacion'                   => 'required|date',
             'edicion'                    => 'required|date',
             'id_portal'                  => 'required|integer',
@@ -666,18 +728,18 @@ class EmpleadoController extends Controller
             'correo'                     => 'nullable|email',
             'fecha_nacimiento'           => 'nullable|date',
             'fecha_ingreso'              => 'nullable|date',
-
             'curp'                       => 'nullable|string',
             'rfc'                        => 'nullable|string',
             'nss'                        => 'nullable|string',
             'nombre'                     => 'required|string',
             'paterno'                    => 'required|string',
             'materno'                    => 'nullable|string',
-            'departamento'               => 'nullable|string',
-            'puesto'                     => 'nullable|string',
+            'departamento'               => 'nullable|string|max:120',
+            'id_departamento'            => 'nullable|integer|min:1',
+            'puesto'                     => 'nullable|string|max:120',
+            'id_puesto'                  => 'nullable|integer|min:1',
             'telefono'                   => 'nullable|string',
-            'fecha_ingreso'              => 'nullable|date',
-            // Validación para domicilio_empleado
+
             'domicilio_empleado.calle'   => 'nullable|string',
             'domicilio_empleado.num_ext' => 'nullable|string',
             'domicilio_empleado.num_int' => 'nullable|string',
@@ -687,26 +749,25 @@ class EmpleadoController extends Controller
             'domicilio_empleado.pais'    => 'nullable|string',
             'domicilio_empleado.cp'      => 'nullable|string',
 
-            // Validación para campos extra
             'extraFields'                => 'nullable|array',
             'extraFields.*.nombre'       => 'required|string',
             'extraFields.*.valor'        => 'required|string',
         ]);
 
-        $fechaNacimiento = '';
-        $fechaCreacion   = '';
-        $edad            = null;
-        if (isset($validatedData['fecha_nacimiento']) && $validatedData['fecha_nacimiento'] != '') {
-            $fechaNacimiento = Carbon::parse($validatedData['fecha_nacimiento']);
-            $fechaCreacion   = Carbon::parse($validatedData['creacion']);
-            $edad            = $fechaCreacion->diffInYears($fechaNacimiento);
+        // Edad (si viene fecha_nacimiento)
+        $edad = null;
+        if (! empty($validated['fecha_nacimiento'])) {
+            $fechaNac = Carbon::parse($validated['fecha_nacimiento']);
+            $fechaCre = Carbon::parse($validated['creacion']);
+            $edad     = $fechaCre->diffInYears($fechaNac);
         }
 
-        $existeEmpleado = Empleado::where('nombre', $validatedData['nombre'])
-            ->where('paterno', $validatedData['paterno'])
-            ->where('id_portal', $validatedData['id_portal'])
-            ->where('id_cliente', $validatedData['id_cliente'])
-            ->where('eliminado', 0) // Si usas soft-delete lógico
+        // Duplicidad básica por (portal, cliente, nombre, paterno)
+        $existeEmpleado = Empleado::where('nombre', $validated['nombre'])
+            ->where('paterno', $validated['paterno'])
+            ->where('id_portal', $validated['id_portal'])
+            ->where('id_cliente', $validated['id_cliente'])
+            ->where('eliminado', 0)
             ->first();
 
         if ($existeEmpleado) {
@@ -716,60 +777,77 @@ class EmpleadoController extends Controller
             ], 409);
         }
 
-        // Imprimir los datos en el log
-        // Log::info('Datos recibidos para el registro de empleado: ' . print_r($validatedData, true));
-        // Log::info('edad: ' . $edad);
+        return DB::transaction(function () use ($validated, $edad) {
 
-        // Crear una transacción
-        DB::beginTransaction();
+            // 1) Domicilio
+            $domicilio = DomicilioEmpleado::create([
+                'calle'   => $validated['domicilio_empleado']['calle'] ?? null,
+                'num_ext' => $validated['domicilio_empleado']['num_ext'] ?? null,
+                'num_int' => $validated['domicilio_empleado']['num_int'] ?? null,
+                'colonia' => $validated['domicilio_empleado']['colonia'] ?? null,
+                'ciudad'  => $validated['domicilio_empleado']['ciudad'] ?? null,
+                'estado'  => $validated['domicilio_empleado']['estado'] ?? null,
+                'pais'    => $validated['domicilio_empleado']['pais'] ?? null,
+                'cp'      => $validated['domicilio_empleado']['cp'] ?? null,
+            ]);
 
-        try {
-            // Crear un registro en DomicilioEmpleado
-            $domicilioData = [
-                'calle'   => $validatedData['domicilio_empleado']['calle'] ?? null,
-                'num_ext' => $validatedData['domicilio_empleado']['num_ext'] ?? null,
-                'num_int' => $validatedData['domicilio_empleado']['num_int'] ?? null,
-                'colonia' => $validatedData['domicilio_empleado']['colonia'] ?? null,
-                'ciudad'  => $validatedData['domicilio_empleado']['ciudad'] ?? null,
-                'estado'  => $validatedData['domicilio_empleado']['estado'] ?? null,
-                'pais'    => $validatedData['domicilio_empleado']['pais'] ?? null,
-                'cp'      => $validatedData['domicilio_empleado']['cp'] ?? null,
-            ];
+            // 2) Resolver catálogos (prioriza id_*)
+            $portal  = (int) $validated['id_portal'];
+            $cliente = (int) $validated['id_cliente'];
 
-                                                                    // Log::info('Insertando en DomicilioEmpleado:', $domicilioData); // Log antes de insertar
-            $domicilio = DomicilioEmpleado::create($domicilioData); // Guardar con create
+            $idDepartamento = null;
+            if (! empty($validated['id_departamento'])) {
+                $idDepartamento = (int) $validated['id_departamento'];
+            } elseif (! empty($validated['departamento'])) {
+                $dep = Departamento::firstOrCreate(
+                    ['id_portal' => $portal, 'id_cliente' => $cliente, 'nombre' => trim($validated['departamento'])],
+                    ['status' => 1]
+                );
+                $idDepartamento = $dep->id;
+            }
 
-            // Crear un nuevo empleado
-            $empleadoData = [
-                'creacion'              => $validatedData['creacion'],
-                'edicion'               => $validatedData['edicion'],
-                'id_portal'             => $validatedData['id_portal'],
-                'id_usuario'            => $validatedData['id_usuario'],
-                'id_cliente'            => $validatedData['id_cliente'],
-                'id_empleado'           => $validatedData['id_empleado'] ?? null,
-                'correo'                => $validatedData['correo'] ?? null,
-                'curp'                  => $validatedData['curp'] ?? null,
-                'nombre'                => $validatedData['nombre'],
-                'nss'                   => $validatedData['nss'] ?? null,
-                'rfc'                   => $validatedData['rfc'] ?? null,
-                'paterno'               => $validatedData['paterno'],
-                'materno'               => $validatedData['materno'] ?? null,
-                'departamento'          => $validatedData['departamento'] ?? null,
-                'puesto'                => $validatedData['puesto'] ?? null,
-                'fecha_ingreso'         => $validatedData['fecha_ingreso'] ?? null,
-                'fecha_nacimiento'      => $validatedData['fecha_nacimiento'] ?? null,
-                'telefono'              => $validatedData['telefono'] ?? null,
-                'id_domicilio_empleado' => $domicilio->id, // Asignar el ID del domicilio creado
+            $idPuesto = null;
+            if (! empty($validated['id_puesto'])) {
+                $idPuesto = (int) $validated['id_puesto'];
+            } elseif (! empty($validated['puesto'])) {
+                $p = PuestoEmpleado::firstOrCreate(
+                    ['id_portal' => $portal, 'id_cliente' => $cliente, 'nombre' => trim($validated['puesto'])],
+                    ['status' => 1]
+                );
+                $idPuesto = $p->id;
+            }
+
+            // 3) Empleado
+            $empleado = Empleado::create([
+                'creacion'              => $validated['creacion'],
+                'edicion'               => $validated['edicion'],
+                'id_portal'             => $portal,
+                'id_usuario'            => $validated['id_usuario'],
+                'id_cliente'            => $cliente,
+                'id_empleado'           => $validated['id_empleado'] ?? null,
+                'correo'                => $validated['correo'] ?? null,
+                'curp'                  => $validated['curp'] ?? null,
+                'nombre'                => $validated['nombre'],
+                'nss'                   => $validated['nss'] ?? null,
+                'rfc'                   => $validated['rfc'] ?? null,
+                'paterno'               => $validated['paterno'],
+                'materno'               => $validated['materno'] ?? null,
+                // sincronizamos legacy si se resolvió el catálogo
+                'departamento'          => $idDepartamento ? (Departamento::find($idDepartamento)->nombre ?? ($validated['departamento'] ?? null)) : ($validated['departamento'] ?? null),
+                'puesto'                => $idPuesto ? (PuestoEmpleado::find($idPuesto)->nombre ?? ($validated['puesto'] ?? null)) : ($validated['puesto'] ?? null),
+                'id_departamento'       => $idDepartamento,
+                'id_puesto'             => $idPuesto,
+                'fecha_ingreso'         => $validated['fecha_ingreso'] ?? null,
+                'fecha_nacimiento'      => $validated['fecha_nacimiento'] ?? null,
+                'telefono'              => $validated['telefono'] ?? null,
+                'id_domicilio_empleado' => $domicilio->id,
                 'status'                => 1,
                 'eliminado'             => 0,
-            ];
+            ]);
 
-                                                         //Log::info('Insertando en Empleado:', $empleadoData); // Log antes de insertar
-            $empleado = Empleado::create($empleadoData); // Guardar con create
-
-            // Crear los campos extra relacionados con el empleado, si existen
-            if (isset($validatedData['extraFields']) && count($validatedData['extraFields']) > 0) {
-                foreach ($validatedData['extraFields'] as $campoExtra) {
+            // 4) Campos extra
+            if (! empty($validated['extraFields'])) {
+                foreach ($validated['extraFields'] as $campoExtra) {
                     EmpleadoCampoExtra::create([
                         'id_empleado' => $empleado->id,
                         'nombre'      => $campoExtra['nombre'],
@@ -777,34 +855,27 @@ class EmpleadoController extends Controller
                     ]);
                 }
             }
-            // Crear un registro vacío en MedicalInfo
-            $medicalInfoData = [
+
+            // 5) Medical info
+            MedicalInfo::create([
                 'id_empleado' => $empleado->id,
-                'creacion'    => $validatedData['creacion'],
-                'edicion'     => $validatedData['creacion'],
-                'edad'        => $edad ?? null,
-            ];
+                'creacion'    => $validated['creacion'],
+                'edicion'     => $validated['creacion'],
+                'edad'        => $edad,
+            ]);
 
-                                                   // Log::info('Insertando en MedicalInfo:', $medicalInfoData); // Log antes de insertar
-            MedicalInfo::create($medicalInfoData); // Guardar con create
-
-            // Confirmar la transacción
-            DB::commit();
+            // Respuesta con nombres
+            $departamentoNombre = optional(Departamento::find($empleado->id_departamento))->nombre;
+            $puestoNombre       = optional(PuestoEmpleado::find($empleado->id_puesto))->nombre;
 
             return response()->json([
                 'message' => 'Empleado registrado exitosamente.',
-                'data'    => $empleado,
+                'data'    => array_merge($empleado->toArray(), [
+                    'departamento_nombre' => $departamentoNombre,
+                    'puesto_nombre'       => $puestoNombre,
+                ]),
             ], 201);
-        } catch (\Exception $e) {
-            // Revertir la transacción en caso de error
-            DB::rollBack();
-            //Log::error('Error durante el registro:', ['error' => $e->getMessage()]);
-
-            return response()->json([
-                'message' => 'Error al registrar el empleado.',
-                'error'   => $e->getMessage(),
-            ], 500);
-        }
+        });
     }
 
     public function checkEmail(Request $request)
