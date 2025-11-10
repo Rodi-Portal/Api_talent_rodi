@@ -2,9 +2,9 @@
 namespace App\Http\Controllers\Empleados;
 
 use App\Exports\CargaMasivaPlantillaExport;
-use App\Exports\EmpleadosGeneralExport;
 use App\Exports\EmpleadosLaboralesExport;
 use App\Exports\EmpleadosMedicalExport;
+use App\Exports\EmpleadosGeneralExport; 
 use App\Http\Controllers\Controller;
 use App\Imports\EmpleadosGeneralImport;
 use App\Imports\EmpleadosImport;
@@ -14,6 +14,8 @@ use App\Models\Empleado;
 use App\Services\SatCatalogosService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use App\Models\Departamento;
+use App\Models\PuestoEmpleado;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -233,40 +235,34 @@ class CsvController extends Controller
     public function downloadTemplateGeneral(Request $request)
     {
         $empleadoId = $request->query('empleado_id');
-
         if (! $empleadoId) {
-            Log::warning('No se proporcionó ID de empleado en la solicitud');
             return response()->json(['error' => 'ID de empleado no proporcionado'], 400);
         }
 
-        $empleado = Empleado::with('cliente')->findOrFail($empleadoId);
+        // Empleado de referencia para obtener ámbito portal/cliente
+        $empleado  = Empleado::with('cliente')->findOrFail($empleadoId);
+        $portalId  = (int) $empleado->id_portal;
+        $clienteId = (int) $empleado->id_cliente;
 
-        $cliente = $empleado->cliente;
-
-        if (! $cliente) {
-            return response()->json(['error' => 'Cliente no encontrado para el empleado'], 404);
-        }
-
-        // Obtener empleados activos del mismo cliente
+        // Empleados activos del mismo cliente (con relaciones necesarias para el export)
         $empleados = Empleado::on('portal_main')
             ->with([
-                'camposExtra'       => function ($query) {
-                    $query->select('id_empleado', 'nombre', 'valor');
-                },
-                'domicilioEmpleado' => function ($query) {
-                    $query->select([
-                        'id', 'pais', 'estado', 'ciudad', 'colonia', 'calle', 'num_int', 'num_ext',
-                        'cp',
-                    ]);
-                },
+                'camposExtra:id,id_empleado,nombre,valor',
+                'domicilioEmpleado:id,pais,estado,ciudad,colonia,calle,num_int,num_ext,cp',
+                'depto:id,nombre',
+                'puestoRel:id,nombre',
             ])
-            ->where('id_cliente', $cliente->id)
+            ->where('id_cliente', $clienteId)
             ->where('status', 1)
             ->where('eliminado', 0)
             ->get([
                 'id',
                 'id_empleado',
-                'id_domicilio_empleado', // <- ¡necesario para la relación!
+                'id_domicilio_empleado', // necesario para relación
+                'id_portal',
+                'id_cliente',
+                'id_departamento',
+                'id_puesto',
                 'nombre',
                 'paterno',
                 'materno',
@@ -275,15 +271,43 @@ class CsvController extends Controller
                 'rfc',
                 'curp',
                 'nss',
-                'departamento',
-                'puesto',
+                'departamento', // legacy
+                'puesto',       // legacy
                 'fecha_nacimiento',
                 'fecha_ingreso',
-
             ]);
-        //Log::info('Datos médicos de empleados:', $empleados->toArray());
-        // exit;
-        return Excel::download(new EmpleadosGeneralExport($empleados), 'plantilla_general_info.xlsx');
+
+        // Catálogos por ámbito (portal/cliente) para listas desplegables
+        $deps = Departamento::on('portal_main')
+            ->where('id_portal', $portalId)
+            ->where('id_cliente', $clienteId)
+            ->where('status', 1)
+            ->orderBy('nombre')
+            ->pluck('nombre')
+            ->map(fn($n) => trim((string) $n))
+            ->filter(fn($n) => $n !== '')
+            ->unique()
+            ->values()
+            ->all();
+
+        $puestos = PuestoEmpleado::on('portal_main')
+            ->where('id_portal', $portalId)
+            ->where('id_cliente', $clienteId)
+            ->where('status', 1)
+            ->orderBy('nombre')
+            ->pluck('nombre')
+            ->map(fn($n) => trim((string) $n))
+            ->filter(fn($n) => $n !== '')
+            ->unique()
+            ->values()
+            ->all();
+            \Log::info('Export — deps='.count($deps).' puestos='.count($puestos));
+
+        // Descarga del Excel (el export ya pinta columnas Selección/Otro y valida con dropdown)
+        return Excel::download(
+            new EmpleadosGeneralExport($empleados, $deps, $puestos),
+            'plantilla_general_info.xlsx'
+        );
     }
 
     public function importGeneralInfo(Request $request)
