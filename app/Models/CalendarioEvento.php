@@ -24,7 +24,6 @@ class CalendarioEvento extends Model
     protected $fillable = [
         'id_usuario',
         'id_empleado',
-        'id_periodo_nomina',
         'id_tipo',
         'inicio',
         'fin',
@@ -32,7 +31,7 @@ class CalendarioEvento extends Model
         'descripcion',
         'archivo',
         'eliminado',
-
+        'tipo_incapacidad_sat',
     ];
 
     // Relación con el modelo Empleado (ajusta el namespace si tu modelo es diferente)
