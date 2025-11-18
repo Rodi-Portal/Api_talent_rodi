@@ -9,15 +9,15 @@ use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Auth\PermissionController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
-use App\Http\Controllers\Empleados\CatalogosController;
-//use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\ChecadasController;
+//use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
+use App\Http\Controllers\Empleados\CatalogosController;
 use App\Http\Controllers\Empleados\CsvController;
 use App\Http\Controllers\Empleados\CursosController;
 use App\Http\Controllers\Empleados\DocumentOptionController;
@@ -151,6 +151,10 @@ Route::middleware(['api'])->group(function () {
         Route::get('/regimenes', [SatCatalogosController::class, 'regimenes']);
         Route::get('/jornadas', [SatCatalogosController::class, 'jornadas']);
         Route::get('/periodicidades', [SatCatalogosController::class, 'periodicidades']);
+
+        Route::get('percepciones', [SatCatalogosController::class, 'percepciones']);
+        Route::get('deducciones', [SatCatalogosController::class, 'deducciones']);
+        Route::get('incapacidades', [SatCatalogosController::class, 'incapacidades']);
     });
 
     //***************  Fin para  los  catalogos del SAT ************************/
