@@ -123,7 +123,8 @@ class CalendarioController extends Controller
                 'archivo'         => $evento->archivo,
                 'id_empleado'     => $evento->id_empleado,
                 'empleado'        => $nombreCompleto,
-                'id_periodo'      => $evento->id_periodo_nomina,
+                'tipo_incapacidad_sat'=> $evento->tipo_incapacidad_sat,
+
             ];
         });
 
@@ -143,7 +144,9 @@ class CalendarioController extends Controller
             return response()->json(['error' => 'El campo eventos debe ser un array.'], 400);
         }
 
-        $eventosGuardados = [];
+        $eventosGuardados  = [];
+        $eventosDuplicados = [];
+        $combosVistos      = [];
 
         foreach ($eventos as $i => $evento) {
             // 1. Buscar o crear el tipo de evento si es personalizado
@@ -162,7 +165,29 @@ class CalendarioController extends Controller
                 $tipoId = $nuevoTipo->id;
             }
 
-            // 2. Guardar el archivo (si existe)
+            $inicio = $evento['start'];
+            $fin    = $evento['end'];
+
+            // --- Duplicado dentro del MISMO payload ---
+            $comboKey = ($evento['colaboradorId'] ?? 'null') . '|' .
+                ($tipoId ?? 'null') . '|' .
+                $inicio . '|' .
+                $fin;
+
+            if (in_array($comboKey, $combosVistos, true)) {
+                $eventosDuplicados[] = [
+                    'index'       => $i,
+                    'id_empleado' => $evento['colaboradorId'] ?? null,
+                    'id_tipo'     => $tipoId,
+                    'inicio'      => $inicio,
+                    'fin'         => $fin,
+                    'motivo'      => 'Duplicado en el mismo payload',
+                ];
+                continue;
+            }
+            $combosVistos[] = $comboKey;
+
+            // 2. Archivo
             $archivoNombre = null;
             $archivo       = $request->file("eventos.$i.archivo");
             if ($archivo && $archivo->isValid()) {
@@ -174,41 +199,91 @@ class CalendarioController extends Controller
                 }
                 $archivo->move($directorioDestino, $archivoNombre);
             }
-            $fechaInicio = new \DateTime($evento['start']);
-            $fechaFin    = new \DateTime($evento['end']);
+
+            $fechaInicio = new \DateTime($inicio);
+            $fechaFin    = new \DateTime($fin);
             $dias        = $fechaInicio->diff($fechaFin)->days + 1;
 
-            // *** NUEVO: Guarda el id_periodo en CalendarioEvento ***
+            // 3. Sanitizar tipo_incapacidad_sat
+            $tipoIncapSat = $evento['tipo_incapacidad_sat'] ?? null;
+            if ($tipoIncapSat !== null && ! in_array($tipoIncapSat, ['01', '02', '03', '04'], true)) {
+                $tipoIncapSat = null;
+            }
+
+            // 4. Duplicado en BD
+            $existe = CalendarioEvento::where('id_empleado', $evento['colaboradorId'])
+                ->where('id_tipo', $tipoId)
+                ->where('inicio', $inicio)
+                ->where('fin', $fin)
+                ->where('eliminado', 0)
+                ->exists();
+
+            if ($existe) {
+                $eventosDuplicados[] = [
+                    'index'       => $i,
+                    'id_empleado' => $evento['colaboradorId'],
+                    'id_tipo'     => $tipoId,
+                    'inicio'      => $inicio,
+                    'fin'         => $fin,
+                    'motivo'      => 'Ya existe un evento igual en la base de datos',
+                ];
+                continue;
+            }
+
+            // 5. Crear evento
             $eventoGuardado = CalendarioEvento::create([
-                'id_usuario'        => $id_usuario,
-                'id_empleado'       => $evento['colaboradorId'],
-                'id_tipo'           => $tipoId,
-                'inicio'            => $evento['start'],
-                'fin'               => $evento['end'],
-                'dias_evento'       => $dias,
-                'descripcion'       => $evento['descripcion'] ?? '',
-                'archivo'           => $archivoNombre,
-                'id_periodo_nomina' => $id_periodo, // puede ser null
-                'eliminado'         => 0,           // por defecto no eliminado
+                'id_usuario'           => $id_usuario,
+                'id_empleado'          => $evento['colaboradorId'],
+                'id_tipo'              => $tipoId,
+                'inicio'               => $inicio,
+                'fin'                  => $fin,
+                'dias_evento'          => $dias,
+                'descripcion'          => $evento['descripcion'] ?? '',
+                'archivo'              => $archivoNombre,
+                'eliminado'            => 0,
+                'tipo_incapacidad_sat' => $tipoIncapSat,
             ]);
+
             $eventosGuardados[] = $eventoGuardado;
 
-            // *** LÓGICA PARA PRENÓMINA ***
-            /*
-        if ($id_periodo && in_array((int) $tipoId, [1, 4])) {
-            // Aquí irá la lógica para actualizar prenómina y laborales
-        }
-        */
+            // Lógica prenómina futura...
         }
 
+        // --- Resumen para el front ---
+        $totalGuardados  = count($eventosGuardados);
+        $totalDuplicados = count($eventosDuplicados);
+
+        if ($totalGuardados === 0 && $totalDuplicados > 0) {
+            // Solo duplicados, nada guardado
+            return response()->json([
+                'ok'                 => false,
+                'message'            => 'No se guardó ningún evento porque ya existían con el mismo empleado, tipo y fechas.',
+                'eventos'            => [],
+                'eventos_duplicados' => $eventosDuplicados,
+            ], 200);
+        }
+
+        if ($totalGuardados > 0 && $totalDuplicados > 0) {
+            // Parcial: algunos guardados, otros duplicados
+            return response()->json([
+                'ok'      => true,
+                'message' => "Se guardaron {$totalGuardados} evento(s). {$totalDuplicados} se omitieron por ser duplicados.",
+                'eventos'            => $eventosGuardados,
+                'eventos_duplicados' => $eventosDuplicados,
+            ], 200);
+        }
+
+        // Caso normal: todos guardados, sin duplicados
         return response()->json([
             'ok'      => true,
-            'eventos' => $eventosGuardados,
-        ]);
+            'message' => "Se guardaron {$totalGuardados} evento(s) correctamente.",
+            'eventos'            => $eventosGuardados,
+            'eventos_duplicados' => $eventosDuplicados,
+        ], 200);
     }
+
     public function actualizarEvento(Request $request, $id)
     {
-        // 1. Log principal de la petición
         \Log::info('>>> [actualizarEvento] REQUEST', [
             'id'     => $id,
             'inputs' => $request->all(),
@@ -216,13 +291,11 @@ class CalendarioController extends Controller
             'method' => $request->method(),
         ]);
 
-        // 2. ¿Es método PUT o PATCH? (log)
         if ($request->isMethod('put') || $request->isMethod('patch')) {
             \Log::info('>>> [actualizarEvento] Método PUT/PATCH. Reagregando archivos...');
             $request->files->add($request->allFiles());
         }
 
-        // 3. Buscar evento
         $evento = CalendarioEvento::find($id);
         \Log::info('>>> [actualizarEvento] Evento encontrado:', $evento ? $evento->toArray() : ['null']);
 
@@ -231,18 +304,54 @@ class CalendarioController extends Controller
             return response()->json(['error' => 'No se encontró el evento'], 404);
         }
 
-        // 4. Asignar campos
+        // (Opcional) validar tipo_incapacidad_sat
+        $tipoIncapSat = $request->input('tipo_incapacidad_sat');
+        if ($tipoIncapSat !== null && $tipoIncapSat !== '') {
+            if (! in_array($tipoIncapSat, ['01', '02', '03', '04'], true)) {
+                \Log::warning('>>> [actualizarEvento] tipo_incapacidad_sat inválido: ' . $tipoIncapSat);
+                $tipoIncapSat = $evento->tipo_incapacidad_sat; // conservamos el anterior
+            }
+        }
+
+        // 4. Asignar campos NUEVOS (lo que viene del front)
         $evento->id_usuario        = $request->input('id_usuario', $evento->id_usuario);
         $evento->id_empleado       = $request->input('id_empleado', $evento->id_empleado);
         $evento->id_tipo           = $request->input('id_tipo', $evento->id_tipo);
         $evento->inicio            = $request->input('inicio', $evento->inicio);
         $evento->fin               = $request->input('fin', $evento->fin);
         $evento->descripcion       = $request->input('descripcion', $evento->descripcion);
-        $evento->id_periodo_nomina = $request->input('id_periodo', $evento->id_periodo_nomina);
+        $evento->tipo_incapacidad_sat = $request->input('tipo_incapacidad_sat', $evento->tipo_incapacidad_sat);
 
-        \Log::info('>>> [actualizarEvento] Datos para actualizar:', $evento->toArray());
+        if ($tipoIncapSat !== null) {
+            $evento->tipo_incapacidad_sat = $tipoIncapSat === '' ? null : $tipoIncapSat;
+        }
 
-        // 5. Calcula días del evento (log error si falla)
+        \Log::info('>>> [actualizarEvento] Datos para actualizar (antes de checar duplicado):', $evento->toArray());
+
+        // 🔴 VERIFICAR DUPLICADO: mismo empleado + tipo + fechas, distinto id, no eliminado
+        $existeDuplicado = CalendarioEvento::where('id_empleado', $evento->id_empleado)
+            ->where('id_tipo', $evento->id_tipo)
+            ->where('inicio', $evento->inicio)
+            ->where('fin', $evento->fin)
+            ->where('eliminado', 0)
+            ->where('id', '!=', $evento->id)
+            ->exists();
+
+        if ($existeDuplicado) {
+            \Log::warning('>>> [actualizarEvento] Intento de duplicar evento (empleado, tipo, fechas).', [
+                'id_empleado' => $evento->id_empleado,
+                'id_tipo'     => $evento->id_tipo,
+                'inicio'      => $evento->inicio,
+                'fin'         => $evento->fin,
+            ]);
+
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Ya existe otro evento con el mismo empleado, tipo e intervalo de fechas.',
+            ], 422);
+        }
+
+        // 5. Calcula días del evento
         try {
             $fechaInicio         = new \DateTime($evento->inicio);
             $fechaFin            = new \DateTime($evento->fin);
@@ -254,11 +363,10 @@ class CalendarioController extends Controller
             \Log::warning('>>> [actualizarEvento] Error calculando días evento: ' . $e->getMessage());
         }
 
-        // 6. Manejo de archivo
+        // 6. Manejo de archivo (tu código igual)
         \Log::info('>>> [actualizarEvento] hasFile(archivo): ' . ($request->hasFile('archivo') ? 'SI' : 'NO'));
 
         if ($request->hasFile('archivo')) {
-            // Borra el archivo anterior si existe
             if ($evento->archivo) {
                 $directorioDestino = rtrim(env('LOCAL_IMAGE_PATH'), '/') . '/_archivo_calendario';
                 $rutaArchivo       = $directorioDestino . '/' . $evento->archivo;
@@ -269,9 +377,7 @@ class CalendarioController extends Controller
                     \Log::warning(">>> [actualizarEvento] Archivo anterior NO encontrado para borrar: $rutaArchivo");
                 }
             }
-            \Log::info('Método de la solicitud: ' . $request->method());
 
-            // Guarda el nuevo archivo
             $archivo           = $request->file('archivo');
             $extension         = $archivo->getClientOriginalExtension();
             $archivoNombre     = "portal{$evento->id_usuario}_emp{$evento->id_empleado}_" . time() . "_" . uniqid() . "." . $extension;
@@ -289,13 +395,6 @@ class CalendarioController extends Controller
 
         $evento->save();
         \Log::info('>>> [actualizarEvento] Evento actualizado y guardado', $evento->toArray());
-
-        // Lógica para prenómina...
-        /*
-    if ($evento->id_periodo_nomina && in_array((int) $evento->id_tipo, [1, 4])) {
-        \Log::info('>>> [actualizarEvento] Lógica prenómina pendiente.');
-    }
-    */
 
         return response()->json(['ok' => true, 'evento' => $evento]);
     }
@@ -331,10 +430,10 @@ class CalendarioController extends Controller
 
         // 3) (Opcional) Prenómina — tu lógica de siempre.
         /*
-    if ($evento->id_periodo_nomina && in_array((int) $evento->id_tipo, [1, 4])) {
-        // actualizar prenómina/laborales aquí…
-    }
-    */
+        if ($evento->id_periodo_nomina && in_array((int) $evento->id_tipo, [1, 4])) {
+            // actualizar prenómina/laborales aquí…
+        }
+        */
 
         return response()->json(['ok' => true, 'evento' => $evento]);
     }

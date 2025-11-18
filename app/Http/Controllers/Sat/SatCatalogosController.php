@@ -167,4 +167,61 @@ class SatCatalogosController extends Controller
         }
     }
 
+    public function percepciones(Request $request)
+    {
+        try {
+            $data = Cache::remember('sat:percepciones', $this->ttl, function () {
+                $rows = DB::connection('portal_main')
+                    ->table('cat_tipo_percepcion_sat')
+                    ->select('clave', 'descripcion')
+                    ->orderBy('clave')
+                    ->get();
+                return $this->mapClaveDesc($rows);
+            });
+
+            return $this->etagJson($request, $data);
+        } catch (\Throwable $e) {
+            Log::error('SAT percepciones error', ['e' => $e->getMessage()]);
+            return response()->json(['message' => 'Error al obtener percepciones SAT'], 500);
+        }
+    }
+
+    public function deducciones(Request $request)
+    {
+        try {
+            $data = Cache::remember('sat:deducciones', $this->ttl, function () {
+                $rows = DB::connection('portal_main')
+                    ->table('cat_tipo_deduccion_sat')
+                    ->select('clave', 'descripcion')
+                    ->orderBy('clave')
+                    ->get();
+                return $this->mapClaveDesc($rows);
+            });
+
+            return $this->etagJson($request, $data);
+        } catch (\Throwable $e) {
+            Log::error('SAT deducciones error', ['e' => $e->getMessage()]);
+            return response()->json(['message' => 'Error al obtener deducciones SAT'], 500);
+        }
+    }
+
+    public function incapacidades(Request $request)
+    {
+        try {
+            $data = Cache::remember('sat:incapacidades', $this->ttl, function () {
+                $rows = DB::connection('portal_main')
+                    ->table('cat_tipo_incapacidad_sat')
+                    ->select('clave', 'descripcion')
+                    ->orderBy('clave')
+                    ->get();
+                return $this->mapClaveDesc($rows);
+            });
+
+            return $this->etagJson($request, $data);
+        } catch (\Throwable $e) {
+            Log::error('SAT incapacidades error', ['e' => $e->getMessage()]);
+            return response()->json(['message' => 'Error al obtener incapacidades SAT'], 500);
+        }
+    }
+
 }
