@@ -108,15 +108,19 @@ class IncidenciasController extends Controller
         $evRows = $evQuery->get()->groupBy('id_empleado');
 
         // Clasificación por tipo (ID o texto en name)
-        $IDT_VACACIONES = [];
-        $IDT_AUSENCIAS  = [];
-        $IDT_FESTIVOS   = [];
+        // Clasificación por tipo (ID o texto en name)
+        $IDT_VACACIONES  = [];
+        $IDT_AUSENCIAS   = [];
+        $IDT_FESTIVOS    = [];
+        $IDT_HORAS_EXTRA = []; // por si luego quieres mapear por ID
 
         $evAgg = [];
         foreach ($evRows as $empIdKey => $lista) {
-            $vac = 0.0;
-            $aus = 0.0;
-            $fes = 0.0;
+            $vac    = 0.0;
+            $aus    = 0.0;
+            $fes    = 0.0;
+            $inc    = 0.0; // incapacidad
+            $hexMin = 0.0; // 🔹 minutos de horas extra desde calendario
 
             foreach ($lista as $row) {
                 $dias = (isset($row->dias_evento) && $row->dias_evento !== null)
@@ -124,21 +128,80 @@ class IncidenciasController extends Controller
                     : $this->overlapDays($row->inicio, $row->fin, $fi, $ff);
 
                 $tipoTxt = strtolower((string) ($row->tipo_txt ?? ''));
-                $isVac   = in_array((int) $row->id_tipo, $IDT_VACACIONES, true) || str_contains($tipoTxt, 'vaca');
-                $isAus   = in_array((int) $row->id_tipo, $IDT_AUSENCIAS, true)
-                || str_contains($tipoTxt, 'ausen')
-                || str_contains($tipoTxt, 'falta')
-                || str_contains($tipoTxt, 'incap')
-                || str_contains($tipoTxt, 'permiso');
-                $isFes = in_array((int) $row->id_tipo, $IDT_FESTIVOS, true) || str_contains($tipoTxt, 'fest');
 
-                if ($isVac) {$vac += $dias;} elseif ($isFes) {$fes += $dias;} elseif ($isAus) {$aus += $dias;}
+                // Normalizar acentos
+                $tipoNorm = strtr($tipoTxt, [
+                    'á' => 'a',
+                    'é' => 'e',
+                    'í' => 'i',
+                    'ó' => 'o',
+                    'ú' => 'u',
+                ]);
+
+                // Vacaciones
+                $isVac = in_array((int) $row->id_tipo, $IDT_VACACIONES, true)
+                || str_contains($tipoNorm, 'vaca');
+
+                // Festivos (incluye tu "Dia Fetivo")
+                $isFes = in_array((int) $row->id_tipo, $IDT_FESTIVOS, true)
+                || str_contains($tipoNorm, 'fest')
+                || str_contains($tipoNorm, 'fetiv')
+                || str_contains($tipoNorm, 'feriado')
+                || str_contains($tipoNorm, 'no laborable')
+                || str_contains($tipoNorm, 'descanso obligatorio');
+
+                // Incapacidad (SOLO incapacidad)
+                $isIncap = str_contains($tipoNorm, 'incap');
+
+                // Ausencias reales: falta / ausencia / permiso
+                $isAus = in_array((int) $row->id_tipo, $IDT_AUSENCIAS, true)
+                || str_contains($tipoNorm, 'ausen')
+                || str_contains($tipoNorm, 'falta')
+                || str_contains($tipoNorm, 'permiso');
+
+                // Horas extra registradas en calendario
+                $isHex = in_array((int) $row->id_tipo, $IDT_HORAS_EXTRA, true)
+                || str_contains($tipoNorm, 'hora extra')
+                || str_contains($tipoNorm, 'horas extra');
+
+                if ($isVac) {
+                    $vac += $dias;
+                } elseif ($isFes) {
+                    $fes += $dias;
+                } elseif ($isIncap) {
+                    $inc += $dias;
+                } elseif ($isAus) {
+                    $aus += $dias;
+                } elseif ($isHex) {
+                    // 🔹 Leer minutos desde la descripción
+                    $desc = (string) ($row->descripcion ?? '');
+                    $mins = 0.0;
+
+                    // a) "120 minutos", "30 min", etc.
+                    if (preg_match('/(\d+(?:[.,]\d+)?)\s*(min|mins|minuto|minutos)/i', $desc, $m)) {
+                        $val  = str_replace(',', '.', $m[1]);
+                        $mins = (float) $val;
+                    }
+                    // b) "2 horas", "1.5 horas", etc.
+                    elseif (preg_match('/(\d+(?:[.,]\d+)?)\s*hora/i', $desc, $m)) {
+                        $val  = str_replace(',', '.', $m[1]);
+                        $mins = (float) $val * 60.0;
+                    }
+                    // c) Fallback: si usas dias_evento como "horas"
+                    elseif ($dias > 0) {
+                        $mins = $dias * 60.0;
+                    }
+
+                    $hexMin += $mins;
+                }
             }
 
             $evAgg[$empIdKey] = (object) [
-                'vacaciones'        => $vac,
-                'dias_ausencia_cal' => $aus,
-                'dias_festivos'     => $fes,
+                'vacaciones'           => $vac,
+                'dias_ausencia_cal'    => $aus,
+                'dias_festivos'        => $fes,
+                'dias_incapacidad'     => $inc,
+                'horas_extras_min_cal' => $hexMin, // 🔹 aquí guardamos los minutos de HX calendario
             ];
         }
 
@@ -189,8 +252,10 @@ class IncidenciasController extends Controller
                 'ev.updated_at',
                 'ev.id_tipo',
                 'ev.eliminado',
+                'ev.tipo_incapacidad_sat',
                 DB::raw('COALESCE(t.name, "") as tipo_txt'),
                 DB::raw('COALESCE(t.id_crol, 0) as id_crol'),
+                DB::raw('CAST(ev.tipo_incapacidad_sat AS UNSIGNED) as tipo_incapacidad_id'),
             ])
             ->where('ev.eliminado', 0)
             ->when(! empty($empIds), fn($q) => $q->whereIn('ev.id_empleado', $empIds))
@@ -212,12 +277,31 @@ class IncidenciasController extends Controller
             $lista = ($evRowsFull->get($empId) ?? collect())->values();
 
             // Separa retardos y otros
+            // Separa retardos y otros (robusto: por id_tipo y por texto)
             $retardos = [];
             $otros    = [];
+
             foreach ($lista as $row) {
-                if ((int) $row->id_tipo === $ID_TIPO_RETARDO || strcasecmp((string) $row->tipo_txt, 'Retardo') === 0) {
+                $tipoTxtNorm = strtolower(trim((string) $row->tipo_txt));
+                $esRetardo   = false;
+
+                // 1) Si tenemos el ID exacto de tipo "Retardo"
+                if ($ID_TIPO_RETARDO > 0 && (int) $row->id_tipo === $ID_TIPO_RETARDO) {
+                    $esRetardo = true;
+                }
+                // 2) O si el nombre contiene "retard" (Retardo, Retardos, Retardo leve, etc.)
+                elseif ($tipoTxtNorm === 'retardo' || str_contains($tipoTxtNorm, 'retard')) {
+                    $esRetardo = true;
+                }
+
+                if ($esRetardo) {
+                    // 🔹 NO se agregan como incidencia directa
+                    //    Solo se usan después para:
+                    //    - convertir N-ésimo a Falta
+                    //    - sumar minutos de retardo
                     $retardos[] = $row;
                 } else {
+                    // Estos sí se convertirán a incidencias (vacaciones, falta, incapacidad, etc.)
                     $otros[] = $row;
                 }
             }
@@ -237,27 +321,41 @@ class IncidenciasController extends Controller
             $incidencias = [];
 
             // 1) Expandir "otros" (no-retardos)
+// 1) Registrar "otros" (no-retardos) SIN expandir por día
             foreach ($otros as $ev) {
-                $dias = $expandDays((string) $ev->inicio, (string) ($ev->fin ?? $ev->inicio), $fi, $ff);
-                foreach ($dias as $ymd) {
-                    $incidencias[] = [
-                        'id_evento'         => (int) $ev->id_evento,
-                        'id_usuario'        => $ev->id_usuario,
-                        'id_empleado'       => $empId,
-                        'inicio'            => $ymd,
-                        'fin'               => $ymd,
-                        'dias_evento'       => 1,
-                        'descripcion'       => $ev->descripcion,
-                        'archivo'           => $ev->archivo,
-                        'created_at'        => $ev->created_at,
-                        'updated_at'        => $ev->updated_at,
-                        'id_tipo'           => (int) $ev->id_tipo,
-                        'eliminado'         => (int) $ev->eliminado,
-                        'tipo_txt'          => (string) $ev->tipo_txt,
-                        'id_crol'           => (int) $ev->id_crol,
-                        'fecha'             => $ymd, // compat con front
-                    ];
+                // Fechas del evento (rango original)
+                $ini = substr((string) $ev->inicio, 0, 10);
+                $fin = substr((string) ($ev->fin ?? $ev->inicio), 0, 10);
+
+                // Días del evento dentro del periodo (por si lo necesitas)
+                $diasEvento = $ev->dias_evento;
+                if ($diasEvento === null) {
+                    $diasEvento = $this->overlapDays($ini, $fin, $fi, $ff);
                 }
+
+                $incidencias[] = [
+                    'id_evento'            => (int) $ev->id_evento,
+                    'id_usuario'           => $ev->id_usuario,
+                    'id_empleado'          => $empId,
+                    'inicio'               => $ini,
+                    'fin'                  => $fin,
+                    'dias_evento'          => (float) $diasEvento,
+                    'descripcion'          => $ev->descripcion,
+                    'archivo'              => $ev->archivo,
+                    'created_at'           => $ev->created_at,
+                    'updated_at'           => $ev->updated_at,
+                    'id_tipo'              => (int) $ev->id_tipo,
+                    'eliminado'            => (int) $ev->eliminado,
+                    'tipo_txt'             => (string) $ev->tipo_txt,
+                    'id_crol'              => (int) $ev->id_crol,
+
+                    // Para compat con el front: dejamos "fecha" como el inicio
+                    'fecha'                => $ini,
+
+                    // Aquí va la clave/ID de incapacidad (ya la estás casteando arriba)
+                    'tipo_incapacidad_sat' => $ev->tipo_incapacidad_sat,
+                    'tipo_incapacidad_id'  => $ev->tipo_incapacidad_id ?? null,
+                ];
             }
 
             // 2) Expandir retardos y convertir solo el N-ésimo a Falta
@@ -342,12 +440,14 @@ class IncidenciasController extends Controller
         /* --------------------------------------------------------------------
      * 6) Agregado por empleado (retardos + faltas + extras + descuentos)
      * ------------------------------------------------------------------ */
+
         $items = [];
 
         foreach ($empIds as $empId) { // SEGUNDO foreach
             $info      = $infoByEmp->get($empId);
             $clienteId = $info?->id_cliente ?? ($clienteIds[0] ?? null);
             $sueldoDia = (float) ($info?->sueldo_diario ?? 0);
+            $hexMinCal = 0.0; // minutos de HX calendario (se llenará con $evAgg)
 
             // Política efectiva (usa primer día del periodo)
             $policyArr = $resolver->getEffectivePolicy($portalId, $clienteId, $empId, $fi) ?? [];
@@ -374,7 +474,12 @@ class IncidenciasController extends Controller
 
             // Duración de jornada / valor minuto
             [$eBase, $sBase] = [$pol->hora_entrada ?: '09:00', $pol->hora_salida ?: '18:00'];
-            $minsJornada     = max(1, (int) round(($this->mkDt('2000-01-01', $sBase)->getTimestamp() - $this->mkDt('2000-01-01', $eBase)->getTimestamp()) / 60));
+            $minsJornada     = max(
+                1,
+                (int) round(
+                    ($this->mkDt('2000-01-01', $sBase)->getTimestamp() - $this->mkDt('2000-01-01', $eBase)->getTimestamp()) / 60
+                )
+            );
             if ($minsJornada <= 0) {
                 $minsJornada = 480;
             }
@@ -382,9 +487,10 @@ class IncidenciasController extends Controller
             $valorMinuto    = $sueldoDia > 0 ? ($sueldoDia / $minsJornada) : 0.0;
             $retardosDias   = 0;
             $horasExtraMin  = 0;
-            $minsLateTotal  = 0; // NUEVO: minutos por llegada tarde
-            $minsEarlyTotal = 0;
+            $minsLateTotal  = 0; // minutos por llegada tarde
+            $minsEarlyTotal = 0; // minutos por salida temprano (si aplica)
 
+            // ================== CHECADAS ==================
             $dias = $checadas->get($empId) ?? collect();
             foreach ($dias as $d) {
                 $ymd = (string) $d->fecha;
@@ -401,19 +507,23 @@ class IncidenciasController extends Controller
                 $firstIn = $d->first_in ? new \DateTime($d->first_in) : null;
                 $lastOut = $d->last_out ? new \DateTime($d->last_out) : null;
 
+                // Retardos por checadas
                 if ($firstIn) {
                     $limiteTol = (clone $entradaEsperada)->modify("+{$pol->tolerancia_min} minutes");
                     if ($firstIn > $limiteTol) {
                         $retardosDias += 1;
                         $minsLate = (int) floor(($firstIn->getTimestamp() - $limiteTol->getTimestamp()) / 60);
-                        $minsLateTotal += max(0, $minsLate); // << NUEVO acumulador
+                        $minsLateTotal += max(0, $minsLate);
                     }
                 }
+
+                // Salida temprano (si política lo pide)
                 if ($pol->contar_salida_temprano && $lastOut && $lastOut < $salidaEsperada) {
                     $minsEarly = (int) floor(($salidaEsperada->getTimestamp() - $lastOut->getTimestamp()) / 60);
-                    $minsEarlyTotal += max(0, $minsEarly); // << NUEVO acumulador
+                    $minsEarlyTotal += max(0, $minsEarly);
                 }
 
+                // Horas extra por checador
                 if ($pol->calcular_extras && $lastOut && $lastOut > $salidaEsperada) {
                     $mins = (int) floor(($lastOut->getTimestamp() - $salidaEsperada->getTimestamp()) / 60);
                     if ($mins > $pol->extra_umbral_min) {
@@ -422,9 +532,7 @@ class IncidenciasController extends Controller
                 }
             }
 
-            // ▲ Sumar minutos de retardos provenientes de eventos (no convertidos a falta)
-
-            // Faltas por retardo (checadas) + residuales
+            // ---------- Retardos → faltas y residuales ----------
             $faltasPorRet       = 0;
             $retardosResiduales = $retardosDias;
             if ($pol->retardos_por_falta > 0) {
@@ -432,26 +540,21 @@ class IncidenciasController extends Controller
                 $retardosResiduales = $retardosDias % $pol->retardos_por_falta;
             }
 
-// Minutos provenientes de EVENTOS (retardos no convertidos a falta)
+            // Minutos provenientes de EVENTOS (retardos no convertidos a falta)
             $minsEventosResid = (int) ($__mins_retardo_por_evento[$empId] ?? 0);
 
-// Residuales de llegada tarde (prorrateo por las piezas que NO completaron falta)
+            // Residuales de llegada tarde (prorrateo por las piezas que NO completaron falta)
             $minLateResidual = $retardosDias > 0
                 ? (int) round($minsLateTotal * ($retardosResiduales / $retardosDias))
                 : 0;
 
-// Residual final mostrado = llegadas tarde residuales + salidas temprano + eventos residuales
+            // Residual final mostrado = llegadas tarde residuales + salidas temprano + eventos residuales
             $retardoMinTotResidual = $minLateResidual + $minsEarlyTotal + $minsEventosResid;
 
-// Total informativo (para tooltip)
+            // Total informativo (para tooltip)
             $retardoMinTot = $minsLateTotal + $minsEarlyTotal + $minsEventosResid;
 
-            // Tope de horas extra
-            if ($pol->tope_horas_extra > 0) {
-                $horasExtraMin = min($horasExtraMin, (int) $pol->tope_horas_extra);
-            }
-
-            // Descuentos
+            // ---------- Descuentos (retardos + faltas) ----------
             [$pctRet, $diasRet, $montoRet] = $this->calcDescuentoRetardo(
                 $pol,
                 $retardoMinTotResidual,
@@ -470,11 +573,31 @@ class IncidenciasController extends Controller
             $descuentoDiasTotal = round($diasRet + $diasFal, 6);
             $descuentoMontoTot  = round($montoRet + $montoFal, 2);
 
-            // Calendario del periodo
-            $c           = $evAgg[$empId] ?? null;
-            $vacaciones  = (float) ($c->vacaciones ?? 0);
-            $ausenciaCal = (float) ($c->dias_ausencia_cal ?? 0);
-            $festivos    = (float) ($c->dias_festivos ?? 0);
+            // ---------- Calendario del periodo (vacaciones, ausencias, festivos, HX) ----------
+            $c = $evAgg[$empId] ?? null;
+            if ($c) {
+                $vacaciones  = (float) ($c->vacaciones ?? 0);
+                $ausenciaCal = (float) ($c->dias_ausencia_cal ?? 0);
+                $festivos    = (float) ($c->dias_festivos ?? 0);
+                $hexMinCal   = (float) ($c->horas_extras_min_cal ?? 0);
+                $incapacidad = (float) ($c->dias_incapacidad ?? 0); // 👈 NUEVO
+            } else {
+                $vacaciones  = 0.0;
+                $ausenciaCal = 0.0;
+                $festivos    = 0.0;
+                $hexMinCal   = 0.0;
+                $incapacidad = 0.0; // 👈 NUEVO
+            }
+
+            // 🔹 SUMAR horas extra que vienen del calendario (en minutos)
+            if ($hexMinCal > 0) {
+                $horasExtraMin += (int) $hexMinCal;
+            }
+
+            // Tope de horas extra (asumiendo que el tope está en MINUTOS)
+            if ($pol->tope_horas_extra > 0) {
+                $horasExtraMin = min($horasExtraMin, (int) $pol->tope_horas_extra);
+            }
 
             // Identidad
             $codigo                = (string) ($info?->id_empleado ?? $empId);
@@ -491,7 +614,7 @@ class IncidenciasController extends Controller
             // Total ausencias = calendario + faltas por retardo (sea por eventos o checadas)
             $diasAusencia = $ausenciaCal + $faltasPorRet_Salida;
 
-            // Horas extra en horas (2 decimales)
+            // Horas extra en horas (2 decimales) TOTAL (checador + calendario)
             $horasExtras = round($horasExtraMin / 60, 2);
 
             $items[] = [
@@ -516,12 +639,13 @@ class IncidenciasController extends Controller
                 'descuento_monto_total'    => $descuentoMontoTot,
                 'valor_minuto'             => round($valorMinuto, 6),
                 'sueldo_diario'            => round($sueldoDia, 2),
+                'dias_incapacidad'         => $incapacidad, // 👈 NUEVO
 
                 // Calendario
                 'dias_festivos'            => $festivos,
                 'dias_ausencia'            => $diasAusencia,
                 'dias_ausencia_cal'        => $ausenciaCal,
-                'dias_ausencia_extra'      => $faltasPorRet, // si quieres que también salga por eventos aquí, lo cambiamos
+                'dias_ausencia_extra'      => $faltasPorRet, // faltas generadas por retardo (solo para referencia)
                 'vacaciones'               => $vacaciones,
 
                 // Extras
@@ -587,13 +711,13 @@ class IncidenciasController extends Controller
     }
 
     /** 50 => 0.50 ; 0.5 => 0.5 */
-/** Convierte porcentaje a fracción: 2 => 0.02, 0.5 => 0.005 */
+    /** Convierte porcentaje a fracción: 2 => 0.02, 0.5 => 0.005 */
     private function pctToFrac(float $v): float
     {
         return $v / 100.0;
     }
 
-/** ⚠️ Shim de compatibilidad para código que aún llama a toFrac() */
+    /** ⚠️ Shim de compatibilidad para código que aún llama a toFrac() */
     private function toFrac(float $v): float
     {
         return $this->pctToFrac($v);
