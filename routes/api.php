@@ -177,6 +177,7 @@ Route::middleware(['api'])->group(function () {
     Route::post('/mensajeria/plantillas', [PlantillaController::class, 'store']);
     Route::get('/mensajeria/plantillas', [PlantillaController::class, 'index']);
     Route::get('/descargar-adjunto/{id}', [PlantillaController::class, 'descargarAdjunto']);
+    Route::get('plantillas/{plantilla}/logo', [PlantillaController::class, 'mostrarLogo']);
 
     //***************  Ruta para  los  Mensajeria del empleado ************************/
 

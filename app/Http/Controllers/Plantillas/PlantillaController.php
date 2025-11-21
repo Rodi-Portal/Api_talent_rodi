@@ -5,30 +5,43 @@ use App\Http\Controllers\Controller;
 use App\Models\Plantilla;
 use App\Models\PlantillaAdjunto;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\View;
 // 👇 agrega estas:
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\View;
 
-use Illuminate\Support\Facades\Validator;
 class PlantillaController extends Controller
 {
 
     public function index(Request $request)
     {
-        $idCliente = $request->query('id_cliente');
+        $raw = $request->query('id_cliente');
 
-        if (! $idCliente) {
-            return response()->json(['error' => 'id_cliente es requerido'], 400);
+        // Puede venir un solo id, array, o "6,70"
+        $ids = is_array($raw)
+            ? $raw
+            : (is_string($raw) && str_contains($raw, ',') ? explode(',', $raw) : [$raw]);
+
+        $ids = array_values(array_filter(array_map(static fn($v) => (int) $v, $ids)));
+
+        $query = Plantilla::with([
+            'adjuntos',
+            'cliente:id,nombre', // ajusta al campo real que usas como nombre
+        ]);
+
+        if (! empty($ids)) {
+            $query->where(function ($q) use ($ids) {
+                $q->whereNull('id_cliente')      // 👈 plantillas generales del portal
+                    ->orWhereIn('id_cliente', $ids); // 👈 plantillas específicas de esos clientes
+            });
         }
 
-        $plantillas = Plantilla::with('adjuntos')
-            ->where('id_cliente', $idCliente)
-            ->get();
+        $plantillas = $query->get();
 
         return response()->json($plantillas);
     }
+
     public function listar()
     {
         $path     = resource_path('views/emails/plantillas');
@@ -194,19 +207,19 @@ class PlantillaController extends Controller
 */
     public function store(Request $request)
     {
-        Log::info('🌐 Iniciando store de plantilla (multi-cliente)');
+        Log::info('🌐 Iniciando store de plantilla (single-cliente / general)', [
+            'id'         => $request->input('id'),
+            'id_cliente' => $request->input('id_cliente'),
+        ]);
 
-        // ============ 1) Normaliza id_cliente a array ============
-        $raw = $request->input('id_cliente');
-        $ids = is_array($raw) ? $raw
-            : (is_string($raw) && str_contains($raw, ',') ? explode(',', $raw) : [$raw]);
+        // 1) Normalizar id_cliente a NULL o int (general o cliente específico)
+        $rawCliente = $request->input('id_cliente');
+        $idCliente  = ($rawCliente !== null && $rawCliente !== '') ? (int) $rawCliente : null;
 
-        $ids = array_values(array_filter(array_map(static fn($v) => (int) $v, $ids)));
+        // Lo fusionamos al request para que el validador vea null/int
+        $request->merge(['id_cliente' => $idCliente]);
 
-        // Fusiona al request para validación
-        $request->merge(['id_cliente' => $ids]);
-
-        // ============ 2) Validación ============
+        // 2) Validación
         $validated = $request->validate([
             'id'                   => 'nullable|integer|exists:portal_main.plantillas,id',
             'nombre_personalizado' => 'required|string|max:255',
@@ -217,10 +230,8 @@ class PlantillaController extends Controller
             'saludo'               => 'nullable|string|max:255',
             'id_usuario'           => 'required|integer|exists:portal_main.usuarios_portal,id',
             'id_portal'            => 'required|integer',
-
-            // 🔽 ahora como ARREGLO
-            'id_cliente'           => 'required|array|min:1',
-            'id_cliente.*'         => 'integer|exists:portal_main.cliente,id|distinct',
+            // 👇 ahora puede ser null (plantilla general)
+            'id_cliente'           => 'nullable|integer|exists:portal_main.cliente,id',
 
             'logo'                 => 'nullable|file|image|max:2048',
             'adjuntos.*'           => 'nullable|file|mimes:pdf,jpeg,png,jpg,gif,svg|max:5120',
@@ -228,7 +239,7 @@ class PlantillaController extends Controller
             'adjuntos_a_eliminar'  => 'nullable|string', // JSON
         ]);
 
-        // Paths por ambiente
+        // 3) Paths por ambiente
         $root = rtrim(
             app()->environment('production') ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH'),
             DIRECTORY_SEPARATOR
@@ -236,35 +247,34 @@ class PlantillaController extends Controller
         $basePath = $root . DIRECTORY_SEPARATOR . '_plantillas';
         $logosDir = $basePath . DIRECTORY_SEPARATOR . '_logos';
         $adjDir   = $basePath . DIRECTORY_SEPARATOR . '_adjuntos';
+
         if (! is_dir($logosDir)) {
             @mkdir($logosDir, 0777, true);
         }
-
         if (! is_dir($adjDir)) {
             @mkdir($adjDir, 0777, true);
         }
 
-                            // ============ 3) Preparar archivos (guardar una vez y duplicar) ============
-        $masterLogo = null; // ['filename' => ..., 'path' => ...]
+        // 4) Subimos archivos una sola vez (para esta plantilla)
+        $masterLogo = null;
         if ($request->hasFile('logo')) {
             $logo     = $request->file('logo');
             $ext      = $logo->getClientOriginalExtension();
             $filename = uniqid('logo_') . '.' . $ext;
             $dest     = $logosDir . DIRECTORY_SEPARATOR . $filename;
 
-            // Tu helper para redimensionar:
             $this->resizeAndSaveImage($logo->getPathname(), $dest, 300, 100);
-
             $masterLogo = ['filename' => $filename, 'path' => $dest];
         }
 
-        $masterAdjuntos = []; // cada item: ['original' => ..., 'filename' => ..., 'path' => ...]
+        $masterAdjuntos = [];
         if ($request->hasFile('adjuntos')) {
             foreach ($request->file('adjuntos') as $file) {
                 $ext    = $file->getClientOriginalExtension();
                 $unique = uniqid('adj_') . '.' . $ext;
                 $dest   = $adjDir . DIRECTORY_SEPARATOR . $unique;
                 $file->move($adjDir, $unique);
+
                 $masterAdjuntos[] = [
                     'original' => $file->getClientOriginalName(),
                     'filename' => $unique,
@@ -273,127 +283,126 @@ class PlantillaController extends Controller
             }
         }
 
-        // ============ 4) Transacción: crear/actualizar por cliente ============
-        $createdIds = [];
+        // 5) Transacción: crear o actualizar SOLO UNA plantilla
+        $plantilla = DB::transaction(function () use (
+            $request,
+            $validated,
+            $idCliente,
+            $logosDir,
+            $adjDir,
+            $masterLogo,
+            $masterAdjuntos
+        ) {
+            // 5.1) Crear o actualizar
+            if (! empty($validated['id'])) {
+                /** @var \App\Models\Plantilla $plantilla */
+                $plantilla = Plantilla::findOrFail($validated['id']);
 
-        DB::transaction(function () use ($request, $validated, $ids, $logosDir, $adjDir, $masterLogo, $masterAdjuntos, &$createdIds) {
-            // Si se manda un único cliente y un id → actualizamos ese registro
-            $isSingle = (count($ids) === 1);
-            $updateId = $isSingle ? ($request->input('id') ?: null): null;
-
-            // Si hay que eliminar logo/adjuntos aplica SOLO si es actualización 1 a 1
-            $eliminarLogo          = $request->boolean('eliminar_logo');
-            $adjuntosAEliminarJson = $request->input('adjuntos_a_eliminar');
-
-            foreach ($ids as $index => $cid) {
-
-                // 4.1) Crear/actualizar plantilla
-                if ($updateId) {
-                    // UPDATE del registro existente
-                    $plantilla = Plantilla::findOrFail($updateId);
-                    $plantilla->fill([
-                        'nombre_personalizado' => $validated['nombre_personalizado'],
-                        'nombre_plantilla'     => $validated['nombre_plantilla'],
-                        'titulo'               => $validated['titulo'],
-                        'asunto'               => $validated['asunto'] ?? null,
-                        'cuerpo'               => $validated['cuerpo'],
-                        'saludo'               => $validated['saludo'] ?? null,
-                        'id_usuario'           => $validated['id_usuario'],
-                        'id_cliente'           => $cid, // si cambió cliente, se reasigna
-                        'id_portal'            => $validated['id_portal'],
-                    ]);
-                    $plantilla->save();
-                } else {
-                    // CREATE por cada cliente
-                    $plantilla = Plantilla::create([
-                        'nombre_personalizado' => $validated['nombre_personalizado'],
-                        'nombre_plantilla'     => $validated['nombre_plantilla'],
-                        'titulo'               => $validated['titulo'],
-                        'asunto'               => $validated['asunto'] ?? null,
-                        'cuerpo'               => $validated['cuerpo'],
-                        'saludo'               => $validated['saludo'] ?? null,
-                        'id_usuario'           => $validated['id_usuario'],
-                        'id_cliente'           => $cid,
-                        'id_portal'            => $validated['id_portal'],
-                    ]);
-                }
-
-                // 4.2) Logo: si pidieron eliminar (solo en edición 1 a 1)
-                if ($updateId && $eliminarLogo && $plantilla->logo_path) {
-                    $rutaLogoAnt = $logosDir . DIRECTORY_SEPARATOR . $plantilla->logo_path;
-                    if (is_file($rutaLogoAnt)) {
-                        @unlink($rutaLogoAnt);
-                    }
-
-                    $plantilla->logo_path = null;
-                    $plantilla->save();
-                }
-
-                // 4.3) Si subieron un logo nuevo, DUPLICA por cada plantilla
-                if ($masterLogo) {
-                    // copiar el master a un archivo nuevo para esta plantilla
-                    $ext       = pathinfo($masterLogo['filename'], PATHINFO_EXTENSION);
-                    $nuevoLogo = uniqid('logo_') . '.' . $ext;
-                    $dest      = $logosDir . DIRECTORY_SEPARATOR . $nuevoLogo;
-                    @copy($masterLogo['path'], $dest);
-
-                    // si había logo previo en esta plantilla, elimínalo
-                    if ($plantilla->logo_path) {
-                        $rutaPrev = $logosDir . DIRECTORY_SEPARATOR . $plantilla->logo_path;
-                        if (is_file($rutaPrev)) {
-                            @unlink($rutaPrev);
-                        }
-
-                    }
-
-                    $plantilla->logo_path = $nuevoLogo;
-                    $plantilla->save();
-                }
-
-                // 4.4) Adjuntos a eliminar (solo en edición 1 a 1)
-                if ($updateId && ! empty($adjuntosAEliminarJson)) {
-                    $idsEliminar = json_decode($adjuntosAEliminarJson, true);
-                    if (is_array($idsEliminar)) {
-                        foreach ($idsEliminar as $idAdj) {
-                            $adj = PlantillaAdjunto::find($idAdj);
-                            if ($adj && $adj->id_plantilla == $plantilla->id) {
-                                $ruta = $adjDir . DIRECTORY_SEPARATOR . $adj->archivo;
-                                if (is_file($ruta)) {
-                                    @unlink($ruta);
-                                }
-
-                                $adj->delete();
-                            }
-                        }
-                    }
-                }
-
-                // 4.5) Adjuntos nuevos: DUPLICA para cada plantilla
-                foreach ($masterAdjuntos as $m) {
-                    $ext   = pathinfo($m['filename'], PATHINFO_EXTENSION);
-                    $nuevo = uniqid('adj_') . '.' . $ext;
-                    $dest  = $adjDir . DIRECTORY_SEPARATOR . $nuevo;
-                    @copy($m['path'], $dest);
-
-                    PlantillaAdjunto::create([
-                        'id_plantilla'    => $plantilla->id,
-                        'nombre_original' => $m['original'],
-                        'archivo'         => $nuevo,
-                    ]);
-                }
-
-                $createdIds[] = $plantilla->id;
+                $plantilla->fill([
+                    'nombre_personalizado' => $validated['nombre_personalizado'],
+                    'nombre_plantilla'     => $validated['nombre_plantilla'],
+                    'titulo'               => $validated['titulo'],
+                    'asunto'               => $validated['asunto'] ?? null,
+                    'cuerpo'               => $validated['cuerpo'],
+                    'saludo'               => $validated['saludo'] ?? null,
+                    'id_usuario'           => $validated['id_usuario'],
+                    'id_portal'            => $validated['id_portal'],
+                    'id_cliente'           => $idCliente, // puede ser null
+                ]);
+                $plantilla->save();
+            } else {
+                $plantilla = Plantilla::create([
+                    'nombre_personalizado' => $validated['nombre_personalizado'],
+                    'nombre_plantilla'     => $validated['nombre_plantilla'],
+                    'titulo'               => $validated['titulo'],
+                    'asunto'               => $validated['asunto'] ?? null,
+                    'cuerpo'               => $validated['cuerpo'],
+                    'saludo'               => $validated['saludo'] ?? null,
+                    'id_usuario'           => $validated['id_usuario'],
+                    'id_portal'            => $validated['id_portal'],
+                    'id_cliente'           => $idCliente, // puede ser null
+                ]);
             }
+
+            // 5.2) Eliminar logo si se pide
+            if ($request->boolean('eliminar_logo') && $plantilla->logo_path) {
+                $rutaLogoAnt = $logosDir . DIRECTORY_SEPARATOR . $plantilla->logo_path;
+                if (is_file($rutaLogoAnt)) {
+                    @unlink($rutaLogoAnt);
+                    Log::info('🗑 Logo eliminado', ['ruta' => $rutaLogoAnt]);
+                }
+                $plantilla->logo_path = null;
+                $plantilla->save();
+            }
+
+            // 5.3) Si hay logo nuevo, reemplazar
+            if ($masterLogo) {
+                // eliminar anterior si existía
+                if ($plantilla->logo_path) {
+                    $rutaPrev = $logosDir . DIRECTORY_SEPARATOR . $plantilla->logo_path;
+                    if (is_file($rutaPrev)) {
+                        @unlink($rutaPrev);
+                        Log::info('🗑 Logo anterior eliminado', ['ruta' => $rutaPrev]);
+                    }
+                }
+
+                $plantilla->logo_path = $masterLogo['filename'];
+                $plantilla->save();
+
+                Log::info('🖼 Logo guardado', [
+                    'guardado_como' => $masterLogo['filename'],
+                    'ruta'          => $masterLogo['path'],
+                ]);
+            }
+
+            // 5.4) Adjuntos a eliminar
+            $adjuntosAEliminarJson = $request->input('adjuntos_a_eliminar');
+            if (! empty($adjuntosAEliminarJson)) {
+                $idsEliminar = json_decode($adjuntosAEliminarJson, true);
+                if (is_array($idsEliminar)) {
+                    foreach ($idsEliminar as $idAdj) {
+                        $adj = PlantillaAdjunto::find($idAdj);
+                        if ($adj && $adj->id_plantilla == $plantilla->id) {
+                            $ruta = $adjDir . DIRECTORY_SEPARATOR . $adj->archivo;
+                            if (is_file($ruta)) {
+                                @unlink($ruta);
+                                Log::info('🗑 Adjunto eliminado', ['ruta' => $ruta]);
+                            }
+                            $adj->delete();
+                        }
+                    }
+                }
+            }
+
+            // 5.5) Nuevos adjuntos
+            foreach ($masterAdjuntos as $m) {
+                PlantillaAdjunto::create([
+                    'id_plantilla'    => $plantilla->id,
+                    'nombre_original' => $m['original'],
+                    'archivo'         => $m['filename'],
+                ]);
+
+                Log::info('📎 Adjunto guardado', [
+                    'original'      => $m['original'],
+                    'guardado_como' => $m['filename'],
+                    'ruta'          => $m['path'],
+                ]);
+            }
+
+            return $plantilla;
         });
 
-        Log::info('✅ Plantillas creadas/actualizadas', ['ids' => $createdIds, 'clientes' => $ids]);
+        Log::info('✅ Plantilla creada/actualizada', [
+            'id'         => $plantilla->id,
+            'id_cliente' => $plantilla->id_cliente,
+        ]);
 
         return response()->json([
-            'success'       => true,
-            'plantilla_ids' => $createdIds,
-            'count'         => count($createdIds),
+            'success'      => true,
+            'plantilla_id' => $plantilla->id,
         ]);
     }
+
     public function descargarAdjunto($id)
     {
         $adjunto  = Adjunto::findOrFail($id);
@@ -453,6 +462,35 @@ class PlantillaController extends Controller
 
         imagedestroy($newImage);
         imagedestroy($sourceImage);
+    }
+
+    public function mostrarLogo(Plantilla $plantilla)
+    {
+        // Si la plantilla no tiene logo guardado
+        if (! $plantilla->logo_path) {
+            abort(404, 'La plantilla no tiene logo.');
+        }
+
+        // Mismo root que usas en store()
+        $root = rtrim(
+            app()->environment('production') ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH'),
+            DIRECTORY_SEPARATOR
+        );
+
+        $path = $root
+        . DIRECTORY_SEPARATOR . '_plantillas'
+        . DIRECTORY_SEPARATOR . '_logos'
+        . DIRECTORY_SEPARATOR . $plantilla->logo_path;
+
+        if (! is_file($path)) {
+            abort(404, 'Archivo de logo no encontrado.');
+        }
+
+        $mime = mime_content_type($path) ?: 'image/png';
+
+        return response()->file($path, [
+            'Content-Type' => $mime,
+        ]);
     }
 
 }
