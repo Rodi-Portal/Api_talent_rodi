@@ -37,10 +37,13 @@ class MensajeriaController extends Controller
             ->get()
             ->map(function ($empleado) {
                 return [
-                    'id'                   => $empleado->id_empleado,
-                    'nombre'               => trim("{$empleado->nombre} {$empleado->paterno} {$empleado->materno}"),
+                    'id'     => $empleado->id_empleado,
+                    'nombre' => trim("{$empleado->nombre} {$empleado->paterno} {$empleado->materno}"),
                     'email'                => $empleado->correo,
-                    'sucursal'              => optional($empleado->cliente)->nombre ?? 'Sin nombre',
+                    // 👇 Info de cliente para reutilizar en mensajería / plantillas
+                    'cliente_id'           => $empleado->id_cliente,
+                    'cliente_nombre'       => optional($empleado->cliente)->nombre ?? 'Sin nombre',
+                    'sucursal'             => optional($empleado->cliente)->nombre ?? 'Sin nombre',
                     'camposPersonalizados' => array_merge(
                         [
                             'telefono' => $empleado->telefono,
@@ -99,17 +102,19 @@ class MensajeriaController extends Controller
                 ]);
             }
         }
+        $destinatarios = $data['destinatarios'];
         /*$correos = $data['correos'] ?? [
             'luisjorgeti@rodicontrol.com',
             'sistemas@rodicontrol.com',
         ];
-        */
-         $destinatarios = $data['destinatarios'];
 
-            /*$destinatarios = json_decode('[
-            {"nombre": "Juan Pérez", "correo": "Luisjorgeti@rodicontrol.com"},
-            {"nombre": "Ana Torres", "correo": "rodi.control@gmail.com"}
-                ]', true);*/
+        //
+
+        $destinatarios = json_decode('[
+        {"nombre": "Juan Pérez", "correo": "Luisjorgeti@rodicontrol.com"},
+        {"nombre": "Ana Torres", "correo": "rodi.control@gmail.com"}
+        ]', true);
+        */
         foreach ($destinatarios as $destinatario) {
             try {
                 Mail::to($destinatario['correo'])->send(
