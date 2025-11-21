@@ -39,6 +39,6 @@ class Plantilla extends Model
 
     public function cliente()
     {
-        return $this->belongsTo(Cliente::class, 'id_cliente');
+        return $this->belongsTo(ClienteTalent::class, 'id_cliente');
     }
 }
