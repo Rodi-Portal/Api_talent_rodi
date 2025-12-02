@@ -4,17 +4,16 @@ namespace App\Http\Controllers\Empleados;
 use App\Http\Controllers\Controller; // Asegúrate de tener esta línea arriba para utilizar Log
 
 use App\Models\CursoEmpleado;
+use App\Models\Departamento;
 use App\Models\DocumentEmpleado;
 use App\Models\DomicilioEmpleado;
 use App\Models\Empleado;
 use App\Models\EmpleadoCampoExtra;
 use App\Models\Evaluacion;
 use App\Models\ExamEmpleado;
-use App\Models\MedicalInfo;
-use App\Models\Departamento;       // <<<<<< necesario
+use App\Models\MedicalInfo; // <<<<<< necesario
 use App\Models\PuestoEmpleado;
 use Carbon\Carbon;
-use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -36,12 +35,16 @@ class EmpleadoController extends Controller
         $status     = $request->input('status');
 
         // Obtener todos los empleados con sus domicilios
-        $empleados = Empleado::with('domicilioEmpleado', 'camposExtra', )
+        $empleados = Empleado::with([
+            'domicilioEmpleado',
+            'camposExtra',
+            'depto',     // 👍 cargar nombre del departamento
+            'puestoRel', // 👍 cargar nombre del puesto
+        ])
             ->where('id_portal', $id_portal)
             ->where('id_cliente', $id_cliente)
             ->where('status', $status)
             ->get();
-
         $resultados = [];
 
         if ($status == 2) {
@@ -76,7 +79,10 @@ class EmpleadoController extends Controller
                 // Log::info('Estado de los documentos para empleado ' . $empleado->id . ': ', ['statusDocuments' => $statusDocuments]);
 
                 // Convertir el empleado a un array
-                $empleadoArray = $empleado->toArray();
+                $empleadoArray                 = $empleado->toArray();
+                $empleadoArray['departamento'] = $empleado->depto->nombre ?? null;
+                $empleadoArray['puesto']       = $empleado->puestoRel->nombre ?? null;
+                            unset($empleadoArray['id_departamento'], $empleadoArray['id_puesto']);
 
                 if (isset($empleadoArray['domicilio_empleado']) && is_array($empleadoArray['domicilio_empleado'])) {
                     $camposPermitidos = ['pais', 'estado', 'ciudad', 'colonia', 'calle', 'cp', 'num_int', 'num_ext'];
@@ -168,7 +174,7 @@ class EmpleadoController extends Controller
             'foto', 'statusMedico', 'statusDocuments', 'statusExam',
             'estadoExam', 'statusCursos', 'estadoDocumento',
             'id_domicilio_empleado', 'creacion', 'edicion',
-            'id_portal', 'id_cliente', 'id_usuario', 'id', 'Id', 'campoExtra', 'eliminado', 'status', 'paterno', 'materno', 'nombre',
+            'id_portal', 'id_cliente', 'id_usuario', 'id', 'Id', 'campoExtra', 'eliminado', 'status', 'paterno', 'materno', 'nombre', 'id_bolsa','id_departamento','id_puesto',
         ];
 
         foreach ($empleados as $empleado) {
