@@ -15,7 +15,7 @@ use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
-use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\Empleados\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CatalogosController;
 use App\Http\Controllers\Empleados\CsvController;
@@ -29,6 +29,8 @@ use App\Http\Controllers\Empleados\LaboralesController;
 use App\Http\Controllers\Empleados\MedicalInfoController;
 use App\Http\Controllers\Empleados\MensajeriaController;
 use App\Http\Controllers\Empleados\NotificacionController;
+use App\Http\Controllers\Empleados\ClienteInformacionInternaController;
+use App\Http\Controllers\Empleados\DocumentoInternoController;
 use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\PeriodoNominaController;
@@ -339,6 +341,28 @@ Route::middleware(['api'])->group(function () {
     Route::post('/send-notification-ex', [WhatsAppController::class, 'sendMessage_notificacion_exempleados']);
 
     Route::post('/send-notification-recordatorio', [WhatsAppController::class, 'sendMessage_recordatorio_portal']);
+
+
+
+    //***************  Inicio Informacion Interna ****************/
+
+
+Route::prefix('internos')->group(function () {
+
+    // Información interna (directorios)
+    Route::get('informacion', [ClienteInformacionInternaController::class, 'index']);
+    Route::post('informacion', [ClienteInformacionInternaController::class, 'store']);
+    Route::put('informacion/{informacion}', [ClienteInformacionInternaController::class, 'update']);
+    Route::delete('informacion/{informacion}', [ClienteInformacionInternaController::class, 'destroy']);
+
+    // Documentos
+    Route::post('informacion/{informacion}/documentos', [DocumentoInternoController::class, 'store']);
+    Route::delete('documentos/{documento}', [DocumentoInternoController::class, 'destroy']);
+    Route::get('documentos/{documento}/download', [DocumentoInternoController::class, 'download']);
+});
+    //***************  Fin Informacion Interna ****************/
+
+
 });
 
 /*notificaciones  via  whatsapp modulo empleados*/
