@@ -15,7 +15,7 @@ use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
-use App\Http\Controllers\Empleados\DocumentController;
+use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CatalogosController;
 use App\Http\Controllers\Empleados\CsvController;
