@@ -2,24 +2,25 @@
 namespace App\Http\Controllers\Empleados;
 
 use App\Exports\CargaMasivaPlantillaExport;
+use App\Exports\EmpleadosGeneralExport;
 use App\Exports\EmpleadosLaboralesExport;
 use App\Exports\EmpleadosMedicalExport;
-use App\Exports\EmpleadosGeneralExport; 
 use App\Http\Controllers\Controller;
 use App\Imports\EmpleadosGeneralImport;
 use App\Imports\EmpleadosImport;
 use App\Imports\EmpleadosLaboralesImport;
 use App\Imports\MedicalInfoImport;
+use App\Models\Departamento;
 use App\Models\Empleado;
+use App\Models\PuestoEmpleado;
 use App\Services\SatCatalogosService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
-use App\Models\Departamento;
-use App\Models\PuestoEmpleado;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
+use Maatwebsite\Excel\Excel as ExcelExcel;
 
 // Importa correctamente el controlador base
 
@@ -301,7 +302,7 @@ class CsvController extends Controller
             ->unique()
             ->values()
             ->all();
-            \Log::info('Export — deps='.count($deps).' puestos='.count($puestos));
+        \Log::info('Export — deps=' . count($deps) . ' puestos=' . count($puestos));
 
         // Descarga del Excel (el export ya pinta columnas Selección/Otro y valida con dropdown)
         return Excel::download(
@@ -424,7 +425,8 @@ class CsvController extends Controller
 
             Excel::import(
                 new EmpleadosLaboralesImport($idCliente, $sat),
-                $request->file('file')
+                $request->file('file'),
+                ExcelExcel::XLSX
             );
 
             return response()->json(['message' => 'Importación completada correctamente.'], 200);

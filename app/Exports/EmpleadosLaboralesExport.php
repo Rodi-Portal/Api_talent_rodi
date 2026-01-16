@@ -7,6 +7,8 @@ use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithStyles;
 use Maatwebsite\Excel\Events\AfterSheet;
+use Maatwebsite\Excel\Events\BeforeExport;
+use PhpOffice\PhpSpreadsheet\Calculation\Calculation;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
 use PhpOffice\PhpSpreadsheet\NamedRange;
@@ -116,7 +118,11 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
     public function registerEvents(): array
     {
         return [
-            AfterSheet::class => function (AfterSheet $event) {
+            BeforeExport::class => function (BeforeExport $event) {
+                // Obliga a Excel a recalcular al abrir
+                Calculation::getInstance()->setCalculationCacheEnabled(false);
+            },
+            AfterSheet::class   => function (AfterSheet $event) {
                 // Carga catálogos dentro del closure (aquí sí existe $this)
                 $contratos      = $this->sat->contratos();
                 $regimenes      = $this->sat->regimenes();

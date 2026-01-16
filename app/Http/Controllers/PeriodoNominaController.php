@@ -104,16 +104,84 @@ class PeriodoNominaController extends Controller
 
         return response()->json($clientes);
     }
+    private function detectarPeriodicidad($inicio, $fin): string
+    {
+        $ini  = \Carbon\Carbon::parse($inicio);
+        $fin  = \Carbon\Carbon::parse($fin);
+        $diff = $ini->diffInDays($fin);
+
+        // 01 Diario
+        if ($ini->equalTo($fin)) {
+            return '01';
+        }
+
+        // 02 Semanal (7 días exactos)
+        if ($diff == 6) {
+            return '02';
+        }
+
+        // 03 Catorcenal (14 días exactos)
+        if ($diff == 13) {
+            return '03';
+        }
+
+        // 04 Quincenal
+        if ($ini->month === $fin->month && $ini->year === $fin->year) {
+
+            // Primera quincena 1–15
+            if ($ini->day == 1 && $fin->day == 15) {
+                return '04';
+            }
+
+            // Segunda quincena 16–último día
+            if ($ini->day == 16 && $fin->isSameDay($ini->copy()->endOfMonth())) {
+                return '04';
+            }
+        }
+
+        // 05 Mensual
+        if ($ini->day == 1 && $fin->isSameDay($ini->copy()->endOfMonth())) {
+            return '05';
+        }
+
+        // Si no entra en ninguna: "99 Otro"
+        return '99';
+    }
+    private function calcularPeriodos($inicio, $fin, $periodicidad): array
+    {
+        $ini = \Carbon\Carbon::parse($inicio);
+        $fin = \Carbon\Carbon::parse($fin);
+
+        // 🔹 Para quincenal: periodo específico
+        if ($periodicidad === '04') {
+            $periodo = ($ini->month - 1) * 2 + ($ini->day <= 15 ? 1 : 2);
+            return [$periodo];
+        }
+
+        // 🔹 Para mensual: siempre devolver 2 periodos
+        if ($periodicidad === '05') {
+            $base = ($ini->month - 1) * 2;
+            return [$base + 1, $base + 2];
+        }
+
+        // 🔹 Semanal → asignamos según el día del mes
+        if ($periodicidad === '02') {
+            $periodo = ($ini->month - 1) * 2 + 1; // SEMANA ENTRA AL PRIMER PERIODO DEL MES
+            return [$periodo];
+        }
+
+        // 🔹 Diario / catorcenal / 99 otros → caen en un solo periodo
+        $periodo = ($ini->month - 1) * 2 + ($ini->day <= 15 ? 1 : 2);
+        return [$periodo];
+    }
 
     public function store(Request $request)
     {
-        //Log::debug('Request recibido en periodosConPrenomina:', $request->all());
-
         $request->validate([
             'id_portal'    => 'required|integer',
             'id_cliente'   => 'present|array',
             'id_cliente.*' => [
-                'nullable', // puede ser null (para el caso de periodo general)
+                'nullable',
                 'integer',
                 function ($attribute, $value, $fail) {
                     if (! is_null($value) && ! ClienteTalent::where('id', $value)->exists()) {
@@ -130,7 +198,6 @@ class PeriodoNominaController extends Controller
 
         $clientes = $request->id_cliente;
 
-        // Si el array está vacío, agregar null para crear periodo general
         if (empty($clientes)) {
             $clientes = [null];
         }
@@ -138,30 +205,42 @@ class PeriodoNominaController extends Controller
         $creados = [];
 
         foreach ($clientes as $id_cliente) {
+
+            // 1️⃣ Detectar periodicidad basada en fechas
+            $periodicidad = $this->detectarPeriodicidad($request->fecha_inicio, $request->fecha_fin);
+
+            // 2️⃣ Calcular periodos (siempre arreglo)
+            $periodos = $this->calcularPeriodos(
+                $request->fecha_inicio,
+                $request->fecha_fin,
+                $periodicidad
+            );
+
+            // 3️⃣ Validación de traslapes
             if ($request->tipo_nomina !== 'extraordinaria') {
-                $existe = PeriodoNomina::where('id_cliente', $id_cliente)
-                    ->where('id_portal', $request->id_portal)
+                $existe = PeriodoNomina::where('id_portal', $request->id_portal)
                     ->where('tipo_nomina', $request->tipo_nomina)
+                    ->where(function ($q) use ($id_cliente) {
+                        $q->where('id_cliente', $id_cliente)
+                            ->orWhereNull('id_cliente');
+                    })
                     ->where(function ($query) use ($request) {
-                        $query->whereBetween('fecha_inicio', [$request->fecha_inicio, $request->fecha_fin])
-                            ->orWhereBetween('fecha_fin', [$request->fecha_inicio, $request->fecha_fin])
-                            ->orWhere(function ($q) use ($request) {
-                                $q->where('fecha_inicio', '<=', $request->fecha_inicio)
-                                    ->where('fecha_fin', '>=', $request->fecha_fin);
-                            });
+                        $query->where('fecha_inicio', '<=', $request->fecha_fin)
+                            ->where('fecha_fin', '>=', $request->fecha_inicio);
                     })
                     ->exists();
 
                 if ($existe) {
                     return response()->json([
-                        'message' => "Ya existe un periodo " . ($id_cliente ? "para el cliente ID {$id_cliente}" : "general") . " que se superpone con estas fechas y tipo de nómina.",
+                        'message' => "Ya existe un periodo {$request->tipo_nomina} que se superpone con estas fechas.",
                     ], 422);
                 }
             }
 
+            // 4️⃣ Crear el periodo
             $periodo = PeriodoNomina::create([
                 'id_portal'             => $request->id_portal,
-                'id_cliente'            => $id_cliente, // puede ser null para periodo general
+                'id_cliente'            => $id_cliente,
                 'id_usuario'            => $request->id_usuario,
                 'fecha_inicio'          => $request->fecha_inicio,
                 'fecha_fin'             => $request->fecha_fin,
@@ -169,7 +248,13 @@ class PeriodoNominaController extends Controller
                 'tipo_nomina'           => $request->tipo_nomina,
                 'estatus'               => $request->estatus,
                 'descripcion'           => $request->descripcion ?? null,
-                'periodicidad_objetivo' => $request->periodicidad_objetivo ?? null,
+
+                // 🎯 Guardamos periodicidad detectada
+                'periodicidad_objetivo' => $periodicidad,
+
+                // 🎯 Guardamos arreglo de periodos
+                'periodo_num'           => json_encode($periodos),
+
                 'creado_por'            => auth()->id() ?? 1,
             ]);
 
@@ -194,28 +279,40 @@ class PeriodoNominaController extends Controller
 
         $periodo = PeriodoNomina::findOrFail($id);
 
+        // 🔹 Detectar periodicidad automáticamente con tus reglas
+        $periodicidad = $this->detectarPeriodicidad(
+            $request->fecha_inicio,
+            $request->fecha_fin
+        );
+
+        // 🔹 Calcular arreglo de periodos
+        $periodo_num = $this->calcularPeriodos(
+            $request->fecha_inicio,
+            $request->fecha_fin,
+            $periodicidad
+        );
+
+        // 🔹 Validar traslapes si NO es extraordinaria
         if ($request->tipo_nomina !== 'extraordinaria') {
-            $existe = PeriodoNomina::where('id_cliente', $periodo->id_cliente)
-                ->where('id_portal', $periodo->id_portal)
+
+            $existe = PeriodoNomina::where('id_portal', $periodo->id_portal)
+                ->where('id_cliente', $periodo->id_cliente)
                 ->where('tipo_nomina', $request->tipo_nomina)
                 ->where('id', '!=', $periodo->id)
                 ->where(function ($query) use ($request) {
-                    $query->whereBetween('fecha_inicio', [$request->fecha_inicio, $request->fecha_fin])
-                        ->orWhereBetween('fecha_fin', [$request->fecha_inicio, $request->fecha_fin])
-                        ->orWhere(function ($q) use ($request) {
-                            $q->where('fecha_inicio', '<=', $request->fecha_inicio)
-                                ->where('fecha_fin', '>=', $request->fecha_fin);
-                        });
+                    $query->where('fecha_inicio', '<=', $request->fecha_fin)
+                        ->where('fecha_fin', '>=', $request->fecha_inicio);
                 })
                 ->exists();
 
             if ($existe) {
                 return response()->json([
-                    'message' => 'Ya existe otro periodo que se superpone con estas fechas y tipo de nómina.',
+                    'message' => 'Ya existe otro periodo que se superpone con estas fechas.',
                 ], 422);
             }
         }
 
+        // 🔹 Guardar cambios
         $periodo->update([
             'id_usuario'            => $request->id_usuario,
             'fecha_inicio'          => $request->fecha_inicio,
@@ -224,7 +321,8 @@ class PeriodoNominaController extends Controller
             'tipo_nomina'           => $request->tipo_nomina,
             'estatus'               => $request->estatus,
             'descripcion'           => $request->descripcion ?? $periodo->descripcion,
-            'periodicidad_objetivo' => $request->periodicidad_objetivo ?? $periodo->periodicidad_objetivo,
+            'periodicidad_objetivo' => $periodicidad,
+            'periodo_num'           => json_encode($periodo_num),
         ]);
 
         return response()->json($periodo);
