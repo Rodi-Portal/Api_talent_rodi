@@ -27,6 +27,7 @@ class PeriodoNomina extends Model
         'fecha_pago',
         'tipo_nomina',
         'periodicidad_objetivo',
+        'periodo_num',
         'descripcion',
         'estatus',
         'creado_por',

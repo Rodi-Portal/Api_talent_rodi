@@ -5,10 +5,11 @@ use App\Models\Empleado;
 use App\Models\LaboralesEmpleado;
 use App\Services\SatCatalogosService;
 use Maatwebsite\Excel\Concerns\OnEachRow;
+use Maatwebsite\Excel\Concerns\WithCalculatedFormulas;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Row;
 
-class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
+class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow, WithCalculatedFormulas
 {
     protected int $idCliente;
     protected SatCatalogosService $sat;
@@ -71,12 +72,30 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
         // 3) No se reconoció
         return [null, null];
     }
+    private array $columnMap = []; // letra → key del heading
+
+    public function headingRow(): int
+    {
+        return 1;
+    }
 
     public function onRow(Row $row)
     {
         static $validatedHeaders = false;
 
         $rowArray = $row->toArray();
+
+// Crear mapa letra → cabecera solo una vez
+        if (empty($this->columnMap)) {
+            $headers = array_keys($rowArray);
+            $letters = $this->generarLetras(count($headers));
+
+            foreach ($headers as $i => $header) {
+                $this->columnMap[$letters[$i]] = $header;
+            }
+
+            \Log::debug('Mapa de columnas generado:', $this->columnMap);
+        }
 
         // ===== Validación de cabeceras (solo una vez) =====
         if (! $validatedHeaders) {
@@ -205,20 +224,108 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow
                 'grupo_nomina'           => $clean($row['grupo_nomina'] ?? null),
                 'sindicato'              => $sindicato,
                 'vacaciones_disponibles' => $clean($row['vacaciones_disponibles'] ?? null),
-                'sueldo_diario'          => $clean($row['sueldo_diario'] ?? null),
-                'sueldo_asimilado'       => $clean($row['sueldo_diario_asimilado'] ?? null),
-                'pago_dia_festivo'       => $clean($row['pago_dia_festivo'] ?? null),
-                'pago_dia_festivo_a'     => $clean($row['pago_dia_festivo_asimilado'] ?? null),
-                'pago_hora_extra'        => $clean($row['pago_hora_extra'] ?? null),
-                'pago_hora_extra_a'      => $clean($row['pago_hora_extra_asimilado'] ?? null),
-                'dias_aguinaldo'         => $clean($row['dias_aguinaldo'] ?? null),
-                'prima_vacacional'       => $clean($row['prima_vacacional'] ?? null),
+                'sueldo_diario'          => $this->numericOrNull($row['sueldo_diario'] ?? null, $row),
+                'sueldo_asimilado'       => $this->numericOrNull($row['sueldo_diario_asimilado'] ?? null, $row),
+                'pago_dia_festivo'       => $this->numericOrNull($row['pago_dia_festivo'] ?? null, $row),
+                'pago_dia_festivo_a'     => $this->numericOrNull($row['pago_dia_festivo_asimilado'] ?? null, $row),
+                'pago_hora_extra'        => $this->numericOrNull($row['pago_hora_extra'] ?? null, $row),
+                'pago_hora_extra_a'      => $this->numericOrNull($row['pago_hora_extra_asimilado'] ?? null, $row),
+                'dias_aguinaldo'         => $this->numericOrNull($row['dias_aguinaldo'] ?? null, $row),
+                'prima_vacacional'       => $this->numericOrNull($row['prima_vacacional'] ?? null, $row),
                 'prestamo_pendiente'     => $clean($row['prestamo_pendiente'] ?? null),
-                'descuento_ausencia'     => $clean($row['descuento_ausencia'] ?? null),
-                'descuento_ausencia_a'   => $clean($row['descuento_ausencia_asimilado'] ?? null),
+                'descuento_ausencia'     => $this->numericOrNull($row['descuento_ausencia'] ?? null, $row),
+                'descuento_ausencia_a'   => $this->numericOrNull($row['descuento_ausencia_asimilado'] ?? null, $row),
                 'dias_descanso'          => json_encode($diasDescanso),
             ]
         );
 
     }
+    /**
+     * Acepta:
+     * - números
+     * - strings numéricos
+     * - fórmulas de Excel (ya evaluadas por Maatwebsite)
+     */
+    private function numericOrNull($value, array $row): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        $v = trim((string) $value);
+
+        if ($v === '' || $v === '--') {
+            return null;
+        }
+
+        // Si es fórmula → evaluarla
+        if (str_starts_with($v, '=')) {
+            return $this->evaluarFormulaBasica($v, $row);
+        }
+
+        return is_numeric($v) ? (float) $v : null;
+    }
+
+    private function evaluarFormulaBasica(string $formula, array $row): ?float
+    {
+        $expr = ltrim($formula, '=');
+
+        // Reemplazar TODAS las referencias tipo M20, L20, O5...
+        $expr = preg_replace_callback('/([A-Z]+)(\d+)/i', function ($m) use ($row) {
+
+            $col    = strtoupper($m[1]);
+            $header = $this->columnMap[$col] ?? null;
+
+            if (! $header) {
+                return 0;
+            }
+
+            $value = $row[$header] ?? null;
+
+            return is_numeric($value) ? $value : 0;
+
+        }, $expr);
+
+        // Seguridad
+        if (! preg_match('/^[0-9\.\+\-\*\/\(\) ]+$/', $expr)) {
+            \Log::warning("Fórmula insegura detectada: $expr");
+            return null;
+        }
+
+        try {
+            $result = eval("return ($expr);");
+            return is_numeric($result) ? (float) $result : null;
+        } catch (\Throwable $e) {
+            \Log::warning("Error evaluando fórmula: $formula → $expr");
+            return null;
+        }
+    }
+    /**
+     * Genera letras de columnas ilimitadas:
+     * A, B, ..., Z, AA, AB, ..., ZZ, AAA...
+     */
+    private function generarLetras(int $cantidad): array
+    {
+        $letras = [];
+        $n      = $cantidad;
+
+        for ($i = 0; $i < $n; $i++) {
+            $temp = $i;
+            $col  = '';
+
+            while ($temp >= 0) {
+                $col  = chr(($temp % 26) + 65) . $col;
+                $temp = intdiv($temp, 26) - 1;
+            }
+
+            $letras[] = $col;
+        }
+
+        return $letras;
+    }
+
 }
