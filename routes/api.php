@@ -76,7 +76,7 @@ Route::middleware(['api'])->group(function () {
     if (app()->environment('local')) {
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     } else {
-        Route::middleware('auth:sanctum')->get('/dashboard/summary', [DashboardController::class, 'summary']);
+        Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     }
 
     Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
