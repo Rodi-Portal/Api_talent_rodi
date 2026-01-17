@@ -17,7 +17,6 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class DashboardController extends Controller
 {
@@ -47,7 +46,10 @@ class DashboardController extends Controller
      */
     public function summary(Request $request)
     {
-        
+        if (connection_aborted()) {
+            return response()->noContent();
+        }
+
         // =========================================
         // 1) Resolver usuario (Sanctum o modo local)
         // =========================================
@@ -97,11 +99,15 @@ class DashboardController extends Controller
         }
         [$rangeStart, $rangeEnd] = DateRangeResolver::resolve($request);
 
-        $scope = ClientScopeResolver::resolve(
-            $request,
-            $this->conn,
-            (int) $user->id
-        );
+        $scopeCacheKey = "dash:scope:p{$portalId}:u{$user->id}:r{$roleId}";
+
+        $scope = Cache::remember($scopeCacheKey, 300, function () use ($request, $user) {
+            return ClientScopeResolver::resolve(
+                $request,
+                $this->conn,
+                (int) $user->id
+            );
+        });
 
         if (! $scope['hasClients']) {
             return response()->json([
@@ -174,11 +180,10 @@ class DashboardController extends Controller
         $year      = $year ? (int) $year : null;
 
         $cacheKey = "dash:summary:"
-            . "p{$portalId}:u{$user->id}:r{$roleId}:scope{$scopeHash}"
+            . "p{$portalId}:u{$user->id}:r{$roleId}"
+            . ":scope{$scopeHash}"
             . ":type{$periodType}"
-            . ":range{$rangeHash}"
-            . ":year" . ($year ?? 'last365')
-            . ":d{$days}:e{$expireDays}:x{$expiredDays}";
+            . ":range{$rangeHash}";
 
         $conn = $this->conn;
 
@@ -190,6 +195,9 @@ class DashboardController extends Controller
             $periodBase, $periodMonth,
             $rangeStart, $rangeEnd, $periodType,
             $year) {
+            if (connection_aborted()) {
+                return [];
+            }
 
             $db               = DB::connection($conn);
             $employeesWidget  = new EmployeesWidget($conn);
