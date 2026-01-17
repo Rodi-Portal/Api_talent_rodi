@@ -15,11 +15,14 @@ use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CatalogosController;
+use App\Http\Controllers\Empleados\ClienteInformacionInternaController;
 use App\Http\Controllers\Empleados\CsvController;
 use App\Http\Controllers\Empleados\CursosController;
+use App\Http\Controllers\Empleados\DocumentoInternoController;
 use App\Http\Controllers\Empleados\DocumentOptionController;
 use App\Http\Controllers\Empleados\EmpleadoController;
 use App\Http\Controllers\Empleados\EvaluacionController;
@@ -29,8 +32,6 @@ use App\Http\Controllers\Empleados\LaboralesController;
 use App\Http\Controllers\Empleados\MedicalInfoController;
 use App\Http\Controllers\Empleados\MensajeriaController;
 use App\Http\Controllers\Empleados\NotificacionController;
-use App\Http\Controllers\Empleados\ClienteInformacionInternaController;
-use App\Http\Controllers\Empleados\DocumentoInternoController;
 use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\PeriodoNominaController;
@@ -41,7 +42,9 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
 use App\Http\Controllers\WhatsAppController;
+use App\Http\Controllers\EmployeePhotoController;
 use Illuminate\Http\Request;
+// routes/api.php
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -69,6 +72,12 @@ Route::get('/api/test-status', function () {
     }
 });
 Route::middleware(['api'])->group(function () {
+    
+    if (app()->environment('local')) {
+        Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
+    } else {
+        Route::middleware('auth:sanctum')->get('/dashboard/summary', [DashboardController::class, 'summary']);
+    }
 
     Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
     Route::post('/send-message-movimiento', [WhatsAppController::class, 'sendMessage_movimiento_aspirante']);
@@ -342,26 +351,29 @@ Route::middleware(['api'])->group(function () {
 
     Route::post('/send-notification-recordatorio', [WhatsAppController::class, 'sendMessage_recordatorio_portal']);
 
-
-
     //***************  Inicio Informacion Interna ****************/
 
+    Route::prefix('internos')->group(function () {
 
-Route::prefix('internos')->group(function () {
+        // Información interna (directorios)
+        Route::get('informacion', [ClienteInformacionInternaController::class, 'index']);
+        Route::post('informacion', [ClienteInformacionInternaController::class, 'store']);
+        Route::put('informacion/{informacion}', [ClienteInformacionInternaController::class, 'update']);
+        Route::delete('informacion/{informacion}', [ClienteInformacionInternaController::class, 'destroy']);
 
-    // Información interna (directorios)
-    Route::get('informacion', [ClienteInformacionInternaController::class, 'index']);
-    Route::post('informacion', [ClienteInformacionInternaController::class, 'store']);
-    Route::put('informacion/{informacion}', [ClienteInformacionInternaController::class, 'update']);
-    Route::delete('informacion/{informacion}', [ClienteInformacionInternaController::class, 'destroy']);
-
-    // Documentos
-    Route::post('informacion/{informacion}/documentos', [DocumentoInternoController::class, 'store']);
-    Route::delete('documentos/{documento}', [DocumentoInternoController::class, 'destroy']);
-    Route::get('documentos/{documento}/download', [DocumentoInternoController::class, 'download']);
-});
+        // Documentos
+        Route::post('informacion/{informacion}/documentos', [DocumentoInternoController::class, 'store']);
+        Route::delete('documentos/{documento}', [DocumentoInternoController::class, 'destroy']);
+        Route::get('documentos/{documento}/download', [DocumentoInternoController::class, 'download']);
+    });
     //***************  Fin Informacion Interna ****************/
-
+    //**********************Ruta para  fotos de perfil **************************** */
+    // routes/api.php
+    Route::get(
+        'employees/photo/{filename?}',
+        [EmployeePhotoController::class, 'show']
+    );
+    //**********************Fin Ruta para  fotos de perfil **************************** */
 
 });
 
