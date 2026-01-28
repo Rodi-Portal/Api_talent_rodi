@@ -402,5 +402,122 @@ class TurnoverWidget
 
         return $chart;
     }
+    /**
+ * Top sucursales/clientes con mayor rotación en el rango
+ * (usa la MISMA definición de bajas/headcount que el widget)
+ */
+public function topClientsByTurnover(
+    int $portalId,
+    Collection $allowedClients,
+    ?int $clientId,          // si viene un cliente único, limita a ese
+    Carbon $rangeStart,
+    Carbon $rangeEnd,
+    int $limit = 5
+): array {
+
+    $sub = $this->formerCycleSub();
+
+    // =========================
+    // 1) BAJAS por cliente (exit_date)
+    // =========================
+    $termsByClient = $this->db()->table(DB::raw("({$sub->toSql()}) as x"))
+        ->mergeBindings($sub)
+        ->join('empleados as e', 'e.id', '=', 'x.id_empleado')
+        ->selectRaw('e.id_cliente as client_id, COUNT(*) as total')
+        ->where('e.id_portal', $portalId)
+        ->where('e.eliminado', 0)
+        ->when(
+            $clientId,
+            fn($q) => $q->where('e.id_cliente', $clientId),
+            fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+        )
+        ->whereBetween('x.exit_date', [
+            $rangeStart->toDateString(),
+            $rangeEnd->toDateString(),
+        ])
+        ->groupBy('e.id_cliente')
+        ->pluck('total', 'client_id'); // [12 => 3, 7 => 1]
+
+    // =========================
+    // 2) ALTAS por cliente (misma lógica que chartByRange)
+    // =========================
+    $hiresByClient = $this->db()->table('empleados as e')
+        ->selectRaw('e.id_cliente as client_id, COUNT(*) as total')
+        ->where('e.id_portal', $portalId)
+        ->where('e.eliminado', 0)
+        ->when(
+            $clientId,
+            fn($q) => $q->where('e.id_cliente', $clientId),
+            fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+        )
+        ->whereBetween(
+            DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
+            [$rangeStart->toDateString(), $rangeEnd->toDateString()]
+        )
+        ->groupBy('e.id_cliente')
+        ->pluck('total', 'client_id');
+
+    // =========================
+    // 3) Nombres (cliente)
+    // =========================
+    $clientIds = $clientId
+        ? collect([$clientId])
+        : $allowedClients;
+
+    $names = $this->db()->table('cliente')
+        ->whereIn('id', $clientIds->values()->all())
+        ->pluck('nombre', 'id'); // [12 => 'SUCURSAL GDL', 7 => '...']
+
+    // =========================
+    // 4) Armar lista + turnover%
+    // =========================
+    $out = [];
+
+    foreach ($clientIds->values()->all() as $cid) {
+        $cid = (int) $cid;
+
+        $terms = (int) ($termsByClient[$cid] ?? 0);
+        $hires = (int) ($hiresByClient[$cid] ?? 0);
+
+        $hcS = $this->headcountAsOf($portalId, $allowedClients, $cid, $rangeStart);
+        $hcE = $this->headcountAsOf($portalId, $allowedClients, $cid, $rangeEnd);
+        $avg = ($hcS + $hcE) / 2;
+
+        $pct = $avg > 0 ? round(($terms / $avg) * 100, 2) : 0.0;
+
+        $level = $pct >= 10 ? 'danger' : ($pct >= 5 ? 'warn' : 'ok');
+
+        $out[] = [
+            'key'   => $cid,
+            'main'  => (string) ($names[$cid] ?? ("Cliente {$cid}")),
+            'sub'   => "{$terms} bajas · {$hires} altas · HC " . (int) round($avg),
+            'badge' => number_format($pct, 2) . '%',
+            'level' => $level,
+            '_raw'  => [
+                'client_id'    => $cid,
+                'hires'        => $hires,
+                'terminations' => $terms,
+                'hc_start'     => $hcS,
+                'hc_end'       => $hcE,
+                'avg_hc'       => $avg,
+                'turnover_pct' => $pct,
+            ],
+        ];
+    }
+
+    // ordenar por % desc, luego por bajas desc
+    usort($out, function ($a, $b) {
+        $pa = (float) ($a['_raw']['turnover_pct'] ?? 0);
+        $pb = (float) ($b['_raw']['turnover_pct'] ?? 0);
+        if ($pb !== $pa) return $pb <=> $pa;
+
+        $ta = (int) ($a['_raw']['terminations'] ?? 0);
+        $tb = (int) ($b['_raw']['terminations'] ?? 0);
+        return $tb <=> $ta;
+    });
+
+    return array_slice($out, 0, $limit);
+}
+
 
 }
