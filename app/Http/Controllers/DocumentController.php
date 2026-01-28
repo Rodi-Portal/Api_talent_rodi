@@ -9,144 +9,188 @@ class DocumentController extends Controller
 {
 
     public function upload(Request $request)
-{
-    $traceId = (string) Str::ulid();
-    $t0 = microtime(true);
-    Log::withContext(['traceId' => $traceId, 'endpoint' => 'document.upload']);
+    {
+        $traceId = (string) Str::ulid();
+        $t0      = microtime(true);
+        Log::withContext(['traceId' => $traceId, 'endpoint' => 'document.upload']);
 
-    Log::info('⌛ Inicio UPLOAD', [
-        'ip'           => $request->ip(),
-        'content_type' => $request->header('Content-Type'),
-        'content_len'  => $request->header('Content-Length'),
-        'files_count'  => count($request->files->all()),
-        'upload_max'   => ini_get('upload_max_filesize'),
-        'post_max'     => ini_get('post_max_size'),
-        'tmp_dir'      => sys_get_temp_dir(),
-    ]);
-
-    try {
-        $request->validate([
-            'file'      => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
-            'file_name' => 'required|string',
-            'carpeta'   => 'nullable|string',
+        Log::info('⌛ Inicio UPLOAD', [
+            'ip'           => $request->ip(),
+            'content_type' => $request->header('Content-Type'),
+            'content_len'  => $request->header('Content-Length'),
+            'files_count'  => count($request->files->all()),
+            'upload_max'   => ini_get('upload_max_filesize'),
+            'post_max'     => ini_get('post_max_size'),
+            'tmp_dir'      => sys_get_temp_dir(),
         ]);
-    } catch (\Illuminate\Validation\ValidationException $ve) {
-        Log::warning('⚠️ Validación fallida UPLOAD', ['errors' => $ve->errors()]);
-        return response()->json(['traceId' => $traceId, 'errors' => $ve->errors()], 422);
-    }
 
-    $file = $request->file('file');
-    if (! $file) {
-        Log::error('❌ No se recibió archivo en UPLOAD');
-        return response()->json(['traceId' => $traceId, 'error' => 'No se recibió ningún archivo.'], 400);
-    }
+        // === Validación ===
+        try {
+            $request->validate([
+                'file'      => 'required|file|mimes:pdf,jpg,jpeg,png|max:15360',
+                'file_name' => 'required|string',
+                'carpeta'   => 'nullable|string',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $ve) {
+            Log::warning('⚠️ Validación fallida UPLOAD', ['errors' => $ve->errors()]);
+            return response()->json(['traceId' => $traceId, 'errors' => $ve->errors()], 422);
+        }
 
-    Log::info('📦 Archivo temporal', [
-        'tmp_path'   => $file->getPathname(),
-        'size_bytes' => $file->getSize(),
-        'mime_cli'   => $file->getClientMimeType(),
-        'mime_det'   => $file->getMimeType(),
-        'is_valid'   => $file->isValid(),
-        'php_error'  => method_exists($file, 'getError') ? $file->getError() : null,
-    ]);
+        // === Archivo entrante ===
+        $file = $request->file('file');
+        if (! $file || ! $file->isValid()) {
+            $err = method_exists($file, 'getError') ? $file->getError() : null;
+            Log::error('❌ Archivo inválido en UPLOAD', ['php_error_code' => $err]);
+            return response()->json(['traceId' => $traceId, 'error' => 'Archivo inválido'], 400);
+        }
 
-    if (! $file->isValid()) {
-        $err = $file->getError();
-        $map = [
-            UPLOAD_ERR_INI_SIZE   => 'excede upload_max_filesize',
-            UPLOAD_ERR_FORM_SIZE  => 'excede MAX_FILE_SIZE',
-            UPLOAD_ERR_PARTIAL    => 'subida parcial',
-            UPLOAD_ERR_NO_FILE    => 'sin archivo',
-            UPLOAD_ERR_NO_TMP_DIR => 'falta tmp_dir',
-            UPLOAD_ERR_CANT_WRITE => 'no se pudo escribir',
-            UPLOAD_ERR_EXTENSION  => 'bloqueado por extensión',
-        ];
-        Log::error('❌ Archivo inválido en UPLOAD', ['php_error_code' => $err, 'explain' => $map[$err] ?? 'desconocido']);
-        return response()->json(['traceId' => $traceId, 'error' => 'Archivo inválido: '.($map[$err] ?? 'desconocido')], 400);
-    }
+        // === Paths base desde .env (igual que tu versión) ===
+        $isProd = app()->environment('production');
 
-    $isProd     = app()->environment('production');
-    $basePath   = $isProd ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH');
-    $basePublic = $isProd ? env('PROD_IMAGE_URL')  : env('LOCAL_IMAGE_URL');
+        $basePath = $isProd
+            ? config('paths.prod_images')
+            : config('paths.local_images');
 
-    Log::info('🧭 Config de paths', [
-        'env'        => $isProd ? 'production' : app()->environment(),
-        'basePath'   => $basePath,
-        'basePublic' => $basePublic,
-    ]);
+        $basePublic = $isProd
+            ? config('paths.prod_images_url')
+            : config('paths.local_images_url');
 
-    if (! $basePath) {
-        Log::error('🚫 Falta PROD_IMAGE_PATH/LOCAL_IMAGE_PATH en .env');
-        return response()->json(['traceId' => $traceId, 'error' => 'Ruta base no configurada en .env'], 500);
-    }
+        Log::info('🧭 Config de paths', [
+            'env'        => $isProd ? 'production' : app()->environment(),
+            'basePath'   => $basePath,
+            'basePublic' => $basePublic,
+        ]);
 
-    $carpetaRaw = (string)$request->input('carpeta', '');
-    $carpeta    = trim(str_replace(['\\', '..'], ['/', ''], $carpetaRaw), '/');
-    $fileName   = basename((string)$request->input('file_name'));
+        if (! $basePath) {
+            Log::error('🚫 Falta PROD_IMAGE_PATH/LOCAL_IMAGE_PATH en .env');
+            return response()->json(['traceId' => $traceId, 'error' => 'Ruta base no configurada en .env'], 500);
+        }
 
-    $destinationPath = rtrim($basePath, "/\\") . DIRECTORY_SEPARATOR . ($carpeta !== '' ? $carpeta . DIRECTORY_SEPARATOR : '');
-    $fileDestination = $destinationPath . $fileName;
+        // === Normalización de carpeta y filename ===
+        $carpetaRaw = (string) $request->input('carpeta', '');
+        $carpeta    = trim(str_replace(['\\', '..'], ['/', ''], $carpetaRaw), '/'); // evita traversal
+        $fileName   = basename((string) $request->input('file_name'));              // evita traversal
 
-    Log::info('📍 Destino calculado', [
-        'carpeta_raw' => $carpetaRaw,
-        'carpeta'     => $carpeta,
-        'dest_dir'    => $destinationPath,
-        'dest_file'   => $fileDestination,
-    ]);
+        $destinationPath = rtrim($basePath, "/\\") . DIRECTORY_SEPARATOR . ($carpeta !== '' ? $carpeta . DIRECTORY_SEPARATOR : '');
+        $fileDestination = $destinationPath . $fileName;
 
-    if (! is_dir($destinationPath)) {
-        $mk = @mkdir($destinationPath, 0755, true);
-        Log::info('📁 mkdir ejecutado', ['ok' => $mk]);
-        if (! $mk && ! is_dir($destinationPath)) {
-            return response()->json(['traceId' => $traceId, 'error' => 'No se pudo crear el directorio destino'], 500);
+        Log::info('📍 Destino calculado', [
+            'carpeta_raw' => $carpetaRaw,
+            'carpeta'     => $carpeta,
+            'dest_dir'    => $destinationPath,
+            'dest_file'   => $fileDestination,
+            'dest_real'   => @realpath($destinationPath),
+            'file_real'   => @realpath($fileDestination) ?: '(no existe aún)',
+        ]);
+
+        // === Asegurar directorio y permisos de escritura ===
+        if (! is_dir($destinationPath)) {
+            $mk = @mkdir($destinationPath, 0755, true);
+            Log::info('📁 mkdir ejecutado', ['ok' => $mk]);
+            if (! $mk && ! is_dir($destinationPath)) {
+                return response()->json(['traceId' => $traceId, 'error' => 'No se pudo crear el directorio destino'], 500);
+            }
+        }
+        if (! is_writable($destinationPath)) {
+            Log::error('🔒 Directorio no escribible', ['dir' => $destinationPath]);
+            return response()->json(['traceId' => $traceId, 'error' => 'El directorio no es escribible: ' . $destinationPath], 500);
+        }
+
+        try {
+            // ===== Versionado con backup =====
+            $backupData = null;
+            if (file_exists($fileDestination)) {
+                $prevSize = @filesize($fileDestination);
+                $prevSha1 = @sha1_file($fileDestination);
+                $prevMtim = @filemtime($fileDestination);
+
+                $pi      = pathinfo($fileDestination);
+                $ts      = date('YmdHis');
+                $bakName = $pi['filename'] . '-bak-' . $ts . (isset($pi['extension']) && $pi['extension'] !== '' ? '.' . $pi['extension'] : '');
+                $bakPath = $pi['dirname'] . DIRECTORY_SEPARATOR . $bakName;
+
+                // Evitar colisiones raras
+                if (file_exists($bakPath)) {
+                    $bakName = $pi['filename'] . '-bak-' . $ts . '-' . Str::random(4)
+                        . (isset($pi['extension']) && $pi['extension'] !== '' ? '.' . $pi['extension'] : '');
+                    $bakPath = $pi['dirname'] . DIRECTORY_SEPARATOR . $bakName;
+                }
+
+                if (@rename($fileDestination, $bakPath)) {
+                    Log::info('🗂️ Archivo anterior resguardado como backup', [
+                        'bak_path'  => $bakPath,
+                        'prev_size' => $prevSize,
+                        'prev_sha1' => $prevSha1,
+                        'prev_mtim' => $prevMtim,
+                    ]);
+                    $backupData = [
+                        'path'  => $bakPath,
+                        'name'  => $bakName,
+                        'size'  => $prevSize,
+                        'mtime' => $prevMtim,
+                        'sha1'  => $prevSha1,
+                    ];
+                } else {
+                    Log::warning('⚠️ No se pudo renombrar a backup; se continuará con el reemplazo', [
+                        'from' => $fileDestination, 'to' => $bakPath,
+                    ]);
+                }
+                clearstatcache(true, $fileDestination);
+            }
+
+            // ===== Escribir el NUEVO con el MISMO nombre original =====
+            $file->move($destinationPath, $fileName);
+
+            // Permisos best-effort
+            @chmod($fileDestination, 0664);
+            @chgrp($fileDestination, 'rodicomm');
+
+            // Verificación post-move
+            clearstatcache(true, $fileDestination);
+            $size  = @filesize($fileDestination);
+            $mtime = @filemtime($fileDestination);
+            $sha1  = @sha1_file($fileDestination);
+
+            // URL pública consistente con tu .env
+            $publicUrl = $basePublic
+                ? rtrim($basePublic, "/") . '/' . ($carpeta !== '' ? $carpeta . '/' : '') . rawurlencode($fileName)
+                : null;
+
+            $ms = (int) ((microtime(true) - $t0) * 1000);
+            Log::info('✅ UPLOAD OK', [
+                'dur_ms'    => $ms,
+                'publicUrl' => $publicUrl,
+                'final'     => $fileDestination,
+                'size'      => $size,
+                'mtime'     => $mtime,
+                'sha1'      => $sha1,
+                'backup'    => $backupData,
+            ]);
+
+            return response()->json([
+                'traceId'    => $traceId,
+                'status'     => 'success',
+                'message'    => 'Documento guardado correctamente.',
+                'path'       => $fileDestination,
+                'public_url' => $publicUrl,
+                'size'       => $size,
+                'last_mod'   => $mtime,
+                'sha1'       => $sha1,
+                'backup'     => $backupData, // <-- datos del respaldo si existía
+                'dur_ms'     => $ms,
+            ], 200);
+
+        } catch (\Throwable $e) {
+            Log::error('💥 Error al mover el archivo', [
+                'msg'  => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            return response()->json(['traceId' => $traceId, 'error' => 'Error al mover el archivo: ' . $e->getMessage()], 500);
         }
     }
 
-    if (! is_writable($destinationPath)) {
-        Log::error('🔒 Directorio no escribible', ['dir' => $destinationPath]);
-        return response()->json(['traceId' => $traceId, 'error' => 'El directorio no es escribible: '.$destinationPath], 500);
-    }
-
-    try {
-        $file->move($destinationPath, $fileName);
-
-        // Permisos (no falla si no aplica)
-        @chmod($fileDestination, 0664);
-        @chgrp($fileDestination, 'rodicomm');
-
-        $publicUrl = null;
-        if ($basePublic) {
-            $publicUrl = rtrim($basePublic, "/") . '/'
-                . ($carpeta !== '' ? $carpeta . '/' : '')
-                . rawurlencode($fileName);
-        }
-
-        $ms = (int)((microtime(true) - $t0) * 1000);
-        Log::info('✅ UPLOAD OK', [
-            'dur_ms'    => $ms,
-            'publicUrl' => $publicUrl,
-            'final'     => $fileDestination,
-        ]);
-
-        return response()->json([
-            'traceId'    => $traceId,
-            'status'     => 'success',
-            'message'    => 'Documento guardado correctamente.',
-            'path'       => $fileDestination,
-            'public_url' => $publicUrl,
-            'dur_ms'     => $ms,
-        ], 200);
-
-    } catch (\Throwable $e) {
-        Log::error('💥 Error al mover el archivo', [
-            'msg'  => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-        ]);
-        return response()->json(['traceId' => $traceId, 'error' => 'Error al mover el archivo: '.$e->getMessage()], 500);
-    }
-}
-   /* public function upload(Request $request)
+    /* public function upload(Request $request)
     {
         // ✅ Validación (simplificada de mimes)
         $request->validate([
@@ -236,8 +280,11 @@ class DocumentController extends Controller
         }
 
         // ✅ Rutas desde .env (usa 'production', no 'produccion')
-        $isProd   = app()->environment('production');
-        $basePath = $isProd ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH');
+        $isProd = app()->environment('production');
+
+        $basePath = $isProd
+            ? config('paths.prod_images')
+            : config('paths.local_images');
 
         // ✅ Saneo de entradas (evita traversal y backslashes)
         $carpetaInput  = $request->input('carpeta');
@@ -319,9 +366,15 @@ class DocumentController extends Controller
         $carpeta = trim(str_replace(['\\', '..'], ['/', ''], $carpetaIn), '/');
 
         // 3) Rutas desde .env por entorno
-        $isProd   = app()->environment('production');
-        $basePath = $isProd ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH');
-        $baseUrl  = $isProd ? env('PROD_IMAGE_URL') : env('LOCAL_IMAGE_URL');
+        $isProd = app()->environment('production');
+
+        $basePath = $isProd
+            ? config('paths.prod_images')
+            : config('paths.local_images');
+
+        $baseUrl = $isProd
+            ? config('paths.prod_images_url')
+            : config('paths.local_images_url');
 
         // 4) Construcción de rutas/URLs
         $destinationPath = rtrim($basePath, "/\\") . DIRECTORY_SEPARATOR . ($carpeta !== '' ? $carpeta . DIRECTORY_SEPARATOR : '');
@@ -410,8 +463,11 @@ class DocumentController extends Controller
         $carpeta  = trim(str_replace(['\\', '..'], ['/', ''], $carpetaIn), '/');
 
         // 3) Rutas según entorno desde .env
-        $isProd   = app()->environment('production');
-        $basePath = $isProd ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH');
+        $isProd = app()->environment('production');
+
+        $basePath = $isProd
+            ? config('paths.prod_images')
+            : config('paths.local_images');
 
         // 4) Construcción de ruta absoluta
         $destinationPath = rtrim($basePath, "/\\") . DIRECTORY_SEPARATOR
@@ -444,8 +500,11 @@ class DocumentController extends Controller
             'carpeta'   => 'required|string',
         ]);
 
-        $isProd   = app()->environment('production');
-        $basePath = $isProd ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH');
+        $isProd = app()->environment('production');
+
+        $basePath = $isProd
+            ? config('paths.prod_images')
+            : config('paths.local_images');
 
         $carpeta  = trim(str_replace(['\\', '..'], ['/', ''], $request->input('carpeta')), '/');
         $fileName = basename($request->input('file_name'));

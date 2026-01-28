@@ -113,17 +113,17 @@ class CalendarioController extends Controller
                 : '';
 
             return [
-                'id'              => $evento->id,
-                'title'           => $evento->tipo->name ?? 'Evento',
-                'tipo_evento'     => $evento->tipo->name ?? 'evento',
-                'start'           => $evento->inicio, // FECHA INICIO (inclusiva)
-                'end'             => $evento->fin,    // FECHA FIN (inclusiva en BD)
-                'backgroundColor' => $evento->tipo->color ?? '#a78bfa',
-                'descripcion'     => $evento->descripcion,
-                'archivo'         => $evento->archivo,
-                'id_empleado'     => $evento->id_empleado,
-                'empleado'        => $nombreCompleto,
-                'tipo_incapacidad_sat'=> $evento->tipo_incapacidad_sat,
+                'id'                   => $evento->id,
+                'title'                => $evento->tipo->name ?? 'Evento',
+                'tipo_evento'          => $evento->tipo->name ?? 'evento',
+                'start'                => $evento->inicio, // FECHA INICIO (inclusiva)
+                'end'                  => $evento->fin,    // FECHA FIN (inclusiva en BD)
+                'backgroundColor'      => $evento->tipo->color ?? '#a78bfa',
+                'descripcion'          => $evento->descripcion,
+                'archivo'              => $evento->archivo,
+                'id_empleado'          => $evento->id_empleado,
+                'empleado'             => $nombreCompleto,
+                'tipo_incapacidad_sat' => $evento->tipo_incapacidad_sat,
 
             ];
         });
@@ -314,12 +314,12 @@ class CalendarioController extends Controller
         }
 
         // 4. Asignar campos NUEVOS (lo que viene del front)
-        $evento->id_usuario        = $request->input('id_usuario', $evento->id_usuario);
-        $evento->id_empleado       = $request->input('id_empleado', $evento->id_empleado);
-        $evento->id_tipo           = $request->input('id_tipo', $evento->id_tipo);
-        $evento->inicio            = $request->input('inicio', $evento->inicio);
-        $evento->fin               = $request->input('fin', $evento->fin);
-        $evento->descripcion       = $request->input('descripcion', $evento->descripcion);
+        $evento->id_usuario           = $request->input('id_usuario', $evento->id_usuario);
+        $evento->id_empleado          = $request->input('id_empleado', $evento->id_empleado);
+        $evento->id_tipo              = $request->input('id_tipo', $evento->id_tipo);
+        $evento->inicio               = $request->input('inicio', $evento->inicio);
+        $evento->fin                  = $request->input('fin', $evento->fin);
+        $evento->descripcion          = $request->input('descripcion', $evento->descripcion);
         $evento->tipo_incapacidad_sat = $request->input('tipo_incapacidad_sat', $evento->tipo_incapacidad_sat);
 
         if ($tipoIncapSat !== null) {
@@ -460,8 +460,8 @@ class CalendarioController extends Controller
     {
         // Detecta ambiente y toma la variable correcta
         $base = app()->environment('production')
-            ? env('PROD_IMAGE_PATH', '')
-            : env('LOCAL_IMAGE_PATH', '');
+            ? config('paths.prod_images', '')
+            : config('paths.local_images', '');
 
         // Normaliza separadores y quita slashes finales
         return rtrim(str_replace(['\\', '//'], ['/', '/'], $base), '/');
@@ -486,9 +486,8 @@ class CalendarioController extends Controller
 
         // Base por ambiente (.env)
         $base = app()->environment('production')
-            ? env('PROD_IMAGE_PATH', '')
-            : env('LOCAL_IMAGE_PATH', '');
-
+            ? config('paths.prod_images', '')
+            : config('paths.local_images', '');
         // Normaliza separadores y quita slashes finales
         $base = rtrim(str_replace(['\\', '//'], ['/', '/'], $base), '/');
 
@@ -553,8 +552,8 @@ class CalendarioController extends Controller
 
         // Base por ambiente (.env)
         $base = app()->environment('production')
-            ? env('PROD_IMAGE_PATH', '')
-            : env('LOCAL_IMAGE_PATH', '');
+            ? config('paths.prod_images', '')
+            : config('paths.local_images', '');
         $base = rtrim(str_replace(['\\', '//'], ['/', '/'], $base), '/');
 
         // Ruta del archivo
