@@ -171,8 +171,8 @@ class ApiEmpleadoController extends Controller
 
         // Determina la ruta base según el entorno
         $basePath = $env === 'production'
-            ? env('PROD_IMAGE_PATH')
-            : env('LOCAL_IMAGE_PATH');
+            ? config('paths.prod_images')
+            : config('paths.local_images');
 
         // Evita ataques de path traversal
         $carpeta = basename($carpeta);
