@@ -8,6 +8,7 @@ use App\Services\Dashboard\ExpiryService;
 use App\Services\Dashboard\PrenominaService;
 use App\Services\Dashboard\QualityService;
 use App\Services\Dashboard\Summary\AiSummaryBuilder;
+use App\Services\Dashboard\TalentSourceService;
 use App\Services\Dashboard\Widgets\AlertsWidget;
 use App\Services\Dashboard\Widgets\BirthdaysWidget;
 use App\Services\Dashboard\Widgets\CalendarWidget;
@@ -17,7 +18,6 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class DashboardController extends Controller
 {
@@ -47,13 +47,16 @@ class DashboardController extends Controller
      */
     public function summary(Request $request)
     {
-        
+        if (connection_aborted()) {
+            return response()->noContent();
+        }
+
         // =========================================
         // 1) Resolver usuario (Sanctum o modo local)
         // =========================================
         $user = $request->user();
 
-        if (! $user && app()->environment('local')) {
+        if (! $user && app()->environment('local', 'production')) {
             $userId   = (int) $request->query('user_id', 0);
             $portalId = (int) $request->query('portal_id', 0);
             $roleId   = (int) $request->query('role_id', 0); // o idRol
@@ -97,11 +100,31 @@ class DashboardController extends Controller
         }
         [$rangeStart, $rangeEnd] = DateRangeResolver::resolve($request);
 
-        $scope = ClientScopeResolver::resolve(
-            $request,
-            $this->conn,
-            (int) $user->id
-        );
+        // ================================================
+        //  🔥 CAPTURAR client_id enviado por el front
+        // ================================================
+
+        // Puede venir como client_id=12 o client_id[]=12
+        $requestedClientId = $request->input('client_id');
+
+        if (is_array($requestedClientId)) {
+            // Si vienen varios → scope (NO cliente único)
+            $requestedClientId = count($requestedClientId) === 1
+                ? (int) $requestedClientId[0]
+                : null;
+        } else {
+            $requestedClientId = $requestedClientId ? (int) $requestedClientId : null;
+        }
+
+        $scopeCacheKey = "dash:scope:p{$portalId}:u{$user->id}:r{$roleId}";
+
+        $scope = Cache::remember($scopeCacheKey, 300, function () use ($request, $user) {
+            return ClientScopeResolver::resolve(
+                $request,
+                $this->conn,
+                (int) $user->id
+            );
+        });
 
         if (! $scope['hasClients']) {
             return response()->json([
@@ -114,8 +137,30 @@ class DashboardController extends Controller
         }
 
         $allowedClients = $scope['allowedClients'];
-        $clientId       = $scope['clientId']; // siempre null (whereIn)
+        // ============================================================
+//  🔥 OVERRIDE DE CLIENTE SI EL FRONT SELECCIONÓ UNO
+// ============================================================
+
+        $clientId       = null; // default = scope
         $scopeClientIds = $scope['scopeClientIds'];
+        $allowedClients = $scope['allowedClients'];
+
+        if ($requestedClientId !== null) {
+
+            // Verificar que el cliente solicitado pertenece al scope del usuario
+            if (in_array($requestedClientId, $scope['scopeClientIds'])) {
+
+                // Cliente único seleccionado → se trabaja SOLO con ese
+                $clientId       = $requestedClientId;
+                $allowedClients = collect([$requestedClientId]);
+                $scopeClientIds = [$requestedClientId];
+
+            } else {
+                return response()->json([
+                    'message' => "Client $requestedClientId not allowed in scope",
+                ], 403);
+            }
+        }
 
         // =========================================
         // 3) Permiso base (MVP)
@@ -174,11 +219,10 @@ class DashboardController extends Controller
         $year      = $year ? (int) $year : null;
 
         $cacheKey = "dash:summary:"
-            . "p{$portalId}:u{$user->id}:r{$roleId}:scope{$scopeHash}"
+            . "p{$portalId}:u{$user->id}:r{$roleId}"
+            . ":scope{$scopeHash}"
             . ":type{$periodType}"
-            . ":range{$rangeHash}"
-            . ":year" . ($year ?? 'last365')
-            . ":d{$days}:e{$expireDays}:x{$expiredDays}";
+            . ":range{$rangeHash}";
 
         $conn = $this->conn;
 
@@ -190,6 +234,9 @@ class DashboardController extends Controller
             $periodBase, $periodMonth,
             $rangeStart, $rangeEnd, $periodType,
             $year) {
+            if (connection_aborted()) {
+                return [];
+            }
 
             $db               = DB::connection($conn);
             $employeesWidget  = new EmployeesWidget($conn);
@@ -200,6 +247,7 @@ class DashboardController extends Controller
             $turnoverWidget   = new TurnoverWidget($conn);
             $qualityService   = new QualityService($conn);
             $prenominaService = new PrenominaService($conn);
+            $talentSourceSvc  = new TalentSourceService($conn);
 
             // =========================
             // Módulos efectivos por usuario (portal ON + permiso)
@@ -244,7 +292,30 @@ class DashboardController extends Controller
                     'labels' => [],
                     'series' => [],
                 ],
+                'talent_sources'       => [
+                    'labels' => [],
+                    'series' => [],
+                ],
+
             ];
+
+            // =========================
+            // 🏢 LISTA: Sucursales con mayor rotación
+            // =========================
+            if (
+                $modulesUser['emp'] &&
+                $modulesUser['former'] &&
+                $this->hasPermission($user, 'dashboard.widget.rotacion.ver', $clientId)
+            ) {
+                $lists['top_turnover_clients'] = $turnoverWidget->topClientsByTurnover(
+                    $portalId,
+                    $allowedClients,
+                    $clientId,
+                    $rangeStart,
+                    $rangeEnd,
+                    5
+                );
+            }
 
             /* =====================================================
                     ⭐ 1) RECLUTAMIENTO – Servicio KPIs + Chart
@@ -490,6 +561,34 @@ class DashboardController extends Controller
                         'labels' => $tmp['days'] ?? [],
                         'series' => $tmp['series'] ?? [],
                     ];
+                    // =======================================================
+// ⭐ KPI: AUSENCIAS por periodo
+// Cuenta: Falta + Incapacidad + Permiso + Vacaciones
+// =======================================================
+
+                    $totalAbsences = 0;
+
+                    if (! empty($charts['incidences']['series'])) {
+                        foreach ($charts['incidences']['series'] as $serie) {
+
+                            // Nombres EXACTOS como vienen del back
+                            if (in_array($serie['name'], ['Falta', 'Incapacidad', 'Permiso', 'Vacaciones'])) {
+                                $totalAbsences += array_sum($serie['data']);
+                            }
+                        }
+                    }
+
+                    $employeesActive = $kpis['employees_active'] ?? 0;
+
+// Índice porcentual
+                    if ($employeesActive > 0) {
+                        $kpis['absences_period_pct'] = round(($totalAbsences / $employeesActive) * 100, 2);
+                    } else {
+                        $kpis['absences_period_pct'] = 0;
+                    }
+
+// Total absoluto
+                    $kpis['absences_period_total'] = $totalAbsences;
 
                 } else {
 
@@ -505,6 +604,34 @@ class DashboardController extends Controller
                         'labels' => $tmp['labels'] ?? [],
                         'series' => $tmp['series'] ?? [],
                     ];
+                    // =======================================================
+                    // ⭐ KPI: AUSENCIAS por periodo
+                    // Cuenta: Falta + Incapacidad + Permiso + Vacaciones
+                    // =======================================================
+
+                    $totalAbsences = 0;
+
+                    if (! empty($charts['incidences']['series'])) {
+                        foreach ($charts['incidences']['series'] as $serie) {
+
+                            // Nombres EXACTOS como vienen del back
+                            if (in_array($serie['name'], ['Falta', 'Incapacidad', 'Permiso', 'Vacaciones'])) {
+                                $totalAbsences += array_sum($serie['data']);
+                            }
+                        }
+                    }
+
+                    $employeesActive = $kpis['employees_active'] ?? 0;
+
+                    // Índice porcentual
+                    if ($employeesActive > 0) {
+                        $kpis['absences_period_pct'] = round(($totalAbsences / $employeesActive) * 100, 2);
+                    } else {
+                        $kpis['absences_period_pct'] = 0;
+                    }
+
+                    // Total absoluto
+                    $kpis['absences_period_total'] = $totalAbsences;
 
                 }
             }
@@ -519,6 +646,31 @@ class DashboardController extends Controller
                     $allowedClients,
                     $clientId,
                     $year
+                );
+
+                $lastPayroll = null;
+
+                if (! empty($charts['prenominapayments']['series'])) {
+                    foreach ($charts['prenominapayments']['series'] as $serie) {
+                        if ($serie['name'] === 'Total pagado') {
+                            $lastPayroll = end($serie['data']);
+                            break;
+                        }
+                    }
+                }
+
+                $kpis['last_payroll_amount'] = $lastPayroll;
+            }
+
+            // =========================
+            // 🎯 ORIGEN DEL TALENTO (pie) — bolsa_trabajo
+            // =========================
+            if ($modulesUser['reclu']) {
+                $charts['talent_sources'] = $talentSourceSvc->breakdown(
+                    $portalId,
+                    $rangeStart,
+                    $rangeEnd,
+                    8
                 );
             }
 
@@ -540,8 +692,8 @@ class DashboardController extends Controller
                 $expiredDays
             );
             // =========================
-// NORMALIZAR INCIDENCIAS PARA APEXCHARTS
-// =========================
+            // NORMALIZAR INCIDENCIAS PARA APEXCHARTS
+            // =========================
 
             // =========================
             // NORMALIZAR ROTACIÓN PARA APEXCHARTS
