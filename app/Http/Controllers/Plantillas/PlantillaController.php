@@ -240,10 +240,12 @@ class PlantillaController extends Controller
         ]);
 
         // 3) Paths por ambiente
-        $root = rtrim(
-            app()->environment('production') ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH'),
-            DIRECTORY_SEPARATOR
-        );
+            $root = rtrim(
+                app()->environment('production')
+                    ? (config('paths.prod_images') ?: '')
+                    : (config('paths.local_images') ?: ''),
+                DIRECTORY_SEPARATOR
+            );
         $basePath = $root . DIRECTORY_SEPARATOR . '_plantillas';
         $logosDir = $basePath . DIRECTORY_SEPARATOR . '_logos';
         $adjDir   = $basePath . DIRECTORY_SEPARATOR . '_adjuntos';
@@ -472,10 +474,12 @@ class PlantillaController extends Controller
         }
 
         // Mismo root que usas en store()
-        $root = rtrim(
-            app()->environment('production') ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH'),
-            DIRECTORY_SEPARATOR
-        );
+            $root = rtrim(
+                app()->environment('production')
+                    ? (config('paths.prod_images') ?: '')
+                    : (config('paths.local_images') ?: ''),
+                DIRECTORY_SEPARATOR
+            );
 
         $path = $root
         . DIRECTORY_SEPARATOR . '_plantillas'
