@@ -17,8 +17,8 @@ class PermissionService
     public function __construct()
     {
         // Nombres de tabla configurables por .env, pero con default:
-        $this->permTable     = env('PERMS_TABLE_PERM', 'auth_permission');
-        $this->userPermTable = env('PERMS_TABLE_USER', 'auth_user_permission');
+        $this->permTable     = 'auth_permission';
+        $this->userPermTable = 'auth_user_permission';
     }
 
     public function getEffectivePermissions(int $userId, string $module): array
