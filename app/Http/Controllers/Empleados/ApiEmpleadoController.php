@@ -102,14 +102,17 @@ class ApiEmpleadoController extends Controller
             return response()->json(['error' => 'Empleado no encontrado.'], 404);
         }
 
-        // Determinar ruta base según entorno
-        $rutaBase = app()->environment('production')
-            ? env('PROD_IMAGE_PATH')
-            : env('LOCAL_IMAGE_PATH');
+      $env     = config('app.env');
 
-        $urlBase = app()->environment('production')
-            ? env('PROD_IMAGE_URL')
-            : env('LOCAL_IMAGE_URL');
+        // Determina la ruta base según el entorno
+        $rutaBase = $env === 'production'
+            ? config('paths.prod_images')
+            : config('paths.local_images');
+
+        $urlBase = $env === 'production'
+            ? config('paths.prod_images')
+            : config('paths.local_images');
+
 
         $foto          = $request->file('foto');
         $carpeta       = $request->input('carpeta');
@@ -142,10 +145,12 @@ class ApiEmpleadoController extends Controller
     public function getProfilePicture($filename)
     {
         $carpeta = '_perfilEmpleado';
+        $env     = config('app.env');
 
-        $rutaBase = app()->environment('production')
-            ? env('PROD_IMAGE_PATH')
-            : env('LOCAL_IMAGE_PATH');
+        // Determina la ruta base según el entorno
+        $rutaBase = $env === 'production'
+            ? config('paths.prod_images')
+            : config('paths.local_images');
 
         $filePath = $rutaBase . '/' . $carpeta . '/' . $filename;
 
