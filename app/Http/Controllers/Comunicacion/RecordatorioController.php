@@ -312,12 +312,16 @@ class RecordatorioController extends Controller
         $isProd = app()->environment('production');
 
         $basePath = rtrim(
-            $isProd ? (env('PROD_IMAGE_PATH') ?: ''): (env('LOCAL_IMAGE_PATH') ?: ''),
+            $isProd
+                ? (config('paths.prod_images') ?: '')
+                : (config('paths.local_images') ?: ''),
             "/\\"
         );
 
         $baseUrl = rtrim(
-            $isProd ? (env('PROD_IMAGE_URL') ?: ''): (env('LOCAL_IMAGE_URL') ?: ''),
+            $isProd
+                ? (config('paths.prod_images_url') ?: '')
+                : (config('paths.local_images_url') ?: ''),
             "/"
         );
 

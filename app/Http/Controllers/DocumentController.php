@@ -45,9 +45,15 @@ class DocumentController extends Controller
         }
 
         // === Paths base desde .env (igual que tu versión) ===
-        $isProd     = app()->environment('production');
-        $basePath   = $isProd ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH');
-        $basePublic = $isProd ? env('PROD_IMAGE_URL') : env('LOCAL_IMAGE_URL');
+        $isProd = app()->environment('production');
+
+        $basePath = $isProd
+            ? config('paths.prod_images')
+            : config('paths.local_images');
+
+        $basePublic = $isProd
+            ? config('paths.prod_images_url')
+            : config('paths.local_images_url');
 
         Log::info('🧭 Config de paths', [
             'env'        => $isProd ? 'production' : app()->environment(),
@@ -274,8 +280,11 @@ class DocumentController extends Controller
         }
 
         // ✅ Rutas desde .env (usa 'production', no 'produccion')
-        $isProd   = app()->environment('production');
-        $basePath = $isProd ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH');
+        $isProd = app()->environment('production');
+
+        $basePath = $isProd
+            ? config('paths.prod_images')
+            : config('paths.local_images');
 
         // ✅ Saneo de entradas (evita traversal y backslashes)
         $carpetaInput  = $request->input('carpeta');
@@ -357,9 +366,15 @@ class DocumentController extends Controller
         $carpeta = trim(str_replace(['\\', '..'], ['/', ''], $carpetaIn), '/');
 
         // 3) Rutas desde .env por entorno
-        $isProd   = app()->environment('production');
-        $basePath = $isProd ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH');
-        $baseUrl  = $isProd ? env('PROD_IMAGE_URL') : env('LOCAL_IMAGE_URL');
+        $isProd = app()->environment('production');
+
+        $basePath = $isProd
+            ? config('paths.prod_images')
+            : config('paths.local_images');
+
+        $baseUrl = $isProd
+            ? config('paths.prod_images_url')
+            : config('paths.local_images_url');
 
         // 4) Construcción de rutas/URLs
         $destinationPath = rtrim($basePath, "/\\") . DIRECTORY_SEPARATOR . ($carpeta !== '' ? $carpeta . DIRECTORY_SEPARATOR : '');
@@ -448,8 +463,11 @@ class DocumentController extends Controller
         $carpeta  = trim(str_replace(['\\', '..'], ['/', ''], $carpetaIn), '/');
 
         // 3) Rutas según entorno desde .env
-        $isProd   = app()->environment('production');
-        $basePath = $isProd ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH');
+        $isProd = app()->environment('production');
+
+        $basePath = $isProd
+            ? config('paths.prod_images')
+            : config('paths.local_images');
 
         // 4) Construcción de ruta absoluta
         $destinationPath = rtrim($basePath, "/\\") . DIRECTORY_SEPARATOR
@@ -482,8 +500,11 @@ class DocumentController extends Controller
             'carpeta'   => 'required|string',
         ]);
 
-        $isProd   = app()->environment('production');
-        $basePath = $isProd ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH');
+        $isProd = app()->environment('production');
+
+        $basePath = $isProd
+            ? config('paths.prod_images')
+            : config('paths.local_images');
 
         $carpeta  = trim(str_replace(['\\', '..'], ['/', ''], $request->input('carpeta')), '/');
         $fileName = basename($request->input('file_name'));

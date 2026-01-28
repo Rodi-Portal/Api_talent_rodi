@@ -185,88 +185,100 @@ class EvaluacionController extends Controller
     }
 
     // Método para actualizar una evaluación
- public function update(Request $request, $id)
-{
-    Log::info('Evaluacion update', [
-        'id'      => $id,
-        'hasFile' => $request->hasFile('file'),
-    ]);
+    public function update(Request $request, $id)
+    {
+        Log::info('Evaluacion update', [
+            'id'      => $id,
+            'hasFile' => $request->hasFile('file'),
+        ]);
 
-    $rules = [
-        'name'                 => 'string|max:255',
-        'numero_participantes' => 'integer|min:1',
-        'departamento'         => 'string|max:255',
-        'description'          => 'nullable|string',
-        'expiry_date'          => 'date',
-        'expiry_reminder'      => 'nullable|integer|in:0,1,7,15,30',
-        'conclusiones'         => 'string',
-        'acciones'             => 'string',
-        'edicion'              => 'nullable|date_format:Y-m-d H:i:s',
-        'file'                 => 'nullable|file|max:10240',
-        'eliminado'            => 'integer'// 10 MB
-    ];
-    $data = $request->validate($rules);
+        $rules = [
+            'name'                 => 'string|max:255',
+            'numero_participantes' => 'integer|min:1',
+            'departamento'         => 'string|max:255',
+            'description'          => 'nullable|string',
+            'expiry_date'          => 'date',
+            'expiry_reminder'      => 'nullable|integer|in:0,1,7,15,30',
+            'conclusiones'         => 'string',
+            'acciones'             => 'string',
+            'edicion'              => 'nullable|date_format:Y-m-d H:i:s',
+            'file'                 => 'nullable|file|max:10240',
+            'eliminado'            => 'integer', // 10 MB
+        ];
+        $data = $request->validate($rules);
 
-    $eval = \App\Models\Evaluacion::findOrFail($id);
+        $eval = \App\Models\Evaluacion::findOrFail($id);
 
-    // --- Entorno y rutas base desde .env ---
-    // Nota: Laravel usa 'production' (en inglés). Incluyo 'produccion' por si acaso.
-    $isProd  = app()->environment(['production', 'produccion']);
-    $baseFs  = rtrim($isProd ? env('PROD_IMAGE_PATH') : env('LOCAL_IMAGE_PATH'), '/\\');
-    $baseUrl = rtrim($isProd ? env('PROD_IMAGE_URL')  : env('LOCAL_IMAGE_URL'), '/');
+        // --- Entorno y rutas base desde .env ---
+        // Nota: Laravel usa 'production' (en inglés). Incluyo 'produccion' por si acaso.
+        $isProd = app()->environment(['production', 'produccion']);
 
-    // Directorio final
-    $targetDirRel = '_evaluacionesPortal'; // relativo (para BD)
-    $targetDirFs  = $baseFs . DIRECTORY_SEPARATOR . $targetDirRel;
-    $targetDirUrl = $baseUrl . '/' . $targetDirRel;
+        $baseFs = rtrim(
+            $isProd
+                ? config('paths.prod_images')
+                : config('paths.local_images'),
+            '/\\'
+        );
 
-    if (!is_dir($targetDirFs)) {
-        @mkdir($targetDirFs, 0755, true);
-    }
+        $baseUrl = rtrim(
+            $isProd
+                ? config('paths.prod_images_url')
+                : config('paths.local_images_url'),
+            '/'
+        );
 
-    // --- Guardamos referencia del archivo anterior (si existía) ---
-    $oldRelPath = $eval->path_document ?? null; // p.ej. "_evaluaciones/archivo.pdf"
-    $oldAbsPath = null;
-    if ($oldRelPath) {
-        $oldRelNormalized = ltrim(str_replace(['\\'], '/', $oldRelPath), '/');
-        $oldAbsPath = $baseFs . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $oldRelNormalized);
-    }
+                                               // Directorio final
+        $targetDirRel = '_evaluacionesPortal'; // relativo (para BD)
+        $targetDirFs  = $baseFs . DIRECTORY_SEPARATOR . $targetDirRel;
+        $targetDirUrl = $baseUrl . '/' . $targetDirRel;
 
-    // --- Si viene archivo, guardar y reemplazar ---
-    if ($request->hasFile('file')) {
-        $file = $request->file('file');
-
-        // Nombre final: eval_<id>_<random>.<ext>
-        $ext      = strtolower($file->getClientOriginalExtension());
-        $filename = 'eval_' . $eval->id . '_' . Str::random(8) . ($ext ? '.' . $ext : '');
-
-        // Mover nuevo archivo
-        $destFs = $targetDirFs . DIRECTORY_SEPARATOR . $filename;
-        $file->move($targetDirFs, $filename);
-
-        // Intentar borrar el anterior (si existía)
-        if ($oldAbsPath && is_file($oldAbsPath)) {
-            @unlink($oldAbsPath);
+        if (! is_dir($targetDirFs)) {
+            @mkdir($targetDirFs, 0755, true);
         }
 
-        // Actualizar referencias en $data (BD)
-        $data['name_document'] = $filename;                      // solo nombre
-        $data['path_document'] = $targetDirRel . '/' . $filename; // ruta relativa
-        $data['url_document']  = $targetDirUrl . '/' . $filename; // URL pública (si aplica)
+                                                    // --- Guardamos referencia del archivo anterior (si existía) ---
+        $oldRelPath = $eval->path_document ?? null; // p.ej. "_evaluaciones/archivo.pdf"
+        $oldAbsPath = null;
+        if ($oldRelPath) {
+            $oldRelNormalized = ltrim(str_replace(['\\'], '/', $oldRelPath), '/');
+            $oldAbsPath       = $baseFs . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $oldRelNormalized);
+        }
 
-        // (Opcional) permisos/propietario; ignorará en Windows
-        @chmod($destFs, 0664);
-        @chgrp($destFs, 'rodicomm');
+        // --- Si viene archivo, guardar y reemplazar ---
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+
+            // Nombre final: eval_<id>_<random>.<ext>
+            $ext      = strtolower($file->getClientOriginalExtension());
+            $filename = 'eval_' . $eval->id . '_' . Str::random(8) . ($ext ? '.' . $ext : '');
+
+            // Mover nuevo archivo
+            $destFs = $targetDirFs . DIRECTORY_SEPARATOR . $filename;
+            $file->move($targetDirFs, $filename);
+
+            // Intentar borrar el anterior (si existía)
+            if ($oldAbsPath && is_file($oldAbsPath)) {
+                @unlink($oldAbsPath);
+            }
+
+                                                                      // Actualizar referencias en $data (BD)
+            $data['name_document'] = $filename;                       // solo nombre
+            $data['path_document'] = $targetDirRel . '/' . $filename; // ruta relativa
+            $data['url_document']  = $targetDirUrl . '/' . $filename; // URL pública (si aplica)
+
+            // (Opcional) permisos/propietario; ignorará en Windows
+            @chmod($destFs, 0664);
+            @chgrp($destFs, 'rodicomm');
+        }
+
+        // Campos que NO quieres actualizar si llegan del front
+        unset($data['creacion']);
+
+        $eval->fill($data);
+        $eval->save();
+
+        return response()->json($eval);
     }
-
-    // Campos que NO quieres actualizar si llegan del front
-    unset($data['creacion']);
-
-    $eval->fill($data);
-    $eval->save();
-
-    return response()->json($eval);
-}
 
     // Método para eliminar una evaluación
     public function destroy($id)
