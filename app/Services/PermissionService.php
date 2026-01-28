@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
@@ -7,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 class PermissionService
 {
     /** @var string */
-    protected $connection = 'portal_main';   // 👈 usa SIEMPRE esta conexión
+    protected $connection = 'portal_main'; // 👈 usa SIEMPRE esta conexión
 
     /** @var string */
     protected $permTable;
@@ -29,6 +28,7 @@ class PermissionService
             ->table($this->permTable)
             ->where('module', $module)
             ->where('is_active', 1)
+            ->select(DB::raw('`key`'))
             ->pluck('key')
             ->toArray();
 
@@ -38,11 +38,11 @@ class PermissionService
             ->where('user_id', $userId)
             ->where(function ($q) use ($module) {
                 $q->where('permission_key', 'like', $module . '.%')
-                  ->orWhere('permission_key', $module); // por si guardas el módulo exacto
+                    ->orWhere('permission_key', $module); // por si guardas el módulo exacto
             })
             ->where(function ($q) {
                 $q->where('scope_type', 'global')
-                  ->orWhereNull('scope_type');
+                    ->orWhereNull('scope_type');
             })
             ->select('permission_key', 'effect') // effect: allow | deny
             ->get();
@@ -51,11 +51,11 @@ class PermissionService
         $denies = [];
 
         foreach ($userPerms as $row) {
-          if ($row->effect === 'allow') {
-              $grants[] = $row->permission_key;
-          } elseif ($row->effect === 'deny') {
-              $denies[] = $row->permission_key;
-          }
+            if ($row->effect === 'allow') {
+                $grants[] = $row->permission_key;
+            } elseif ($row->effect === 'deny') {
+                $denies[] = $row->permission_key;
+            }
         }
 
         // 3) Efectivo = (base + grants) - denies
