@@ -35,12 +35,7 @@ class PrenominaService
         }
 
         $rows = $db->table('periodos_nomina as p')
-            ->join(
-                'pre_nomina_empleados as e',
-                'e.id_periodo_nomina',
-                '=',
-                'p.id'
-            )
+            ->join('pre_nomina_empleados as e', 'e.id_periodo_nomina', '=', 'p.id')
             ->where('p.id_portal', $portalId)
             ->where(function ($q) use ($allowedClients, $portalId) {
                 $q->whereIn('p.id_cliente', $allowedClients->all())
@@ -49,28 +44,23 @@ class PrenominaService
                             ->where('p.id_portal', $portalId);
                     });
             })
-
             ->whereIn('p.estatus', ['pendiente', 'cerrado'])
             ->whereBetween('p.fecha_pago', [$start, $end])
             ->when(
                 $clientId && count($allowedClients) === 1,
                 fn($q) => $q->where('p.id_cliente', $clientId)
             )
-            ->groupBy(
-                'p.id',
-                'p.fecha_pago',
-                'p.periodo_num'
-            )
-            ->orderBy('p.fecha_pago')
-            ->orderBy('p.id')
+
+        // ✅ AGRUPAR POR MES (YYYY-MM)
+            ->groupByRaw("DATE_FORMAT(p.fecha_pago, '%Y-%m')")
+            ->orderByRaw("MIN(p.fecha_pago)")
 
             ->selectRaw("
-                p.periodo_num,
-                YEAR(p.fecha_pago) as anio,
-                SUM(e.sueldo_total)   as total_imss,
-                SUM(e.sueldo_total_a) as total_complementario,
-                SUM(e.sueldo_total_t) as total_pagado
-            ")
+            DATE_FORMAT(p.fecha_pago, '%Y-%m') as ym,
+            SUM(e.sueldo_total)   as total_imss,
+            SUM(e.sueldo_total_a) as total_complementario,
+            SUM(e.sueldo_total_t) as total_pagado
+        ")
             ->get();
 
         // 🧩 Normalizar para ApexCharts
@@ -80,30 +70,7 @@ class PrenominaService
         $total  = [];
 
         foreach ($rows as $r) {
-
-            // 🔑 periodo_num viene como JSON (ej. "[18]" o "[18,19]")
-            $periodos = is_array($r->periodo_num)
-                ? $r->periodo_num
-                : json_decode($r->periodo_num, true);
-
-            // fallback defensivo
-            if (! is_array($periodos) || empty($periodos)) {
-                $labelPeriodo = 'P?';
-            } else {
-                $periodos = array_map('intval', $periodos);
-                sort($periodos);
-
-                if (count($periodos) === 1) {
-                    $labelPeriodo = 'P' . str_pad($periodos[0], 2, '0', STR_PAD_LEFT);
-                } else {
-                    $labelPeriodo =
-                    'P' . str_pad($periodos[0], 2, '0', STR_PAD_LEFT)
-                    . '–'
-                    . str_pad(end($periodos), 2, '0', STR_PAD_LEFT);
-                }
-            }
-
-            $labels[] = "{$r->anio}-{$labelPeriodo}";
+            $labels[] = (string) $r->ym; // 👈 "2026-01"
             $imss[]   = (float) $r->total_imss;
             $comp[]   = (float) $r->total_complementario;
             $total[]  = (float) $r->total_pagado;
@@ -112,10 +79,12 @@ class PrenominaService
         return [
             'labels' => $labels,
             'series' => [
-                ['name' => 'IMSS', 'data' => $imss],
-                ['name' => 'Complementarios', 'data' => $comp],
-                ['name' => 'Total pagado', 'data' => $total],
+                ['name' => 'Sueldo Base', 'data' => $imss],
+                ['name' => 'Sueldo Complementario', 'data' => $comp],
+                ['name' => 'Total Final', 'data' => $total],
             ],
         ];
     }
+
 }
+
