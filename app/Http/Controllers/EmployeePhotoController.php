@@ -5,7 +5,6 @@ use Illuminate\Support\Facades\File;
 
 class EmployeePhotoController extends Controller
 {
-    use Illuminate\Support\Facades\File;
 
     public function show(?string $filename = null)
     {
