@@ -102,7 +102,7 @@ class ApiEmpleadoController extends Controller
             return response()->json(['error' => 'Empleado no encontrado.'], 404);
         }
 
-      $env     = config('app.env');
+        $env = config('app.env');
 
         // Determina la ruta base según el entorno
         $rutaBase = $env === 'production'
@@ -147,7 +147,6 @@ class ApiEmpleadoController extends Controller
         $carpeta = '_perfilEmpleado';
         $env     = config('app.env');
 
-        // Determina la ruta base según el entorno
         $rutaBase = $env === 'production'
             ? config('paths.prod_images')
             : config('paths.local_images');
@@ -158,7 +157,11 @@ class ApiEmpleadoController extends Controller
             return response()->json(['error' => 'Imagen no encontrada'], 404);
         }
 
-        return response()->file($filePath);
+        return response()->file($filePath, [
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma'        => 'no-cache',
+            'Expires'       => '0',
+        ]);
     }
 
     public function getAntidopinPaquetes()

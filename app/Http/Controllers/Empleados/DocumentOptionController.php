@@ -18,9 +18,9 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Schema;
 
 class DocumentOptionController extends Controller
 {
@@ -1016,8 +1016,8 @@ class DocumentOptionController extends Controller
             'name'            => ['nullable', 'string', 'max:255'],
             'description'     => ['nullable', 'string', 'max:2000'],
             'expiry_date'     => ['nullable', 'date'],
-            'expiry_reminder' => ['nullable'],   // puede ser "0"
-            'status'          => ['nullable'],   // puede ser "0"
+            'expiry_reminder' => ['nullable'], // puede ser "0"
+            'status'          => ['nullable'], // puede ser "0"
             'doc_anterior'    => ['nullable', 'string', 'max:255'],
             'id_portal'       => ['nullable', 'integer'],
             'employee_id'     => ['nullable', 'integer'],
@@ -1025,7 +1025,7 @@ class DocumentOptionController extends Controller
         ]);
 
         // 2) No caer en falso "sin datos"
-        $sinCampos = empty($request->except(['id','_method'])) && !$request->hasFile('file');
+        $sinCampos = empty($request->except(['id', '_method'])) && ! $request->hasFile('file');
         if ($sinCampos) {
             Log::warning('⚠️ No se enviaron datos útiles (sin campos ni archivo)');
             return response()->json(['message' => 'No se enviaron datos, considera eliminar el documento.'], 400);
@@ -1049,14 +1049,14 @@ class DocumentOptionController extends Controller
         ];
 
         $modelClass = $mapaCarpetas[$carpeta] ?? null;
-        if (!$modelClass) {
+        if (! $modelClass) {
             Log::error("❌ Carpeta no reconocida: [$carpeta]");
             return response()->json(['message' => 'Carpeta no reconocida.'], 400);
         }
 
         /** @var \Illuminate\Database\Eloquent\Model $document */
         $document = $modelClass::find($id);
-        if (!$document) {
+        if (! $document) {
             Log::error("❌ Documento no encontrado en modelo [$modelClass] con ID [$id]");
             return response()->json(['message' => 'Documento no encontrado.'], 404);
         }
@@ -1137,19 +1137,19 @@ class DocumentOptionController extends Controller
             $schemaConn = Schema::connection($conn);
 
             // campos lógicos que aceptas en el request
-            $metasLogicos = ['expiry_date','expiry_reminder','status','description','employee_id'];
+            $metasLogicos = ['expiry_date', 'expiry_reminder', 'status', 'description', 'employee_id'];
 
             // posibles alias por si cambia el nombre en DB (description ya existe en tu fillable)
             $alias = [
-                'description'     => ['description','descripcion','notes','observaciones'],
-                'expiry_date'     => ['expiry_date','fecha_expira','fecha_vencimiento'],
-                'expiry_reminder' => ['expiry_reminder','recordatorio','dias_aviso'],
-                'status'          => ['status','estado','estatus'],
-                'employee_id'     => ['employee_id','id_empleado'],
+                'description'     => ['description', 'descripcion', 'notes', 'observaciones'],
+                'expiry_date'     => ['expiry_date', 'fecha_expira', 'fecha_vencimiento'],
+                'expiry_reminder' => ['expiry_reminder', 'recordatorio', 'dias_aviso'],
+                'status'          => ['status', 'estado', 'estatus'],
+                'employee_id'     => ['employee_id', 'id_empleado'],
             ];
 
             foreach ($metasLogicos as $logical) {
-                if (!array_key_exists($logical, $input)) {
+                if (! array_key_exists($logical, $input)) {
                     continue; // no vino ese campo
                 }
 
@@ -1171,13 +1171,13 @@ class DocumentOptionController extends Controller
 
                 if ($colname) {
                     // casteo simple para status/employee_id si vienen string numérico
-                    if (in_array($colname, ['status','employee_id'], true) && $val !== null) {
+                    if (in_array($colname, ['status', 'employee_id'], true) && $val !== null) {
                         $val = is_numeric($val) ? (int) $val : $val;
                     }
                     $document->setAttribute($colname, $val);
                     Log::info("📝 Meta actualizado [{$logical}] → [{$colname}] en {$conn}.{$table}: " . var_export($val, true));
                 } else {
-                    Log::warning("⚠️ No hay columna para [{$logical}] en {$conn}.{$table} (probadas: ".implode(',', $posibles).")");
+                    Log::warning("⚠️ No hay columna para [{$logical}] en {$conn}.{$table} (probadas: " . implode(',', $posibles) . ")");
                 }
             }
 
@@ -1207,7 +1207,44 @@ class DocumentOptionController extends Controller
         }
     }
 
+    public function updateExpiry(Request $request, $id)
+    {
+        // Validación simple y clara
+        $data = $request->validate([
+            'expiry_date'     => ['required', 'date'],
+            'expiry_reminder' => ['nullable', 'integer'],
+            'status'          => ['nullable', 'integer'],
+        ]);
 
+        // Buscar en modelos posibles (sin carpeta)
+        $document = \App\Models\ExamEmpleado::find($id) ?? \App\Models\DocumentEmpleado::find($id) ?? \App\Models\CursoEmpleado::find($id);
+
+        if (! $document) {
+            return response()->json([
+                'message' => 'Documento no encontrado',
+            ], 404);
+        }
+
+        // Actualizar SOLO lo necesario
+        if (array_key_exists('expiry_date', $data)) {
+            $document->expiry_date = $data['expiry_date'];
+        }
+
+        if (array_key_exists('expiry_reminder', $data)) {
+            $document->expiry_reminder = $data['expiry_reminder'];
+        }
+
+        if (array_key_exists('status', $data)) {
+            $document->status = $data['status'];
+        }
+
+        $document->save();
+
+        return response()->json([
+            'message' => 'Expiración actualizada correctamente',
+            'id'      => $document->id,
+        ]);
+    }
 
     public function deleteDocument(Request $request)
     {

@@ -16,7 +16,7 @@
 # ===============================
 /public/build/
 /public/hot/
-
+config\email_private.php
 # ===============================
 # Storage (Laravel)
 # ===============================

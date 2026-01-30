@@ -56,7 +56,7 @@ class DashboardController extends Controller
         // =========================================
         $user = $request->user();
 
-        if (! $user && app()->environment('local', 'production')) {
+        if (! $user && ! app()->environment('production')) {
             $userId   = (int) $request->query('user_id', 0);
             $portalId = (int) $request->query('portal_id', 0);
             $roleId   = (int) $request->query('role_id', 0); // o idRol
@@ -562,9 +562,9 @@ class DashboardController extends Controller
                         'series' => $tmp['series'] ?? [],
                     ];
                     // =======================================================
-        // ⭐ KPI: AUSENCIAS por periodo
-        // Cuenta: Falta + Incapacidad + Permiso + Vacaciones
-        // =======================================================
+                    // ⭐ KPI: AUSENCIAS por periodo
+                    // Cuenta: Falta + Incapacidad + Permiso + Vacaciones
+                    // =======================================================
 
                     $totalAbsences = 0;
 
@@ -580,14 +580,14 @@ class DashboardController extends Controller
 
                     $employeesActive = $kpis['employees_active'] ?? 0;
 
-            // Índice porcentual
+                    // Índice porcentual
                     if ($employeesActive > 0) {
                         $kpis['absences_period_pct'] = round(($totalAbsences / $employeesActive) * 100, 2);
                     } else {
                         $kpis['absences_period_pct'] = 0;
                     }
 
-            // Total absoluto
+                    // Total absoluto
                     $kpis['absences_period_total'] = $totalAbsences;
 
                 } else {
