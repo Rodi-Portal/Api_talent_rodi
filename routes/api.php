@@ -76,7 +76,7 @@ Route::middleware(['api'])->group(function () {
     if (app()->environment('local')) {
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     } else {
-        Route::middleware('auth:sanctum')->get('/dashboard/summary', [DashboardController::class, 'summary']);
+        Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     }
 
     Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
@@ -249,6 +249,8 @@ Route::middleware(['api'])->group(function () {
     Route::get('/exam/{id}', [DocumentOptionController::class, 'getExamsByEmployeeId']);
     // Ruta para actualizar la expiración del documento, cursos y examanes
     Route::put('documents/{id}', [DocumentOptionController::class, 'updateDocuments']);
+    Route::put('documents/{id}/expiry', [DocumentOptionController::class, 'updateExpiry']);
+
     Route::get('/empleados/{id_empleado}/documentos', [EmpleadoController::class, 'getDocumentos']);
     //eliminar Documentos  del empleado
     Route::delete('/documents', [DocumentOptionController::class, 'deleteDocument']);

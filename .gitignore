@@ -1,20 +1,56 @@
-/node_modules
-/public/build
-/public/hot
-/public/storage
-/storage/*.key
-/vendor
+# ===============================
+# Dependencias
+# ===============================
+/node_modules/
+/vendor/
+
+# ===============================
+# Archivos de entorno
+# ===============================
 .env
-.env.backup
-.env.production
+.env.*
+!.env.example
+
+# ===============================
+# Build / Frontend
+# ===============================
+/public/build/
+/public/hot/
+config\email_private.php
+# ===============================
+# Storage (Laravel)
+# ===============================
+/storage/*
+!/storage/app/.gitignore
+!/storage/framework/.gitignore
+!/storage/logs/.gitignore
+
+# ===============================
+# Claves y cache
+# ===============================
+/storage/*.key
 .phpunit.result.cache
+
+# ===============================
+# Logs
+# ===============================
+npm-debug.log*
+yarn-error.log*
+
+# ===============================
+# Herramientas locales / IDE
+# ===============================
+/.vscode/
+/.idea/
+/.fleet/
+
+# ===============================
+# Homestead
+# ===============================
 Homestead.json
 Homestead.yaml
+
+# ===============================
+# Auth / Composer
+# ===============================
 auth.json
-npm-debug.log
-yarn-error.log
-/.fleet
-/.idea
-/.vscode
-.composer.lock
-.composer.json
