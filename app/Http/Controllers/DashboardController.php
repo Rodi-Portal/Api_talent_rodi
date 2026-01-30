@@ -138,8 +138,8 @@ class DashboardController extends Controller
 
         $allowedClients = $scope['allowedClients'];
         // ============================================================
-//  🔥 OVERRIDE DE CLIENTE SI EL FRONT SELECCIONÓ UNO
-// ============================================================
+        //  🔥 OVERRIDE DE CLIENTE SI EL FRONT SELECCIONÓ UNO
+        // ============================================================
 
         $clientId       = null; // default = scope
         $scopeClientIds = $scope['scopeClientIds'];
@@ -562,9 +562,9 @@ class DashboardController extends Controller
                         'series' => $tmp['series'] ?? [],
                     ];
                     // =======================================================
-// ⭐ KPI: AUSENCIAS por periodo
-// Cuenta: Falta + Incapacidad + Permiso + Vacaciones
-// =======================================================
+        // ⭐ KPI: AUSENCIAS por periodo
+        // Cuenta: Falta + Incapacidad + Permiso + Vacaciones
+        // =======================================================
 
                     $totalAbsences = 0;
 
@@ -580,14 +580,14 @@ class DashboardController extends Controller
 
                     $employeesActive = $kpis['employees_active'] ?? 0;
 
-// Índice porcentual
+            // Índice porcentual
                     if ($employeesActive > 0) {
                         $kpis['absences_period_pct'] = round(($totalAbsences / $employeesActive) * 100, 2);
                     } else {
                         $kpis['absences_period_pct'] = 0;
                     }
 
-// Total absoluto
+            // Total absoluto
                     $kpis['absences_period_total'] = $totalAbsences;
 
                 } else {
