@@ -56,7 +56,7 @@ class DashboardController extends Controller
         // =========================================
         $user = $request->user();
 
-        if (! $user && app()->environment('local', 'production')) {
+        if (! $user && app()->environment('local', 'sandbox')) {
             $userId   = (int) $request->query('user_id', 0);
             $portalId = (int) $request->query('portal_id', 0);
             $roleId   = (int) $request->query('role_id', 0); // o idRol

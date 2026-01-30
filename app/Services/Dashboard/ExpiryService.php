@@ -54,8 +54,10 @@ class ExpiryService
             ->where('e.eliminado', 0)->where('e.status', 1)
             ->where('d.status', 1)
             ->whereNotNull('d.expiry_date')
+            ->whereNotNull('d.expiry_reminder')
+            ->where('d.expiry_reminder', '>', 0)
             ->whereRaw(
-                "DATEDIFF(d.expiry_date, ?) BETWEEN 0 AND ?",
+                "DATEDIFF(d.expiry_date, ?) BETWEEN 0 AND LEAST(d.expiry_reminder, ?)",
                 [$todayStr, $expireDays]
             )
 
@@ -87,7 +89,7 @@ class ExpiryService
 
                  d.expiry_date as expiry_date,
                  DATEDIFF(d.expiry_date, ?) as in_days,
-                 COALESCE(NULLIF(d.expiry_reminder,0), ?) as remind_days,
+                 d.expiry_reminder as remind_days,
                  NULL as overdue_days",
                 [$todayStr, $expireDays]
             );
@@ -104,8 +106,10 @@ class ExpiryService
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)->where('e.status', 1)
             ->whereNotNull('c.expiry_date')
+            ->whereNotNull('c.expiry_reminder')
+            ->where('c.expiry_reminder', '>', 0)
             ->whereRaw(
-                "DATEDIFF(c.expiry_date, ?) BETWEEN 0 AND ?",
+                "DATEDIFF(c.expiry_date, ?) BETWEEN 0 AND LEAST(c.expiry_reminder, ?)",
                 [$todayStr, $expireDays]
             )
 
@@ -137,7 +141,7 @@ class ExpiryService
 
                  c.expiry_date as expiry_date,
                  DATEDIFF(c.expiry_date, ?) as in_days,
-                 COALESCE(NULLIF(c.expiry_reminder,0), ?) as remind_days,
+                c.expiry_reminder as remind_days,
                  NULL as overdue_days",
                 [$todayStr, $expireDays]
             );
@@ -154,8 +158,10 @@ class ExpiryService
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)->where('e.status', 1)
             ->whereNotNull('x.expiry_date')
+            ->whereNotNull('x.expiry_reminder')
+            ->where('x.expiry_reminder', '>', 0)
             ->whereRaw(
-                "DATEDIFF(x.expiry_date, ?) BETWEEN 0 AND ?",
+                "DATEDIFF(x.expiry_date, ?) BETWEEN 0 AND LEAST(x.expiry_reminder, ?)",
                 [$todayStr, $expireDays]
             )
 
@@ -186,7 +192,7 @@ class ExpiryService
                 ) as doc_name,
                 x.expiry_date as expiry_date,
                 DATEDIFF(x.expiry_date, ?) as in_days,
-                COALESCE(NULLIF(x.expiry_reminder,0), ?) as remind_days,
+                x.expiry_reminder as remind_days,
                 NULL as overdue_days",
                 [$todayStr, $expireDays]
             );
@@ -218,7 +224,12 @@ class ExpiryService
             ->where('e.eliminado', 0)->where('e.status', 1)
             ->where('d.status', 1)
             ->whereNotNull('d.expiry_date')
-            ->whereRaw("DATEDIFF(?, d.expiry_date) BETWEEN 1 AND ?", [$todayStr, $expiredDays])
+            ->whereNotNull('d.expiry_reminder')
+            ->where('d.expiry_reminder', '>', 0)
+            ->whereRaw(
+                "DATEDIFF(?, d.expiry_date) BETWEEN 1 AND LEAST(d.expiry_reminder, ?)",
+                [$todayStr, $expiredDays]
+            )
             ->tap($applyClientScope)
             ->selectRaw(
                 "'expired' as state,'document' as kind,d.id as id,d.employee_id as employee_id,
@@ -260,8 +271,12 @@ class ExpiryService
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)->where('e.status', 1)
             ->whereNotNull('c.expiry_date')
-            ->whereRaw("DATEDIFF(?, c.expiry_date) BETWEEN 1 AND ?", [$todayStr, $expiredDays])
-            ->tap($applyClientScope)
+            ->whereNotNull('c.expiry_reminder')
+            ->where('c.expiry_reminder', '>', 0)
+            ->whereRaw(
+                "DATEDIFF(?, c.expiry_date) BETWEEN 1 AND LEAST(c.expiry_reminder, ?)",
+                [$todayStr, $expiredDays]
+            )->tap($applyClientScope)
             ->selectRaw(
                 "'expired' as state,'course' as kind,c.id as id,c.employee_id as employee_id,
                  e.id_cliente as client_id,
@@ -302,8 +317,12 @@ class ExpiryService
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)->where('e.status', 1)
             ->whereNotNull('x.expiry_date')
-            ->whereRaw("DATEDIFF(?, x.expiry_date) BETWEEN 1 AND ?", [$todayStr, $expiredDays])
-            ->tap($applyClientScope)
+            ->whereNotNull('x.expiry_reminder')
+            ->where('x.expiry_reminder', '>', 0)
+            ->whereRaw(
+                "DATEDIFF(?, x.expiry_date) BETWEEN 1 AND LEAST(x.expiry_reminder, ?)",
+                [$todayStr, $expiredDays]
+            )->tap($applyClientScope)
             ->selectRaw(
                 "'expired' as state,'exam' as kind,x.id as id,x.employee_id as employee_id,
                  e.id_cliente as client_id,
