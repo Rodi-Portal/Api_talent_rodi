@@ -103,12 +103,12 @@ class ExpiryService
                             ->orWhereNull('opt.id_portal');
                     });
             })
-            ->where('e.id_portal', $portalId)
-            ->where('e.eliminado', 0)->where('e.status', 1)
-            ->whereNotNull('c.expiry_date')
-                       ->whereNotNull('c.expiry_reminder')
-            ->where('c.expiry_reminder', '>', 0)
-            ->whereRaw(
+                ->where('e.id_portal', $portalId)
+                ->where('e.eliminado', 0)->where('e.status', 1)
+                ->whereNotNull('c.expiry_date')
+                ->whereNotNull('c.expiry_reminder')
+                ->where('c.expiry_reminder', '>', 0)
+                ->whereRaw(
                 "DATEDIFF(c.expiry_date, ?) BETWEEN 0 AND ?",
                 [$todayStr, $expireDays]
             )
