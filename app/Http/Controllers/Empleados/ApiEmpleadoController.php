@@ -113,7 +113,6 @@ class ApiEmpleadoController extends Controller
             ? config('paths.prod_images')
             : config('paths.local_images');
 
-
         $foto          = $request->file('foto');
         $carpeta       = $request->input('carpeta');
         $extension     = $foto->getClientOriginalExtension();
@@ -158,9 +157,8 @@ class ApiEmpleadoController extends Controller
         }
 
         return response()->file($filePath, [
-            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
-            'Pragma'        => 'no-cache',
-            'Expires'       => '0',
+            'Content-Type'  => mime_content_type($filePath),
+            'Cache-Control' => 'public, max-age=31536000, immutable',
         ]);
     }
 
