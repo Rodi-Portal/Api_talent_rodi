@@ -33,8 +33,8 @@ class ApiCandidatoConProyectoPrevioController extends Controller
              *  CANDIDATO
              * ========================== */
             $candidato = new Candidato([
-                'creacion'        => $request->creacion,
-                'edicion'         => $request->edicion,
+                'creacion'        => $date,
+                'edicion'         => $date,
                 'id_usuario'      => 1,
                 'fecha_alta'      => $date,
                 'tipo_formulario' => $request->tipo_formulario,
@@ -61,8 +61,8 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 'id_portal'             => $request->id_portal ?? null,
                 'id_candidato_rodi'     => $candidato->id,
                 'id_puesto_talent'      => $request->id_puesto_talent ?? null,
-                'creacion'              => $request->creacion,
-                'edicion'               => $request->edicion,
+                'creacion'              => $date,
+                'edicion'               => $date,
             ]);
             $candidatoSync->save();
 
