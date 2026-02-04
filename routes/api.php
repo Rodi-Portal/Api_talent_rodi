@@ -32,6 +32,7 @@ use App\Http\Controllers\Empleados\LaboralesController;
 use App\Http\Controllers\Empleados\MedicalInfoController;
 use App\Http\Controllers\Empleados\MensajeriaController;
 use App\Http\Controllers\Empleados\NotificacionController;
+use App\Http\Controllers\EmployeePhotoController;
 use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\PeriodoNominaController;
@@ -42,7 +43,6 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
 use App\Http\Controllers\WhatsAppController;
-use App\Http\Controllers\EmployeePhotoController;
 use Illuminate\Http\Request;
 // routes/api.php
 use Illuminate\Support\Facades\Route;
@@ -58,6 +58,9 @@ use Illuminate\Support\Facades\Route;
 |
  */
 //  rutas  para  envio de  mensajes  de  whatsssApp
+
+Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
+
 Route::get('/api/test-status', function () {
     $id_portal  = 5;
     $id_cliente = 1003;
@@ -72,7 +75,7 @@ Route::get('/api/test-status', function () {
     }
 });
 Route::middleware(['api'])->group(function () {
-    
+
     if (app()->environment('local')) {
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     } else {
@@ -93,7 +96,6 @@ Route::middleware(['api'])->group(function () {
     Route::post('/upload', [DocumentController::class, 'upload']);
 
     //  rutas    para  candidatos  socioeconomicos  y doping
-    Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
     Route::post('/candidatos', [ApiCandidatoSinEseController::class, 'store']);
     Route::post('/existe-cliente', [ApiClientesController::class, 'VerificarCliente']);
     Route::get('candidato-sync/{id_cliente_talent}', [ApiGetCandidatosByCliente::class, 'getByClienteTalent']);
