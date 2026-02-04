@@ -9,10 +9,8 @@ class CorsMiddleware
 {
     public function handle(Request $request, Closure $next)
     {
-        // Obtener el origen de la solicitud
         $origin = $request->headers->get('Origin');
 
-        // Lista de orígenes permitidos
         $allowedOrigins = [
             'https://portal.talentsafecontrol.com',
             'https://rodicontrol.rodi.com.mx',
@@ -20,39 +18,48 @@ class CorsMiddleware
             'http://localhost:8080',
             'http://localhost:8000',
             'http://localhost:5173',
-            //   'http://localhost:8001',
         ];
 
-        //\Log::info("CORS Middleware - Origin received: $origin");
-
-        // Si la solicitud es de tipo OPTIONS, responde y detén el procesamiento
+        /*
+         * 1️⃣ PRE-FLIGHT OPTIONS
+         * Siempre responder 200, aunque no haya Origin
+         */
         if ($request->isMethod('options')) {
-            //   \Log::info('CORS OPTIONS Request');
-            if (in_array($origin, $allowedOrigins)) {
-                return response()
-                    ->json([], 200)
-                    ->header('Access-Control-Allow-Origin', $origin)
-                    ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                    ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-TOKEN, X-Portal-Id')
-                    ->header('Access-Control-Allow-Credentials', 'true'); // Si necesitas credenciales
+            $response = response()->json([], 200);
+
+            if ($origin && in_array($origin, $allowedOrigins)) {
+                $response->headers->set('Access-Control-Allow-Origin', $origin);
+                $response->headers->set('Access-Control-Allow-Credentials', 'true');
             }
-            // Si el origen no está permitido, responde sin encabezados
-            return response()->json([], 403);
+
+            $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+            $response->headers->set(
+                'Access-Control-Allow-Headers',
+                'Content-Type, Authorization, X-CSRF-TOKEN, X-Portal-Id'
+            );
+
+            return $response;
         }
 
-        // Procesa la solicitud principal
+        /*
+         * 2️⃣ REQUEST NORMAL (POST, GET, etc.)
+         */
         $response = $next($request);
 
-        // Agregar encabezados CORS si el origen está permitido
-        if (in_array($origin, $allowedOrigins)) {
-            //  \Log::info("CORS Allowed Origin: $origin");
+        /*
+         * 3️⃣ Agregar headers SOLO si hay Origin válido
+         * (backend-to-backend no los necesita)
+         */
+        if ($origin && in_array($origin, $allowedOrigins)) {
             $response->headers->set('Access-Control-Allow-Origin', $origin);
+            $response->headers->set('Access-Control-Allow-Credentials', 'true');
             $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-            $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-TOKEN, X-Portal-Id');
-            $response->headers->set('Access-Control-Allow-Credentials', 'true'); // Si necesitas credenciales
+            $response->headers->set(
+                'Access-Control-Allow-Headers',
+                'Content-Type, Authorization, X-CSRF-TOKEN, X-Portal-Id'
+            );
         }
 
         return $response;
     }
 }
-
