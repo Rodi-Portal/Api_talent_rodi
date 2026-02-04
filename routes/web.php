@@ -16,7 +16,7 @@ use App\Http\Controllers\ApiCandidatoConProyectoPrevioController;
 */
 
 Route::post('/candidatossinese', [ApiCandidatoSinEseController::class, 'store']);
-Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
+//Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
 
 
 Route::get('/', function () {
