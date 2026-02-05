@@ -27,10 +27,18 @@ class WhatsAppController extends Controller
         $template = $validated['template'];
 
         // Define el URL del endpoint de la API de Facebook
-        $url = 'https://graph.facebook.com/v20.0/391916820677600/messages';
-
-        // Define el token de autorización (se recomienda almacenarlo en .env)
-        $token = env('FACEBOOK_ACCESS_TOKEN3');
+        // ✅ Configuración desde services.php
+        $token         = config('services.facebook.access_token');
+        $phoneNumberId = config('services.facebook.phone_number_id');
+        $baseUrl       = config('services.facebook.base_url');
+        if (! $token || ! $phoneNumberId || ! $baseUrl) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Configuración de WhatsApp incompleta',
+            ], 500);
+        }
+        // ✅ URL dinámica
+        $url = "{$baseUrl}/{$phoneNumberId}/messages";
 
         // Define el payload de la solicitud
         $payload = [
@@ -84,11 +92,17 @@ class WhatsAppController extends Controller
         $vacante          = $validated['vacante'] ?? '';
         $telefono         = $validated['telefono'] ?? '';
 
-        // Define el URL del endpoint de la API de Facebook
-        $url = 'https://graph.facebook.com/v20.0/391916820677600/messages';
-
-        // Define el token de autorización (se recomienda almacenarlo en .env)
-        $token = env('FACEBOOK_ACCESS_TOKEN');
+        $token         = config('services.facebook.access_token');
+        $phoneNumberId = config('services.facebook.phone_number_id');
+        $baseUrl       = config('services.facebook.base_url');
+        if (! $token || ! $phoneNumberId || ! $baseUrl) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Configuración de WhatsApp incompleta',
+            ], 500);
+        }
+        // ✅ URL dinámica
+        $url = "{$baseUrl}/{$phoneNumberId}/messages";
 
         // Define el payload de la solicitud
         $payload = [
@@ -159,11 +173,17 @@ class WhatsAppController extends Controller
         $vacante          = $validated['vacante'] ?? '';
         $telefono         = $validated['telefono'] ?? '';
 
-        // Define el URL del endpoint de la API de Facebook
-        $url = 'https://graph.facebook.com/v20.0/391916820677600/messages';
-
-        // Define el token de autorización (se recomienda almacenarlo en .env)
-        $token = env('FACEBOOK_ACCESS_TOKEN');
+        $token         = config('services.facebook.access_token');
+        $phoneNumberId = config('services.facebook.phone_number_id');
+        $baseUrl       = config('services.facebook.base_url');
+        if (! $token || ! $phoneNumberId || ! $baseUrl) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Configuración de WhatsApp incompleta',
+            ], 500);
+        }
+        // ✅ URL dinámica
+        $url = "{$baseUrl}/{$phoneNumberId}/messages";
 
         // Define el payload de la solicitud
         $payload = [
@@ -236,11 +256,17 @@ class WhatsAppController extends Controller
         $vacante          = $validated['vacante'] ?? '';
         $telefono         = $validated['telefono'] ?? '';
 
-        // Define el URL del endpoint de la API de Facebook
-        $url = 'https://graph.facebook.com/v20.0/391916820677600/messages';
-
-        // Define el token de autorización (se recomienda almacenarlo en .env)
-        $token = env('FACEBOOK_ACCESS_TOKEN');
+        $token         = config('services.facebook.access_token');
+        $phoneNumberId = config('services.facebook.phone_number_id');
+        $baseUrl       = config('services.facebook.base_url');
+        if (! $token || ! $phoneNumberId || ! $baseUrl) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Configuración de WhatsApp incompleta',
+            ], 500);
+        }
+        // ✅ URL dinámica
+        $url = "{$baseUrl}/{$phoneNumberId}/messages";
 
         // Define el payload de la solicitud
         $payload = [
@@ -310,11 +336,17 @@ class WhatsAppController extends Controller
         $vacante        = $validated['vacante'] ?? '';
         $telefono       = $validated['telefono'] ?? '';
 
-        // Define el URL del endpoint de la API de Facebook
-        $url = 'https://graph.facebook.com/v20.0/391916820677600/messages';
-
-        // Define el token de autorización (se recomienda almacenarlo en .env)
-        $token = env('FACEBOOK_ACCESS_TOKEN');
+        $token         = config('services.facebook.access_token');
+        $phoneNumberId = config('services.facebook.phone_number_id');
+        $baseUrl       = config('services.facebook.base_url');
+        if (! $token || ! $phoneNumberId || ! $baseUrl) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Configuración de WhatsApp incompleta',
+            ], 500);
+        }
+        // ✅ URL dinámica
+        $url = "{$baseUrl}/{$phoneNumberId}/messages";
 
         // Define el payload de la solicitud
         $payload = [
@@ -472,23 +504,16 @@ class WhatsAppController extends Controller
 
             // 2) Config: token y phone_number_id desde .env/services.php
             $token         = config('services.facebook.access_token');
-            $phoneNumberId = config('services.facebook.phone_number_id'); // <-- agrega esto a tu config/services.php
-            $apiVersion    = 'v22.0';
-
-            // Validaciones de config
-            if (empty($token)) {
-                Log::error('[WA][{rid}] Falta configuración', [
-                    'rid'       => $rid,
-                    'has_token' => ! empty($token),
-                ]);
+            $phoneNumberId = config('services.facebook.phone_number_id');
+            $baseUrl       = config('services.facebook.base_url');
+            if (! $token || ! $phoneNumberId || ! $baseUrl) {
                 return response()->json([
                     'status'  => 'error',
-                    'message' => 'Configuración de WhatsApp incompleta (token o phone_number_id).',
+                    'message' => 'Configuración de WhatsApp incompleta',
                 ], 500);
             }
-
-            // 3) Preparar URL y payload
-            $url = 'https://graph.facebook.com/v22.0/648027118401660/messages';
+            // ✅ URL dinámica
+            $url = "{$baseUrl}/{$phoneNumberId}/messages";
 
             $payload = [
                 'messaging_product' => 'whatsapp',
@@ -597,12 +622,15 @@ class WhatsAppController extends Controller
 
             $token         = config('services.facebook.access_token');
             $phoneNumberId = config('services.facebook.phone_number_id');
-            $apiVersion    = 'v22.0';
-
-            if (empty($token) || empty($phoneNumberId)) {
-                Log::error("[WA][{$rid}] Falta configuración");
-                return response()->json(['error' => 'Falta configuración de WhatsApp'], 500);
+            $baseUrl       = config('services.facebook.base_url');
+            if (! $token || ! $phoneNumberId || ! $baseUrl) {
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => 'Configuración de WhatsApp incompleta',
+                ], 500);
             }
+            // ✅ URL dinámica
+            $url = "{$baseUrl}/{$phoneNumberId}/messages";
 
             // Plantilla en inglés
             $template = 'notificacion_exempleados_v2';
@@ -631,14 +659,6 @@ class WhatsAppController extends Controller
                     ],
                 ],
             ];
-
-            $url = "https://graph.facebook.com/{$apiVersion}/{$phoneNumberId}/messages";
-
-            Log::info("[WA][{$rid}] Enviando plantilla {$template}", [
-                'url'   => $url,
-                'phone' => $validated['phone'],
-                'body'  => $payload,
-            ]);
 
             $response = Http::timeout(20)
                 ->retry(2, 500)
@@ -798,24 +818,19 @@ class WhatsAppController extends Controller
 
             Log::info("[WA][{$rid}] Datos validados", $validated);
 
+            $lang = $request->input('language', 'es_MX');
+
             $token         = config('services.facebook.access_token');
             $phoneNumberId = config('services.facebook.phone_number_id');
-            $apiVersion    = 'v22.0';
-            $lang          = $request->input('language', 'es_MX');
-
-            if (empty($token) || empty($phoneNumberId)) {
-                Log::error("[WA][{$rid}] Falta configuración de WhatsApp", [
-                    'has_token'           => ! empty($token),
-                    'has_phone_number_id' => ! empty($phoneNumberId),
-                ]);
+            $baseUrl       = config('services.facebook.base_url');
+            if (! $token || ! $phoneNumberId || ! $baseUrl) {
                 return response()->json([
                     'status'  => 'error',
-                    'message' => 'Configuración de WhatsApp incompleta (token o phone_number_id).',
-                    'rid'     => $rid,
+                    'message' => 'Configuración de WhatsApp incompleta',
                 ], 500);
             }
-
-            $url = "https://graph.facebook.com/{$apiVersion}/{$phoneNumberId}/messages";
+            // ✅ URL dinámica
+            $url = "{$baseUrl}/{$phoneNumberId}/messages";
 
             // ✅ Construcción del payload
             $payload = [
