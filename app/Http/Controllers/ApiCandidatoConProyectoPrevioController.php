@@ -16,12 +16,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
 {
     public function store(Request $request)
     {
-        return response()->json([
-            'method'        => $request->method(),
-            'server_method' => $_SERVER['REQUEST_METHOD'] ?? null,
-            'headers'       => $request->headers->all(),
-            'content_type'  => $request->header('Content-Type'),
-        ]);
+     
         Log::info('API candidatoconprevio · ENTRADA', [
             'method'  => $request->method(),
             'url'     => $request->fullUrl(),
