@@ -116,6 +116,8 @@ class ApiCandidatoConProyectoPrevioController extends Controller
 
                 'tiempo_empleos'   => $secciones['tiempo_empleos'] ?? null,
                 'tipo_pdf'         => $secciones['tipo_pdf'] ?? null,
+                'visita'           => $visitaHtml ?? '',
+
             ]);
             $candidatoSeccion->save();
 
