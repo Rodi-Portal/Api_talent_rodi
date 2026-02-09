@@ -59,8 +59,6 @@ use Illuminate\Support\Facades\Route;
  */
 //  rutas  para  envio de  mensajes  de  whatsssApp
 
-Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
-
 Route::get('/api/test-status', function () {
     $id_portal  = 5;
     $id_cliente = 1003;
@@ -75,6 +73,10 @@ Route::get('/api/test-status', function () {
     }
 });
 Route::middleware(['api'])->group(function () {
+    Route::match(['get', 'post'], '/candidatoconprevio', [
+        ApiCandidatoConProyectoPrevioController::class,
+        'store',
+    ]);
 
     if (app()->environment('local')) {
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
