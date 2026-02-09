@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Middleware;
 
 use Closure;
@@ -20,36 +19,21 @@ class CorsMiddleware
             'http://localhost:5173',
         ];
 
-        /*
-         * 1️⃣ PRE-FLIGHT OPTIONS
-         * Siempre responder 200, aunque no haya Origin
-         */
-        if ($request->isMethod('options')) {
-            $response = response()->json([], 200);
-
-            if ($origin && in_array($origin, $allowedOrigins)) {
-                $response->headers->set('Access-Control-Allow-Origin', $origin);
-                $response->headers->set('Access-Control-Allow-Credentials', 'true');
-            }
-
-            $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-            $response->headers->set(
-                'Access-Control-Allow-Headers',
-                'Content-Type, Authorization, X-CSRF-TOKEN, X-Portal-Id'
-            );
-
-            return $response;
+        // ✅ RESPONDER OPTIONS SIEMPRE
+        if ($request->getMethod() === 'OPTIONS') {
+            return response('', 204)
+                ->withHeaders([
+                    'Access-Control-Allow-Origin'      => $origin && in_array($origin, $allowedOrigins) ? $origin : '*',
+                    'Access-Control-Allow-Methods'     => 'GET, POST, PUT, DELETE, OPTIONS',
+                    'Access-Control-Allow-Headers'     => 'Content-Type, Authorization, X-CSRF-TOKEN, X-Portal-Id',
+                    'Access-Control-Allow-Credentials' => 'true',
+                ]);
         }
 
-        /*
-         * 2️⃣ REQUEST NORMAL (POST, GET, etc.)
-         */
+        // ⬇️ DEJAR PASAR EL REQUEST
         $response = $next($request);
 
-        /*
-         * 3️⃣ Agregar headers SOLO si hay Origin válido
-         * (backend-to-backend no los necesita)
-         */
+        // ✅ AGREGAR HEADERS AL FINAL
         if ($origin && in_array($origin, $allowedOrigins)) {
             $response->headers->set('Access-Control-Allow-Origin', $origin);
             $response->headers->set('Access-Control-Allow-Credentials', 'true');
@@ -62,4 +46,5 @@ class CorsMiddleware
 
         return $response;
     }
+
 }
