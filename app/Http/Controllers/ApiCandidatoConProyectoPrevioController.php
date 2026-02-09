@@ -17,6 +17,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
     public function store(Request $request)
     {
 
+      
         $date = Carbon::now()->setTimezone('America/Mexico_City');
 
         $frases_permitidas = ['General Nacional', 'Laborales Nacional'];
@@ -33,51 +34,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
             : null;
 
         $documentos = $request->input('documentos', []);
-        /**
-         * ============================
-         * 🧾 DEBUG · PRE-GUARDADO REAL
-         * ============================
-         */
-        Log::info('DEBUG · PRE-GUARDADO SECCIONES Y VISITA', [
-            'proyecto'                => $secciones['proyecto'] ?? null,
-
-            // Longitudes para validar que hay contenido
-            'secciones_base64_length' => isset($secciones['secciones'])
-                ? strlen($secciones['secciones'])
-                : 0,
-
-            'secciones_html_length'   => $seccionesHtml
-                ? strlen($seccionesHtml)
-                : 0,
-
-            'visita_base64_length'    => isset($secciones['visita'])
-                ? strlen($secciones['visita'])
-                : 0,
-
-            'visita_html_length'      => $visitaHtml
-                ? strlen($visitaHtml)
-                : 0,
-
-            // Contenido REAL (preview controlado)
-            'secciones_html_preview'  => $seccionesHtml
-                ? substr($seccionesHtml, 0, 1500)
-                : null,
-
-            'visita_html_preview'     => $visitaHtml
-                ? substr($visitaHtml, 0, 1500)
-                : null,
-        ]);
-
-            /**
-             * ============================
-             * 🛑 CORTE TOTAL (NO BD)
-             * ============================
-             */
-        return response()->json([
-            'codigo' => 1,
-            'msg'    => 'DEBUG OK · Secciones y visita decodificadas. Revisa logs.',
-        ], 200);
-
+        
         DB::beginTransaction();
 
         try {
