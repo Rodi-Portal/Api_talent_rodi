@@ -16,29 +16,68 @@ class ApiCandidatoConProyectoPrevioController extends Controller
 {
     public function store(Request $request)
     {
-     
-        Log::info('API candidatoconprevio · ENTRADA', [
-            'method'  => $request->method(),
-            'url'     => $request->fullUrl(),
-            'headers' => [
-                'content-type' => $request->header('Content-Type'),
-                'accept'       => $request->header('Accept'),
-            ],
-            'payload' => $request->all(),
-        ]);
+
         $date = Carbon::now()->setTimezone('America/Mexico_City');
 
         $frases_permitidas = ['General Nacional', 'Laborales Nacional'];
 
         // 🔒 Normalizar arrays (CLAVE para producción)
-        $secciones  = $request->input('secciones', []);
+        $secciones = $request->input('secciones', []);
+        // 🔓 Decodificar HTML protegido (Base64)
+        $seccionesHtml = isset($secciones['secciones'])
+            ? $this->safeBase64Decode($secciones['secciones'])
+            : null;
+
+        $visitaHtml = isset($secciones['visita'])
+            ? $this->safeBase64Decode($secciones['visita'])
+            : null;
+
         $documentos = $request->input('documentos', []);
-        Log::info('API candidatoconprevio · ARRAYS', [
-            'secciones_type'   => gettype($secciones),
-            'secciones_keys'   => is_array($secciones) ? array_keys($secciones) : null,
-            'documentos_type'  => gettype($documentos),
-            'documentos_count' => is_array($documentos) ? count($documentos) : null,
+        /**
+         * ============================
+         * 🧾 DEBUG · PRE-GUARDADO REAL
+         * ============================
+         */
+        Log::info('DEBUG · PRE-GUARDADO SECCIONES Y VISITA', [
+            'proyecto'                => $secciones['proyecto'] ?? null,
+
+            // Longitudes para validar que hay contenido
+            'secciones_base64_length' => isset($secciones['secciones'])
+                ? strlen($secciones['secciones'])
+                : 0,
+
+            'secciones_html_length'   => $seccionesHtml
+                ? strlen($seccionesHtml)
+                : 0,
+
+            'visita_base64_length'    => isset($secciones['visita'])
+                ? strlen($secciones['visita'])
+                : 0,
+
+            'visita_html_length'      => $visitaHtml
+                ? strlen($visitaHtml)
+                : 0,
+
+            // Contenido REAL (preview controlado)
+            'secciones_html_preview'  => $seccionesHtml
+                ? substr($seccionesHtml, 0, 1500)
+                : null,
+
+            'visita_html_preview'     => $visitaHtml
+                ? substr($visitaHtml, 0, 1500)
+                : null,
         ]);
+
+            /**
+             * ============================
+             * 🛑 CORTE TOTAL (NO BD)
+             * ============================
+             */
+        return response()->json([
+            'codigo' => 1,
+            'msg'    => 'DEBUG OK · Secciones y visita decodificadas. Revisa logs.',
+        ], 200);
+
         DB::beginTransaction();
 
         try {
@@ -107,7 +146,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 'id_candidato'     => $candidato->id,
 
                 'proyecto'         => $secciones['proyecto'] ?? null,
-                'secciones'        => $secciones['secciones'] ?? '',
+                'secciones'        => $seccionesHtml ?? '',
 
                 'lleva_identidad'  => $secciones['lleva_identidad'] ?? 0,
                 'lleva_empleos'    => $secciones['lleva_empleos'] ?? 0,
@@ -194,4 +233,19 @@ class ApiCandidatoConProyectoPrevioController extends Controller
         }
 
     }
+
+    private function safeBase64Decode(?string $value): ?string
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        // Validar que sea base64 válido
+        if (base64_encode(base64_decode($value, true)) !== $value) {
+            return null; // no es base64 válido
+        }
+
+        return base64_decode($value);
+    }
+
 }
