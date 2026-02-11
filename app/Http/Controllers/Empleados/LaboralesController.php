@@ -362,7 +362,7 @@ class LaboralesController extends Controller
             ->where('e.id_portal', $idPortal);
 
         if ($periodicidad) {
-            $q->where('l.periodicidad_pago', $periodicidad);
+            $q->where('l.periodicidad_pago_sat', $periodicidad);
         }
 
         /**
