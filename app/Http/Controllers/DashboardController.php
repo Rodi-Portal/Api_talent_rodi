@@ -226,7 +226,8 @@ class DashboardController extends Controller
 
         $conn = $this->conn;
 
-        return Cache::remember($cacheKey, now()->addSeconds(60), function () use (
+        //return Cache::remember($cacheKey, now()->addSeconds(15), function () use (
+        return (function () use (
             $conn,
             $portalId, $user, $allowedClients, $clientId,
             $days, $expireDays, $expiredDays,
@@ -527,6 +528,7 @@ class DashboardController extends Controller
 
             // =========================
             // CALENDARIO / EVENTOS (usa módulo efectivo)
+
             // =========================
             if ($modulesUser['com'] && $this->hasPermission($user, 'dashboard.widget.asistencias.ver', $clientId)) {
 
@@ -566,33 +568,71 @@ class DashboardController extends Controller
                         'series' => $tmp['series'] ?? [],
                     ];
                     // =======================================================
-                    // ⭐ KPI: AUSENCIAS por periodo
-                    // Cuenta: Falta + Incapacidad + Permiso + Vacaciones
+                    // ⭐ KPI AUSENTISMO REAL (días reales)
                     // =======================================================
 
-                    $totalAbsences = 0;
+                    // 1️⃣ Total días reales de Falta y Permiso
+                    // =======================================================
+                    // ⭐ KPI AUSENTISMO REAL (con columnas correctas)
+                    // =======================================================
 
-                    if (! empty($charts['incidences']['series'])) {
-                        foreach ($charts['incidences']['series'] as $serie) {
+                    $totalAbsences = DB::connection($conn)
+                        ->table('calendario_eventos as ev')
+                        ->join('empleados as e', 'e.id', '=', 'ev.id_empleado')
+                        ->where('e.id_portal', $portalId)
+                        ->where('e.eliminado', 0)
+                        ->where('e.status', 1)
+                        ->when(
+                            $clientId,
+                            fn($q) => $q->where('e.id_cliente', $clientId),
+                            fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+                        )
+                        ->where('ev.eliminado', 0)
+                        ->whereDate('ev.inicio', '<=', $rangeEnd->toDateString())
+                        ->whereDate('ev.fin', '>=', $rangeStart->toDateString())
+                        ->whereIn('ev.id_tipo', [3, 4]) // FALTA y PERMISO (verifica ids reales)
+                        ->selectRaw('SUM(DATEDIFF(ev.fin, ev.inicio) + 1) as total')
+                        ->value('total') ?? 0;
 
-                            // Nombres EXACTOS como vienen del back
-                            if (in_array($serie['name'], ['Falta', 'Incapacidad', 'Permiso', 'Vacaciones'])) {
-                                $totalAbsences += array_sum($serie['data']);
-                            }
+                    // 2️⃣ Calcular días laborales del periodo
+                    $workingDays = 0;
+                    $cursor      = $rangeStart->copy();
+
+                    while ($cursor <= $rangeEnd) {
+                        if (! $cursor->isWeekend()) {
+                            $workingDays++;
                         }
+                        $cursor->addDay();
                     }
 
-                    $employeesActive = $kpis['employees_active'] ?? 0;
+                    // 3️⃣ Headcount promedio del periodo
+                    $hcStart = $turnoverWidget->headcountAsOf(
+                        $portalId,
+                        $allowedClients,
+                        $clientId,
+                        $rangeStart
+                    );
 
-                    // Índice porcentual
-                    if ($employeesActive > 0) {
-                        $kpis['absences_period_pct'] = round(($totalAbsences / $employeesActive) * 100, 2);
+                    $hcEnd = $turnoverWidget->headcountAsOf(
+                        $portalId,
+                        $allowedClients,
+                        $clientId,
+                        $rangeEnd
+                    );
+
+                    $avgEmployees = ($hcStart + $hcEnd) / 2;
+
+                    // 4️⃣ Índice real
+                    if ($avgEmployees > 0 && $workingDays > 0) {
+                        $kpis['absences_period_pct'] = round(
+                            ($totalAbsences / ($avgEmployees * $workingDays)) * 100,
+                            2
+                        );
                     } else {
                         $kpis['absences_period_pct'] = 0;
                     }
 
-                    // Total absoluto
-                    $kpis['absences_period_total'] = $totalAbsences;
+                    $kpis['absences_period_total_days'] = $totalAbsences;
 
                 } else {
 
@@ -608,34 +648,73 @@ class DashboardController extends Controller
                         'labels' => $tmp['labels'] ?? [],
                         'series' => $tmp['series'] ?? [],
                     ];
+
                     // =======================================================
-                    // ⭐ KPI: AUSENCIAS por periodo
-                    // Cuenta: Falta + Incapacidad + Permiso + Vacaciones
+                    // ⭐ KPI AUSENTISMO REAL (días reales)
                     // =======================================================
 
-                    $totalAbsences = 0;
+                    // 1️⃣ Total días reales de Falta y Permiso
+                    // =======================================================
+                    // ⭐ KPI AUSENTISMO REAL (con columnas correctas)
+                    // =======================================================
 
-                    if (! empty($charts['incidences']['series'])) {
-                        foreach ($charts['incidences']['series'] as $serie) {
+                    $totalAbsences = DB::connection($conn)
+                        ->table('calendario_eventos as ev')
+                        ->join('empleados as e', 'e.id', '=', 'ev.id_empleado')
+                        ->where('e.id_portal', $portalId)
+                        ->where('e.eliminado', 0)
+                        ->where('e.status', 1)
+                        ->when(
+                            $clientId,
+                            fn($q) => $q->where('e.id_cliente', $clientId),
+                            fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+                        )
+                        ->where('ev.eliminado', 0)
+                        ->whereDate('ev.inicio', '<=', $rangeEnd->toDateString())
+                        ->whereDate('ev.fin', '>=', $rangeStart->toDateString())
+                        ->whereIn('ev.id_tipo', [3, 4]) // FALTA y PERMISO (verifica ids reales)
+                        ->selectRaw('SUM(DATEDIFF(ev.fin, ev.inicio) + 1) as total')
+                        ->value('total') ?? 0;
 
-                            // Nombres EXACTOS como vienen del back
-                            if (in_array($serie['name'], ['Falta', 'Incapacidad', 'Permiso', 'Vacaciones'])) {
-                                $totalAbsences += array_sum($serie['data']);
-                            }
+                    // 2️⃣ Calcular días laborales del periodo
+                    $workingDays = 0;
+                    $cursor      = $rangeStart->copy();
+
+                    while ($cursor <= $rangeEnd) {
+                        if (! $cursor->isWeekend()) {
+                            $workingDays++;
                         }
+                        $cursor->addDay();
                     }
 
-                    $employeesActive = $kpis['employees_active'] ?? 0;
+                    // 3️⃣ Headcount promedio del periodo
+                    $hcStart = $turnoverWidget->headcountAsOf(
+                        $portalId,
+                        $allowedClients,
+                        $clientId,
+                        $rangeStart
+                    );
 
-                    // Índice porcentual
-                    if ($employeesActive > 0) {
-                        $kpis['absences_period_pct'] = round(($totalAbsences / $employeesActive) * 100, 2);
+                    $hcEnd = $turnoverWidget->headcountAsOf(
+                        $portalId,
+                        $allowedClients,
+                        $clientId,
+                        $rangeEnd
+                    );
+
+                    $avgEmployees = ($hcStart + $hcEnd) / 2;
+
+                    // 4️⃣ Índice real
+                    if ($avgEmployees > 0 && $workingDays > 0) {
+                        $kpis['absences_period_pct'] = round(
+                            ($totalAbsences / ($avgEmployees * $workingDays)) * 100,
+                            2
+                        );
                     } else {
                         $kpis['absences_period_pct'] = 0;
                     }
 
-                    // Total absoluto
-                    $kpis['absences_period_total'] = $totalAbsences;
+                    $kpis['absences_period_total_days'] = $totalAbsences;
 
                 }
             }
@@ -709,7 +788,7 @@ class DashboardController extends Controller
                 'lists'  => $lists,
                 'charts' => $charts,
             ]);
-        });
+        })();
     }
 
     private function hasPermission($user, string $key, ?int $clientId = null): bool
