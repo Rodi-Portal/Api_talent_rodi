@@ -26,7 +26,7 @@ class TurnoverWidget
     /**
      * Headcount a una fecha
      */
-    private function headcountAsOf(
+    public function headcountAsOf(
         int $portalId,
         Collection $allowedClients,
         ?int $clientId,
@@ -45,12 +45,7 @@ class TurnoverWidget
                 fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
             )
             ->whereRaw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) <= ?', [$asOfDate])
-            ->whereNotExists(function ($q) use ($asOfDate) {
-                $q->select(DB::raw(1))
-                    ->from('comentarios_former_empleado as cf')
-                    ->whereColumn('cf.id_empleado', 'e.id')
-                    ->where('cf.creacion', '<=', $asOfDate);
-            })
+
             ->count();
     }
 
@@ -446,7 +441,7 @@ class TurnoverWidget
             ->selectRaw('e.id_cliente as client_id, COUNT(*) as total')
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)
-            ->where('e.status',1)
+            ->where('e.status', 1)
             ->when(
                 $clientId,
                 fn($q) => $q->where('e.id_cliente', $clientId),
