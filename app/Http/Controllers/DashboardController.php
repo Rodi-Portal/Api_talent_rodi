@@ -340,10 +340,12 @@ class DashboardController extends Controller
                 );
 
                 $charts['recruitment_overview'] = [
-                    'labels' => $tmp['days'],
+                    'labels' => $tmp['days'], // ✅ CORRECTO
                     'series' => [
-                        ['name' => 'Creadas', 'data' => $tmp['created']],
+                        ['name' => 'En espera', 'data' => $tmp['waiting']],
+                        ['name' => 'En proceso', 'data' => $tmp['in_process']],
                         ['name' => 'Cerradas', 'data' => $tmp['closed']],
+                        ['name' => 'Canceladas', 'data' => $tmp['cancelled']],
                     ],
                 ];
 
@@ -358,10 +360,12 @@ class DashboardController extends Controller
                 );
 
                 $charts['recruitment_overview'] = [
-                    'labels' => $tmp['months'],
+                    'labels' => $tmp['months'], // ✅ CORRECTO
                     'series' => [
-                        ['name' => 'Creadas', 'data' => $tmp['created']],
+                        ['name' => 'En espera', 'data' => $tmp['waiting']],
+                        ['name' => 'En proceso', 'data' => $tmp['in_process']],
                         ['name' => 'Cerradas', 'data' => $tmp['closed']],
+                        ['name' => 'Canceladas', 'data' => $tmp['cancelled']],
                     ],
                 ];
             }
@@ -562,9 +566,9 @@ class DashboardController extends Controller
                         'series' => $tmp['series'] ?? [],
                     ];
                     // =======================================================
-        // ⭐ KPI: AUSENCIAS por periodo
-        // Cuenta: Falta + Incapacidad + Permiso + Vacaciones
-        // =======================================================
+                    // ⭐ KPI: AUSENCIAS por periodo
+                    // Cuenta: Falta + Incapacidad + Permiso + Vacaciones
+                    // =======================================================
 
                     $totalAbsences = 0;
 
@@ -580,14 +584,14 @@ class DashboardController extends Controller
 
                     $employeesActive = $kpis['employees_active'] ?? 0;
 
-            // Índice porcentual
+                    // Índice porcentual
                     if ($employeesActive > 0) {
                         $kpis['absences_period_pct'] = round(($totalAbsences / $employeesActive) * 100, 2);
                     } else {
                         $kpis['absences_period_pct'] = 0;
                     }
 
-            // Total absoluto
+                    // Total absoluto
                     $kpis['absences_period_total'] = $totalAbsences;
 
                 } else {

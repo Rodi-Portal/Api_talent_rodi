@@ -16,6 +16,7 @@ use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Dashboard\OrganigramaController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CatalogosController;
@@ -59,8 +60,6 @@ use Illuminate\Support\Facades\Route;
  */
 //  rutas  para  envio de  mensajes  de  whatsssApp
 
-
-
 Route::get('/api/test-status', function () {
     $id_portal  = 5;
     $id_cliente = 1003;
@@ -75,7 +74,14 @@ Route::get('/api/test-status', function () {
     }
 });
 Route::middleware(['api'])->group(function () {
-    Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
+
+    //// */ rutas  para  el organigrama
+
+    Route::get('/organigrama', [OrganigramaController::class, 'index']);
+    Route::post('/organigrama', [OrganigramaController::class, 'store']);
+    Route::put('/organigrama/{id}', [OrganigramaController::class, 'update']);
+    Route::delete('/organigrama/{id}', [OrganigramaController::class, 'destroy']);
+    Route::put('/organigrama/{id}/remove-employee', [OrganigramaController::class, 'removeEmployee']);
 
     if (app()->environment('local')) {
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
@@ -89,18 +95,18 @@ Route::middleware(['api'])->group(function () {
     Route::post('/send-message-comentario-cliente', [WhatsAppController::class, 'sendMessage_comentario_cliente']);
     Route::post('/send-message-requisicion-cliente', [WhatsAppController::class, 'sendMessage_requisicion_cliente']);
 
-    // ruta  de  examen  medico
+    //// */ ruta  de  examen  medico
     Route::get('/medico/{id}', [ApiGetMedicoDetalles::class, 'getDatosMedico']);
     Route::get('/test', [TestController::class, 'testPost']);
 
     Route::get('file/{path}', [ImageController::class, 'getFile'])->where('path', '.*');
     Route::post('/upload', [DocumentController::class, 'upload']);
 
-    //  rutas    para  candidatos  socioeconomicos  y doping
+    /// */  rutas    para  candidatos  socioeconomicos  y doping
     Route::post('/candidatos', [ApiCandidatoSinEseController::class, 'store']);
     Route::post('/existe-cliente', [ApiClientesController::class, 'VerificarCliente']);
     Route::get('candidato-sync/{id_cliente_talent}', [ApiGetCandidatosByCliente::class, 'getByClienteTalent']);
-
+    Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
     Route::get('doping/{id}', [ApiGetDopingDetalles::class, 'getDatosDoping']);
     Route::get('doping-detalles/{id}', [ApiGetDopingDetalles::class, 'getDopingDetalles']);
 
