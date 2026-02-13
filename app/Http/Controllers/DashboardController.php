@@ -590,7 +590,7 @@ class DashboardController extends Controller
                         ->where('ev.eliminado', 0)
                         ->whereDate('ev.inicio', '<=', $rangeEnd->toDateString())
                         ->whereDate('ev.fin', '>=', $rangeStart->toDateString())
-                        ->whereIn('ev.id_tipo', [3, 4]) // FALTA y PERMISO (verifica ids reales)
+                        ->whereIn('ev.id_tipo', [1, 2, 3, 4]) // FALTA y PERMISO (verifica ids reales)
                         ->selectRaw('SUM(DATEDIFF(ev.fin, ev.inicio) + 1) as total')
                         ->value('total') ?? 0;
 
@@ -672,7 +672,7 @@ class DashboardController extends Controller
                         ->where('ev.eliminado', 0)
                         ->whereDate('ev.inicio', '<=', $rangeEnd->toDateString())
                         ->whereDate('ev.fin', '>=', $rangeStart->toDateString())
-                        ->whereIn('ev.id_tipo', [3, 4]) // FALTA y PERMISO (verifica ids reales)
+                        ->whereIn('ev.id_tipo', [1, 2, 3, 4]) // FALTA y PERMISO (verifica ids reales)
                         ->selectRaw('SUM(DATEDIFF(ev.fin, ev.inicio) + 1) as total')
                         ->value('total') ?? 0;
 
