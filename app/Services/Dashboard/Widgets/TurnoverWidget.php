@@ -136,6 +136,7 @@ class TurnoverWidget
             $hires = $this->db()->table('empleados as e')
                 ->where('e.id_portal', $portalId)
                 ->where('e.eliminado', 0)
+                ->where('e.status', 1)
                 ->when(
                     $clientId,
                     fn($q) => $q->where('e.id_cliente', $clientId),
@@ -234,6 +235,7 @@ class TurnoverWidget
             $hires = $this->db()->table('empleados as e')
                 ->where('e.id_portal', $portalId)
                 ->where('e.eliminado', 0)
+                ->where('e.status', 1)
                 ->when(
                     $clientId,
                     fn($q) => $q->where('e.id_cliente', $clientId),
@@ -334,6 +336,7 @@ class TurnoverWidget
             )
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)
+            ->where('e.status', 1)
             ->when(
                 $clientId,
                 fn($q) => $q->where('e.id_cliente', $clientId),
@@ -443,6 +446,7 @@ class TurnoverWidget
             ->selectRaw('e.id_cliente as client_id, COUNT(*) as total')
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)
+            ->where('e.status',1)
             ->when(
                 $clientId,
                 fn($q) => $q->where('e.id_cliente', $clientId),
