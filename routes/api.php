@@ -77,11 +77,22 @@ Route::middleware(['api'])->group(function () {
 
     //// */ rutas  para  el organigrama
 
-    Route::get('/organigrama', [OrganigramaController::class, 'index']);
-    Route::post('/organigrama', [OrganigramaController::class, 'store']);
-    Route::put('/organigrama/{id}', [OrganigramaController::class, 'update']);
-    Route::delete('/organigrama/{id}', [OrganigramaController::class, 'destroy']);
-    Route::put('/organigrama/{id}/remove-employee', [OrganigramaController::class, 'removeEmployee']);
+    Route::prefix('organigrama')->group(function () {
+
+        Route::get('/root', [OrganigramaController::class, 'getRoot']);
+        Route::get('/children', [OrganigramaController::class, 'getChildren']);
+        Route::get('/', [OrganigramaController::class, 'index']);
+        Route::post('/', [OrganigramaController::class, 'store']);
+        Route::put('/{id}', [OrganigramaController::class, 'update']);
+        Route::delete('/{id}', [OrganigramaController::class, 'destroy']);
+        Route::put('/{id}/remove-employee', [OrganigramaController::class, 'removeEmployee']);
+        Route::get('/primer-cliente-con-datos', [OrganigramaController::class, 'primerClienteConDatos']);
+        Route::get('/empleados-disponibles',
+            [OrganigramaController::class, 'empleadosDisponibles']
+        );
+        Route::get('/options', [OrganigramaController::class, 'options']);
+
+    });
 
     if (app()->environment('local')) {
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
