@@ -26,6 +26,17 @@ class VerificacionPenalesDetalle extends Model
     /**
      * Relación con la verificación penal principal.
      */
+
+     public static function getDetalleVerificacion($idCandidato)
+     {
+         return self::select('D.*')
+             ->from('verificacion_penales_detalle as D')
+             ->join('verificacion_penales as V', 'V.id', '=', 'D.id_verificacion_penales')
+             ->where('V.id_candidato', $idCandidato)
+             ->get();
+         return $this->belongsTo(VerificacionPenales::class, 'id_verificacion_penales');
+     }
+
     public function verificacion()
     {
         return $this->belongsTo(VerificacionPenales::class, 'id_verificacion_penales');

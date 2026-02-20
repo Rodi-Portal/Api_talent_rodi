@@ -47,6 +47,8 @@ class EmployeesWidget
         return $this->db()->table('empleados as e')
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)
+            ->where('e.status', 1)
+
             ->when(
                 $clientId,
                 fn($q) => $q->where('e.id_cliente', $clientId),

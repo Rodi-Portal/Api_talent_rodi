@@ -31,8 +31,7 @@ class RecruitmentService
         Carbon $end
     ): array {
 
-        $q = $this->db()->table('requisicion as r')
-            ->where('r.eliminado', 0)
+        $baseQuery = $this->db()->table('requisicion as r')
             ->where('r.id_portal', $portalId)
             ->when(
                 $clientId,
@@ -40,40 +39,69 @@ class RecruitmentService
                 fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
             );
 
-        // ================================
-        // Abiertas
-        // ================================
-        $open = (clone $q)->where('status', 1)->count();
-
-        // ================================
-        // En proceso
-        // ================================
-        $inProcess = (clone $q)->where('status', 2)->count();
-
-        // ================================
-        // Finalizadas (status 3 + NO cancelada)
-        // ================================
-        $finished = (clone $q)
-            ->where('status', 3)
-            ->where(function ($w) {
-                $w->whereNull('comentario_final')
-                    ->orWhereRaw("LOWER(comentario_final) NOT LIKE '%cancel%'");
-            })
+        // ======================================
+        // 1️⃣ Vacantes activas actuales
+        // ======================================
+        $active = (clone $baseQuery)
+            ->where('r.eliminado', 0)
+            ->whereNull('r.comentario_final')
             ->count();
 
-        // ================================
-        // Canceladas (status 3 + texto cancelada)
-        // ================================
-        $cancelled = (clone $q)
-            ->where('status', 3)
-            ->whereRaw("LOWER(comentario_final) LIKE '%cancel%'")
+        // ======================================
+        // 2️⃣ Vacantes creadas en el periodo
+        // ======================================
+        $created = (clone $baseQuery)
+            ->where('r.eliminado', 0)
+            ->whereBetween('r.creacion', [$start, $end])
             ->count();
+
+        // ======================================
+        // 3️⃣ Vacantes cerradas en el periodo
+        // ======================================
+        $closed = (clone $baseQuery)
+            ->where('r.eliminado', 0)
+            ->whereNotNull('r.comentario_final')
+            ->whereBetween('r.edicion', [$start, $end])
+            ->count();
+
+        // ======================================
+        // 4️⃣ Vacantes canceladas en el periodo
+        // ======================================
+        $cancelled = (clone $baseQuery)
+            ->where('r.eliminado', 1)
+            ->whereBetween('r.edicion', [$start, $end])
+            ->count();
+
+        // ======================================
+        // 5️⃣ Contrataciones reales en el periodo
+        // ======================================
+        $hired = $this->db()
+            ->table('requisicion as r')
+            ->join('requisicion_aspirante as ra', 'ra.id_requisicion', '=', 'r.id')
+            ->where('r.id_portal', $portalId)
+            ->whereIn('ra.status_final', ['COMPLETADO', 'FINALIZADO'])
+            ->whereBetween('ra.fecha_ingreso', [$start, $end])
+            ->when(
+                $clientId,
+                fn($q) => $q->where('r.id_cliente', $clientId),
+                fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
+            )
+            ->count();
+
+        // ======================================
+        // 6️⃣ % Cobertura del periodo
+        // ======================================
+        $coverageRate = $created > 0
+            ? round(($hired / $created) * 100, 2)
+            : 0;
 
         return [
-            'requisitions_open'       => $open,
-            'requisitions_in_process' => $inProcess,
-            'requisitions_finished'   => $finished,
-            'requisitions_cancelled'  => $cancelled,
+            'requisitions_active'       => $active,
+            'requisitions_created'      => $created,
+            'requisitions_closed'       => $closed,
+            'requisitions_cancelled'    => $cancelled,
+            'requisitions_hired'        => $hired,
+            'requisitions_coverage_pct' => $coverageRate,
         ];
     }
 
@@ -152,23 +180,29 @@ class RecruitmentService
         Carbon $end
     ): array {
 
-        $months  = [];
-        $created = [];
-        $closed  = [];
+        $months    = [];
+        $waiting   = [];
+        $inProcess = [];
+        $closed    = [];
+        $cancelled = [];
 
         $cursor = $start->copy()->startOfMonth();
 
         while ($cursor <= $end) {
+
             $mStart = $cursor->copy()->startOfMonth();
             $mEnd   = $cursor->copy()->endOfMonth();
 
-            $label    = $mStart->format('Y-m');
-            $months[] = $label;
+            $months[] = $mStart->format('Y-m');
 
-            // Creadas
-            $created[] = $this->db()->table('requisicion as r')
-                ->where('r.eliminado', 0)
+            // ============================
+            // EN ESPERA
+            // ============================
+            $waiting[] = $this->db()->table('requisicion as r')
                 ->where('r.id_portal', $portalId)
+                ->where('r.eliminado', 0)
+                ->whereNull('r.comentario_final')
+                ->where('r.status', 1)
                 ->when(
                     $clientId,
                     fn($q) => $q->where('r.id_cliente', $clientId),
@@ -177,90 +211,157 @@ class RecruitmentService
                 ->whereBetween('r.creacion', [$mStart, $mEnd])
                 ->count();
 
-            // Cerradas
-            $closed[] = $this->db()->table('requisicion as r')
-                ->where('r.eliminado', 0)
+            // ============================
+            // EN PROCESO
+            // ============================
+            $inProcess[] = $this->db()->table('requisicion as r')
                 ->where('r.id_portal', $portalId)
-                ->where('status', 3)
+                ->where('r.eliminado', 0)
+                ->whereNull('r.comentario_final')
+                ->where('r.status', 2)
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('r.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
+                )
+                ->whereBetween('r.creacion', [$mStart, $mEnd])
+                ->count();
+
+            // ============================
+            // CERRADAS
+            // ============================
+            $closed[] = $this->db()->table('requisicion as r')
+                ->where('r.id_portal', $portalId)
+                ->where('r.eliminado', 0)
+                ->whereNotNull('r.comentario_final')
                 ->when(
                     $clientId,
                     fn($q) => $q->where('r.id_cliente', $clientId),
                     fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
                 )
                 ->whereBetween('r.edicion', [$mStart, $mEnd])
-                ->where(function ($w) {
-                    $w->whereNull('comentario_final')
-                        ->orWhereRaw("LOWER(comentario_final) NOT LIKE '%cancel%'");
-                })
+                ->count();
+
+            // ============================
+            // CANCELADAS
+            // ============================
+            $cancelled[] = $this->db()->table('requisicion as r')
+                ->where('r.id_portal', $portalId)
+                ->where('r.eliminado', 1)
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('r.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
+                )
+                ->whereBetween('r.edicion', [$mStart, $mEnd])
                 ->count();
 
             $cursor->addMonth();
         }
 
         return [
-            'months'  => $months,
-            'created' => $created,
-            'closed'  => $closed,
+            'months'     => $months,
+            'waiting'    => $waiting,
+            'in_process' => $inProcess,
+            'closed'     => $closed,
+            'cancelled'  => $cancelled,
         ];
     }
 
-    public function getChartDaily(
-        int $portalId,
-        $allowedClients,
-        ?int $clientId,
-        Carbon $periodBase
-    ): array {
+public function getChartDaily(
+    int $portalId,
+    $allowedClients,
+    ?int $clientId,
+    Carbon $periodBase
+): array {
 
-        $start = $periodBase->copy()->startOfMonth();
-        $end   = $periodBase->copy()->endOfMonth();
+    $start = $periodBase->copy()->startOfMonth();
+    $end   = $periodBase->copy()->endOfMonth();
 
-        $days    = [];
-        $created = [];
-        $closed  = [];
+    $days        = [];
+    $waiting     = [];
+    $inProcess   = [];
+    $closed      = [];
+    $cancelled   = [];
 
-        $cursor = $start->copy();
+    $cursor = $start->copy();
 
-        while ($cursor <= $end) {
-            $label  = $cursor->format('d');
-            $days[] = $label;
+    while ($cursor <= $end) {
 
-            // Creadas ese día
-            $created[] = $this->db()->table('requisicion as r')
-                ->where('r.eliminado', 0)
-                ->where('r.id_portal', $portalId)
-                ->when(
-                    $clientId,
-                    fn($q) => $q->where('r.id_cliente', $clientId),
-                    fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
-                )
-                ->whereDate('r.creacion', $cursor->toDateString())
-                ->count();
+        $days[] = $cursor->format('d');
 
-            // Cerradas ese día
-            $closed[] = $this->db()->table('requisicion as r')
-                ->where('r.eliminado', 0)
-                ->where('r.id_portal', $portalId)
-                ->where('status', 3)
-                ->when(
-                    $clientId,
-                    fn($q) => $q->where('r.id_cliente', $clientId),
-                    fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
-                )
-                ->whereDate('r.edicion', $cursor->toDateString())
-                ->where(function ($w) {
-                    $w->whereNull('comentario_final')
-                        ->orWhereRaw("LOWER(comentario_final) NOT LIKE '%cancel%'");
-                })
-                ->count();
+        // ============================
+        // EN ESPERA
+        // ============================
+        $waiting[] = $this->db()->table('requisicion as r')
+            ->where('r.id_portal', $portalId)
+            ->where('r.eliminado', 0)
+            ->whereNull('r.comentario_final')
+            ->where('r.status', 1)
+            ->when(
+                $clientId,
+                fn($q) => $q->where('r.id_cliente', $clientId),
+                fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
+            )
+            ->whereDate('r.creacion', $cursor->toDateString())
+            ->count();
 
-            $cursor->addDay();
-        }
+        // ============================
+        // EN PROCESO
+        // ============================
+        $inProcess[] = $this->db()->table('requisicion as r')
+            ->where('r.id_portal', $portalId)
+            ->where('r.eliminado', 0)
+            ->whereNull('r.comentario_final')
+            ->where('r.status', 2)
+            ->when(
+                $clientId,
+                fn($q) => $q->where('r.id_cliente', $clientId),
+                fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
+            )
+            ->whereDate('r.creacion', $cursor->toDateString())
+            ->count();
 
-        return [
-            'days'    => $days,
-            'created' => $created,
-            'closed'  => $closed,
-        ];
+        // ============================
+        // CERRADAS
+        // ============================
+        $closed[] = $this->db()->table('requisicion as r')
+            ->where('r.id_portal', $portalId)
+            ->where('r.eliminado', 0)
+            ->whereNotNull('r.comentario_final')
+            ->when(
+                $clientId,
+                fn($q) => $q->where('r.id_cliente', $clientId),
+                fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
+            )
+            ->whereDate('r.edicion', $cursor->toDateString())
+            ->count();
+
+        // ============================
+        // CANCELADAS
+        // ============================
+        $cancelled[] = $this->db()->table('requisicion as r')
+            ->where('r.id_portal', $portalId)
+            ->where('r.eliminado', 1)
+            ->when(
+                $clientId,
+                fn($q) => $q->where('r.id_cliente', $clientId),
+                fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
+            )
+            ->whereDate('r.edicion', $cursor->toDateString())
+            ->count();
+
+        $cursor->addDay();
     }
+
+    return [
+        'days'       => $days,
+        'waiting'    => $waiting,
+        'in_process' => $inProcess,
+        'closed'     => $closed,
+        'cancelled'  => $cancelled,
+    ];
+}
+
 
 }

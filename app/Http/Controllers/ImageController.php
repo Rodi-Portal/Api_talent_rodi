@@ -17,7 +17,7 @@ class ImageController extends Controller
     public function getFile($path)
     {
         // ruta  produccion
-        $externalUrl =   '/home/rodicom/dev.rodi.com.mx/'.$path;
+        $externalUrl =   '/home/rodicom/rodicontrol.rodi.com.mx/'.$path;
         // URL completa del archivo en el servidor externo
        // $externalUrl = 'https://rodi2.test' . $path;
 

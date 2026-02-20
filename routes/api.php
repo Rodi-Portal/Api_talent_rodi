@@ -16,6 +16,7 @@ use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Dashboard\OrganigramaController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CatalogosController;
@@ -32,6 +33,7 @@ use App\Http\Controllers\Empleados\LaboralesController;
 use App\Http\Controllers\Empleados\MedicalInfoController;
 use App\Http\Controllers\Empleados\MensajeriaController;
 use App\Http\Controllers\Empleados\NotificacionController;
+use App\Http\Controllers\EmployeePhotoController;
 use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\PeriodoNominaController;
@@ -42,7 +44,6 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
 use App\Http\Controllers\WhatsAppController;
-use App\Http\Controllers\EmployeePhotoController;
 use Illuminate\Http\Request;
 // routes/api.php
 use Illuminate\Support\Facades\Route;
@@ -58,6 +59,7 @@ use Illuminate\Support\Facades\Route;
 |
  */
 //  rutas  para  envio de  mensajes  de  whatsssApp
+
 Route::get('/api/test-status', function () {
     $id_portal  = 5;
     $id_cliente = 1003;
@@ -72,7 +74,26 @@ Route::get('/api/test-status', function () {
     }
 });
 Route::middleware(['api'])->group(function () {
-    
+
+    //// */ rutas  para  el organigrama
+
+    Route::prefix('organigrama')->group(function () {
+
+        Route::get('/root', [OrganigramaController::class, 'getRoot']);
+        Route::get('/children', [OrganigramaController::class, 'getChildren']);
+        Route::get('/', [OrganigramaController::class, 'index']);
+        Route::post('/', [OrganigramaController::class, 'store']);
+        Route::put('/{id}', [OrganigramaController::class, 'update']);
+        Route::delete('/{id}', [OrganigramaController::class, 'destroy']);
+        Route::put('/{id}/remove-employee', [OrganigramaController::class, 'removeEmployee']);
+        Route::get('/primer-cliente-con-datos', [OrganigramaController::class, 'primerClienteConDatos']);
+        Route::get('/empleados-disponibles',
+            [OrganigramaController::class, 'empleadosDisponibles']
+        );
+        Route::get('/options', [OrganigramaController::class, 'options']);
+
+    });
+
     if (app()->environment('local')) {
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     } else {
@@ -85,19 +106,18 @@ Route::middleware(['api'])->group(function () {
     Route::post('/send-message-comentario-cliente', [WhatsAppController::class, 'sendMessage_comentario_cliente']);
     Route::post('/send-message-requisicion-cliente', [WhatsAppController::class, 'sendMessage_requisicion_cliente']);
 
-    // ruta  de  examen  medico
+    //// */ ruta  de  examen  medico
     Route::get('/medico/{id}', [ApiGetMedicoDetalles::class, 'getDatosMedico']);
     Route::get('/test', [TestController::class, 'testPost']);
 
     Route::get('file/{path}', [ImageController::class, 'getFile'])->where('path', '.*');
     Route::post('/upload', [DocumentController::class, 'upload']);
 
-    //  rutas    para  candidatos  socioeconomicos  y doping
-    Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
+    /// */  rutas    para  candidatos  socioeconomicos  y doping
     Route::post('/candidatos', [ApiCandidatoSinEseController::class, 'store']);
     Route::post('/existe-cliente', [ApiClientesController::class, 'VerificarCliente']);
     Route::get('candidato-sync/{id_cliente_talent}', [ApiGetCandidatosByCliente::class, 'getByClienteTalent']);
-
+    Route::post('/candidatoconprevio', [ApiCandidatoConProyectoPrevioController::class, 'store']);
     Route::get('doping/{id}', [ApiGetDopingDetalles::class, 'getDatosDoping']);
     Route::get('doping-detalles/{id}', [ApiGetDopingDetalles::class, 'getDopingDetalles']);
 

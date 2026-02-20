@@ -23,25 +23,42 @@ class CursosController extends Controller
         // Limpiar cachés de manera temporal
 
         // Llama al método para obtener los datos del cliente
-        $cliente = ClienteTalent::with('cursos.empleado')->find($clienteId);
+        $cliente = ClienteTalent::with(['cursos.empleado', 'cursos.documentOption'])->find($clienteId);
 
         if (! $cliente) {
             return response()->json(['error' => 'Cliente no encontrado'], 404);
         }
 
         // Llama al método para obtener los cursos
-        $cursos = $cliente->cursos->map(function ($curso) use ($cliente) {
-            $estado = $this->getEstadoCurso1($curso->expiry_date);
+        $cursos = $cliente->cursos->map(function ($curso) {
+            // Nombre del curso (prioridad)
+            $cursoNombre = $curso->documentOption?->name ?? $curso->nameDocument ?? ($curso->name ? pathinfo($curso->name, PATHINFO_FILENAME) : null);
+
+            // Empleado (null-safe)
+            $empId     = $curso->empleado?->id_empleado;
+            $empNombre = trim(implode(' ', array_filter([
+                $curso->empleado?->nombre,
+                $curso->empleado?->paterno,
+                $curso->empleado?->materno,
+            ])));
+            $empleadoStr = $empId ? "ID: {$empId} - {$empNombre}" : 'Sin asignar';
+
+            // Fecha para el export (tu Excel espera 'fecha_expiracion')
+            $fecha = $curso->expiry_date;
+
+            // Estado (si tu helper espera fecha)
+            $estado = $this->getEstadoCurso1($fecha);
+
             return [
-                'curso'            => $curso->name,
-                'empleado'         => 'ID: ' . $curso->empleado->id_empleado . ' - ' . $curso->empleado->nombre . ' ' . $curso->empleado->paterno . ' ' . $curso->empleado->materno ?? 'Sin asignar',
-                'fecha_expiracion' => $curso->expiry_date,
+                'curso'            => is_string($cursoNombre) ? trim($cursoNombre) : $cursoNombre,
+                'empleado'         => $empleadoStr,
+                'fecha_expiracion' => $fecha,
                 'estado'           => $estado,
             ];
-        });
+        })->values();
 
-        // Genera y devuelve el Excel con el nombre del cliente incluido
-        return Excel::download(new CursosExport($cursos, $cliente->nombre), "reporte_cursos_{$clienteId}.xlsx");
+// Descargar (mejor pasar array plano)
+        return Excel::download(new CursosExport($cursos->all(), $cliente->nombre), "reporte_cursos_{$clienteId}.xlsx");
     }
 
     private function getEstadoCurso1($expiryDate)
@@ -127,7 +144,7 @@ class CursosController extends Controller
                     return response()->json(['error' => 'Ocurrió un error al subir el archivo.'], 500);
                 }
             } else {
-                $newFileName = $request->input('employee_id').'_sin_curso_' . uniqid();
+                $newFileName = $request->input('employee_id') . '_sin_curso_' . uniqid();
                 Log::info('[CURSO] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
             }
 
