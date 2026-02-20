@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers;
 
 use App\Models\Candidato;
@@ -17,14 +16,25 @@ class ApiCandidatoConProyectoPrevioController extends Controller
 {
     public function store(Request $request)
     {
+
+      
         $date = Carbon::now()->setTimezone('America/Mexico_City');
 
         $frases_permitidas = ['General Nacional', 'Laborales Nacional'];
 
         // 🔒 Normalizar arrays (CLAVE para producción)
-        $secciones  = $request->input('secciones', []);
-        $documentos = $request->input('documentos', []);
+        $secciones = $request->input('secciones', []);
+        // 🔓 Decodificar HTML protegido (Base64)
+        $seccionesHtml = isset($secciones['secciones'])
+            ? $this->safeBase64Decode($secciones['secciones'])
+            : null;
 
+        $visitaHtml = isset($secciones['visita'])
+            ? $this->safeBase64Decode($secciones['visita'])
+            : null;
+
+        $documentos = $request->input('documentos', []);
+        
         DB::beginTransaction();
 
         try {
@@ -33,8 +43,8 @@ class ApiCandidatoConProyectoPrevioController extends Controller
              *  CANDIDATO
              * ========================== */
             $candidato = new Candidato([
-                'creacion'        => $request->creacion,
-                'edicion'         => $request->edicion,
+                'creacion'        => $date,
+                'edicion'         => $date,
                 'id_usuario'      => 1,
                 'fecha_alta'      => $date,
                 'tipo_formulario' => $request->tipo_formulario,
@@ -61,8 +71,8 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 'id_portal'             => $request->id_portal ?? null,
                 'id_candidato_rodi'     => $candidato->id,
                 'id_puesto_talent'      => $request->id_puesto_talent ?? null,
-                'creacion'              => $request->creacion,
-                'edicion'               => $request->edicion,
+                'creacion'              => $date,
+                'edicion'               => $date,
             ]);
             $candidatoSync->save();
 
@@ -88,24 +98,26 @@ class ApiCandidatoConProyectoPrevioController extends Controller
              *  SECCIONES
              * ========================== */
             $candidatoSeccion = new CandidatoSeccion([
-                'creacion'        => $request->creacion,
-                'id_usuario'      => 1,
-                'id_candidato'    => $candidato->id,
+                'creacion'         => $request->creacion,
+                'id_usuario'       => 1,
+                'id_candidato'     => $candidato->id,
 
-                'proyecto'        => $secciones['proyecto'] ?? null,
-                'secciones'       => $secciones['secciones'] ?? '',
+                'proyecto'         => $secciones['proyecto'] ?? null,
+                'secciones'        => $seccionesHtml ?? '',
 
-                'lleva_identidad' => $secciones['lleva_identidad'] ?? 0,
-                'lleva_empleos'   => $secciones['lleva_empleos'] ?? 0,
-                'lleva_criminal'  => $secciones['lleva_criminal'] ?? 0,
-                'lleva_estudios'  => $secciones['lleva_estudios'] ?? 0,
-                'lleva_domicilios'=> $secciones['lleva_domicilios'] ?? 0,
-                'lleva_gaps'      => $secciones['lleva_gaps'] ?? 0,
-                'lleva_credito'   => $secciones['lleva_credito'] ?? 0,
-                'lleva_sociales'  => $secciones['lleva_sociales'] ?? 0,
+                'lleva_identidad'  => $secciones['lleva_identidad'] ?? 0,
+                'lleva_empleos'    => $secciones['lleva_empleos'] ?? 0,
+                'lleva_criminal'   => $secciones['lleva_criminal'] ?? 0,
+                'lleva_estudios'   => $secciones['lleva_estudios'] ?? 0,
+                'lleva_domicilios' => $secciones['lleva_domicilios'] ?? 0,
+                'lleva_gaps'       => $secciones['lleva_gaps'] ?? 0,
+                'lleva_credito'    => $secciones['lleva_credito'] ?? 0,
+                'lleva_sociales'   => $secciones['lleva_sociales'] ?? 0,
 
-                'tiempo_empleos'  => $secciones['tiempo_empleos'] ?? null,
-                'tipo_pdf'        => $secciones['tipo_pdf'] ?? null,
+                'tiempo_empleos'   => $secciones['tiempo_empleos'] ?? null,
+                'tipo_pdf'         => $secciones['tipo_pdf'] ?? null,
+                'visita'           => $visitaHtml ?? '',
+
             ]);
             $candidatoSeccion->save();
 
@@ -128,7 +140,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
              * ========================== */
             foreach ($documentos as $doc) {
 
-                if (!isset($doc['id_tipo_documento'])) {
+                if (! isset($doc['id_tipo_documento'])) {
                     continue;
                 }
 
@@ -150,25 +162,49 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 $documento->save();
             }
 
+            Log::info('API candidatoconprevio · PRE-COMMIT', [
+                'id_candidato'    => $candidato->id ?? null,
+                'docs_insertados' => is_array($documentos) ? count($documentos) : 0,
+            ]);
+
             DB::commit();
 
             return response()->json([
                 'codigo' => 1,
-                'msg'    => 'El candidato se registró correctamente'
+                'msg'    => 'El candidato se registró correctamente',
             ], 201);
-
         } catch (\Throwable $e) {
 
             DB::rollBack();
-            Log::error('Error registro candidato', [
-                'error' => $e->getMessage(),
-                'line'  => $e->getLine()
+
+            Log::error('API candidatoconprevio · ERROR', [
+                'message' => $e->getMessage(),
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine(),
+                'trace'   => $e->getTraceAsString(),
+                'payload' => $request->all(),
             ]);
 
             return response()->json([
                 'codigo' => 0,
-                'msg'    => $e->getMessage()
+                'msg'    => 'Error interno al registrar candidato',
             ], 500);
         }
+
     }
+
+    private function safeBase64Decode(?string $value): ?string
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        // Validar que sea base64 válido
+        if (base64_encode(base64_decode($value, true)) !== $value) {
+            return null; // no es base64 válido
+        }
+
+        return base64_decode($value);
+    }
+
 }
