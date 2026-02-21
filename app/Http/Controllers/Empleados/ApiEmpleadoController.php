@@ -152,8 +152,20 @@ class ApiEmpleadoController extends Controller
 
         $filePath = $rutaBase . '/' . $carpeta . '/' . $filename;
 
-        if (! file_exists($filePath)) {
-            return response()->json(['error' => 'Imagen no encontrada'], 404);
+        // 🔥 Si no hay filename o no existe archivo
+        if (! $filename || ! file_exists($filePath)) {
+
+            $defaultPath = $rutaBase . '/' . $carpeta . '/perfil.png';
+
+            if (file_exists($defaultPath)) {
+                return response()->file($defaultPath, [
+                    'Content-Type'  => mime_content_type($defaultPath),
+                    'Cache-Control' => 'public, max-age=31536000, immutable',
+                ]);
+            }
+
+                                            // Último fallback ultra seguro
+            return response()->noContent(); // 204 sin error
         }
 
         return response()->file($filePath, [
