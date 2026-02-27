@@ -13,8 +13,8 @@ return [
     |
     */
 
-    'defaults' => [
-        'guard' => 'web',
+    'defaults'         => [
+        'guard'     => 'web',
         'passwords' => 'users',
     ],
 
@@ -34,11 +34,16 @@ return [
     | Supported: "session"
     |
     */
-      
-    'guards' => [
-        'web' => [
-            'driver' => 'session',
+
+    'guards'           => [
+        'web'      => [
+            'driver'   => 'session',
             'provider' => 'users',
+        ],
+        
+        'empleado' => [
+            'driver'   => 'sanctum',
+            'provider' => 'empleados',
         ],
     ],
 
@@ -59,16 +64,20 @@ return [
     |
     */
 
-    'providers' => [
-        'users' => [
+    'providers'        => [
+        'users'     => [
             'driver' => 'eloquent',
-            'model' => App\Models\User::class,
+            'model'  => App\Models\User::class,
         ],
 
         // 'users' => [
         //     'driver' => 'database',
         //     'table' => 'users',
         // ],
+        'empleados' => [
+            'driver' => 'eloquent',
+            'model'  => App\Models\Auth\EmpleadoAuth::class,
+        ],
     ],
 
     /*
@@ -86,11 +95,11 @@ return [
     |
     */
 
-    'passwords' => [
+    'passwords'        => [
         'users' => [
             'provider' => 'users',
-            'table' => 'password_resets',
-            'expire' => 60,
+            'table'    => 'password_resets',
+            'expire'   => 60,
             'throttle' => 60,
         ],
     ],
