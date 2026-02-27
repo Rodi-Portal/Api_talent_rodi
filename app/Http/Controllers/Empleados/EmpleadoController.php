@@ -174,7 +174,7 @@ class EmpleadoController extends Controller
             'foto', 'statusMedico', 'statusDocuments', 'statusExam',
             'estadoExam', 'statusCursos', 'estadoDocumento',
             'id_domicilio_empleado', 'creacion', 'edicion',
-            'id_portal', 'id_cliente', 'id_usuario', 'id', 'Id', 'campoExtra', 'eliminado', 'status', 'paterno', 'materno', 'nombre', 'id_bolsa','id_departamento','id_puesto',
+            'id_portal', 'id_cliente', 'id_usuario', 'id', 'Id', 'campoExtra', 'eliminado', 'status', 'paterno', 'materno', 'nombre', 'id_bolsa','id_departamento','id_puesto','password','email_verified_at','activation_token','activation_expires_at','force_password_change','login_attempts','locked_until','last_login_at','last_login_ip','password_changed_at'
         ];
 
         foreach ($empleados as $empleado) {

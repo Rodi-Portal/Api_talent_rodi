@@ -7,10 +7,12 @@ use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
+use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 use App\Http\Controllers\Auth\PermissionController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
-use App\Http\Controllers\Comunicacion\ChecadasController;
+
 //use App\Http\Controllers\AvanceController;
+use App\Http\Controllers\Comunicacion\ChecadasController;
 use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
@@ -44,9 +46,8 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
 use App\Http\Controllers\WhatsAppController;
-use Illuminate\Http\Request;
 // routes/api.php
-use Illuminate\Support\Facades\Route;
+use Illuminate\Http\Request;
 
 /*
 |--------------------------------------------------------------------------
@@ -398,6 +399,56 @@ Route::middleware(['api'])->group(function () {
     //**********************Fin Ruta para  fotos de perfil **************************** */
 
 });
+
+//**********************Inicio  Ruta para  mi portal Empleados **************************** */
+
+Route::prefix('empleado/auth')->group(function () {
+
+    // Login público
+    Route::post('/login',
+        [\App\Http\Controllers\Api\Empleado\AuthController::class, 'login']
+    );
+
+    // Logout protegido
+    Route::middleware('auth:empleado')->post('/logout',
+        [\App\Http\Controllers\Api\Empleado\AuthController::class, 'logout']
+    );
+
+    // Cambio de contraseña protegido
+    Route::middleware('auth:empleado')->post('/change-password',
+        [\App\Http\Controllers\Api\Empleado\AuthController::class, 'changePassword']
+    );
+
+});
+
+Route::middleware('auth:empleado')->get(
+    '/empleado/profile-photo',
+    [ApiEmpleadoController::class, 'getMyProfilePicture']
+);
+Route::middleware(['auth:empleado', 'force.password.change'])
+    ->prefix('empleado')
+    ->group(function () {
+
+        Route::get('/me', function (Request $request) {
+            return response()->json($request->user());
+        });
+
+        // futuras rutas:
+        // /recibos
+        // /documentos
+        // /solicitudes
+    });
+
+Route::middleware('auth:empleado')->group(function () {
+
+    Route::get('/empleado/dashboard', [
+        EmpleadoDashboardController::class,
+        'index',
+    ]);
+
+});
+
+//**********************Fin Ruta para  mi portal Empleados **************************** */
 
 /*notificaciones  via  whatsapp modulo empleados*/
 
