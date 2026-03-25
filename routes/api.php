@@ -10,7 +10,9 @@ use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 use App\Http\Controllers\Auth\PermissionController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
-use App\Http\Controllers\Api\Empleado\DashboardController;
+//use App\Http\Controllers\Api\Empleado\DashboardController;
+use App\Http\Controllers\DashboardController;
+
 use App\Http\Controllers\Api\Empleado\ProfileController;
 use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
 use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
@@ -50,7 +52,7 @@ use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
 use App\Modules\AuthCore\Controllers\AdminRecoveryController;
 use App\Modules\AuthCore\Controllers\EmpleadoRecoveryController;
-
+use App\Http\Controllers\WhatsAppController;
 // routes/api.php
 use Illuminate\Http\Request;
 
