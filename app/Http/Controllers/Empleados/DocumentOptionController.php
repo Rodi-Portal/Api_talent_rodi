@@ -841,12 +841,17 @@ class DocumentOptionController extends Controller
         if (! is_numeric($employeeId)) {
             return response()->json(['error' => 'ID de empleado no válido.'], 422);
         }
-        $status = request()->query('status'); // 👈 Captura el parámetro
+        $status = request()->query('status');
 
-        $query = DocumentEmpleado::with('documentOption')->where('employee_id', $employeeId);
+        $query = DocumentEmpleado::with('documentOption')
+            ->where('employee_id', $employeeId);
 
-        if ($status) {
-            $query->where('status', $status); // 👈 Aplica el filtro
+        if ($status !== null) {
+            // Si piden un status específico, lo respetas (incluyendo 999)
+            $query->where('status', $status);
+        } else {
+            // Por defecto, excluyes los borrados
+            $query->where('status', '!=', 999);
         }
 
         // Log para verificar los documentos encontrados
