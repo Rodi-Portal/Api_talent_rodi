@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Services\Rodi;
 
 use Illuminate\Support\Facades\DB;
@@ -23,14 +22,23 @@ class ReporteBecasService
 
     public function getReporteData(int $idCandidato): array
     {
+        $datosGenerales = $this->getDatosGeneralesCandidato($idCandidato);
+
+        // Validar liberado
+        $liberado = $datosGenerales->liberado ?? 0;
+
         return [
-            'datos_generales' => $this->getDatosGeneralesCandidato($idCandidato) ?: new stdClass(),
+            'datos_generales' => $datosGenerales ?: new stdClass(),
             'familiares'      => $this->getFamiliaresCandidato($idCandidato) ?: [],
             'vivienda'        => $this->getViviendaCandidato($idCandidato) ?: new stdClass(),
             'economia'        => $this->getEconomiaCandidato($idCandidato) ?: new stdClass(),
             'becas'           => $this->getBecasCandidato($idCandidato) ?: new stdClass(),
             'fotos'           => $this->getDocumentacion($idCandidato) ?: [],
-            'datos_cedula'    => $this->getCedula() ?: new stdClass(),
+
+            // 👇 Aquí está la condición
+            'datos_cedula'    => $liberado == 1
+                ? ($this->getCedula() ?: new stdClass())
+                : new stdClass(),
         ];
     }
 
@@ -88,6 +96,7 @@ class ReporteBecasService
                 c.id_grado_estudio,
                 c.status_bgc,
                 c.edicion as fecha_final,
+                c.liberado,
                 ge.nombre AS grado_estudio,
                 c.id_estado,
                 e.nombre AS estado,
@@ -101,13 +110,13 @@ class ReporteBecasService
             ")
             ->leftJoin('grado_estudio as ge', function ($join) {
                 $join->on('ge.id', '=', 'c.id_grado_estudio')
-                     ->where('ge.eliminado', 0);
+                    ->where('ge.eliminado', 0);
             })
             ->leftJoin('usuario as u', 'u.id', '=', 'c.id_usuario')
             ->leftJoin('estado as e', 'e.id', '=', 'c.id_estado')
             ->leftJoin('municipio as m', function ($join) {
                 $join->on('m.id', '=', 'c.id_municipio')
-                     ->on('m.id_estado', '=', 'c.id_estado');
+                    ->on('m.id_estado', '=', 'c.id_estado');
             })
             ->where('c.id', $idCandidato)
             ->where('c.eliminado', 0)
@@ -157,11 +166,11 @@ class ReporteBecasService
             ")
             ->leftJoin('tipo_parentesco as tp', function ($join) {
                 $join->on('tp.id', '=', 'cp.id_tipo_parentesco')
-                     ->where('tp.eliminado', 0);
+                    ->where('tp.eliminado', 0);
             })
             ->leftJoin('grado_estudio as ge', function ($join) {
                 $join->on('ge.id', '=', 'cp.id_grado_estudio')
-                     ->where('ge.eliminado', 0);
+                    ->where('ge.eliminado', 0);
             })
             ->where('cp.id_candidato', $idCandidato)
             ->where('cp.eliminado', 0)
