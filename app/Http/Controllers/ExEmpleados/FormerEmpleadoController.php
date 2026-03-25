@@ -62,7 +62,7 @@ class FormerEmpleadoController extends Controller
 
                     $empleado->edicion     = $request->creacion;
                     $empleado->status      = $request->status;
-                    $empleado->fecha_final = $request->creacion;
+                    $empleado->fecha_salida = $request->creacion;
 
                     $empleado->save();
 
