@@ -20,6 +20,7 @@ class ComentarioFormerEmpleado extends Model
     protected $fillable = [
         'creacion', 
         'id_empleado', 
+        'id_usuario',
         'titulo', 
         'comentario', 
         'origen',

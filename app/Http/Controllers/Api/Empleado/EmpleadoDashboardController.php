@@ -1,44 +1,154 @@
 <?php
-
 namespace App\Http\Controllers\Api\Empleado;
 
 use App\Http\Controllers\Controller;
+use App\Models\CalendarioEvento;
+use App\Models\CursoEmpleado;
+use App\Models\DocumentEmpleado;
+use App\Models\Empleado;
+use App\Models\ExamEmpleado;
 use Illuminate\Http\Request;
-use App\Services\miportal\EmpleadoDashboardService;
 
 class EmpleadoDashboardController extends Controller
 {
-    private EmpleadoDashboardService $service;
 
-    public function __construct(EmpleadoDashboardService $service)
+    public function dashboard(Request $request)
     {
-        $this->service = $service;
-    }
+        $authEmpleado = $request->user();
 
-    public function index(Request $request)
-    {
-        $employee = $request->user(); // auth:empleado
-
-        if (!$employee) {
+        if (! $authEmpleado) {
             return response()->json([
-                'message' => 'Unauthorized'
+                'message' => 'Unauthorized',
             ], 401);
         }
 
-        $data = $this->service->fetch($employee->id);
+        $empleado = Empleado::where('id', $authEmpleado->id)->first();
+
+        if (! $empleado) {
+            return response()->json([
+                'message' => 'Empleado no encontrado',
+            ], 404);
+        }
+
+        /* =========================
+           DOCUMENTOS
+        ========================= */
+
+        $documents = DocumentEmpleado::with('documentOption')
+            ->where('employee_id', $empleado->id)
+            ->get()
+            ->map(function ($doc) {
+
+                $name = $doc->id_opcion
+                    ? optional($doc->documentOption)->name
+                    : $doc->nameDocument;
+
+                return [
+                    'id'              => $doc->id,
+                    'name'            => $name,
+                    'expiry_date'     => $doc->expiry_date,
+                    'document'        => $doc->name,
+                    'expiry_reminder' => $doc->expiry_reminder,
+                    'status'          => $doc->status,
+                ];
+            });
+
+        /* =========================
+           CURSOS
+        ========================= */
+
+        $cursos = CursoEmpleado::with('documentOption')
+            ->where('employee_id', $empleado->id)
+            ->get()
+            ->map(function ($curso) {
+
+                $name = $curso->id_opcion
+                    ? optional($curso->documentOption)->name
+                    : $curso->nameDocument;
+
+                return [
+
+                    'id'              => $curso->id,
+                    'name'            => $name,
+                    'document'        => $curso->name,
+                    'expiry_date'     => $curso->expiry_date,
+                    'expiry_reminder' => $curso->expiry_reminder,
+                    'status'          => $curso->status,
+                ];
+            });
+
+        /* =========================
+           EXÁMENES
+        ========================= */
+
+        $examenes = ExamEmpleado::with('examOption')
+            ->where('employee_id', $empleado->id)
+            ->get()
+            ->map(function ($exam) {
+
+                $name = $exam->id_opcion
+                    ? optional($exam->examOption)->name
+                    : $exam->nameDocument;
+
+                return [
+                    'id'              => $exam->id,
+                    'name'            => $name,
+                    'document'        => $exam->name,
+                    'expiry_date'     => $exam->expiry_date,
+                    'expiry_reminder' => $exam->expiry_reminder,
+                    'status'          => $exam->status,
+                ];
+            });
+/* =========================
+   INCIDENCIAS
+========================= */
+
+        $incidencias = CalendarioEvento::where('id_empleado', $empleado->id)
+            ->where('eliminado', 0)
+            ->where('estado', 1)
+            ->orderByDesc('inicio')
+            ->get()
+            ->map(function ($evento) {
+
+                return [
+                    'id'         => $evento->id,
+                    'tipo'       => $evento->id_tipo,
+                    'fecha'      => $evento->inicio,
+                    'fechaFin'   => $evento->fin,
+                    'dias'       => $evento->dias_evento,
+                    'comentario' => $evento->descripcion,
+                    'archivo'    => $evento->archivo,
+                    'estado'     => $evento->estado, // puedes ajustar si tienes lógica de aprobación
+                ];
+            });
+        /* =========================
+           RESPUESTA
+        ========================= */
 
         return response()->json([
-            'profile' => [
-                'id'     => $employee->id,
-                'nombre' => trim(
-                    ($employee->nombre ?? '') . ' ' .
-                    ($employee->paterno ?? '') . ' ' .
-                    ($employee->materno ?? '')
+
+            'profile'            => [
+                'id'             => $empleado->id,
+                'nombreCompleto' => trim(
+                    $empleado->nombre . ' ' .
+                    $empleado->paterno . ' ' .
+                    $empleado->materno
                 ),
-                'puesto' => $employee->puesto,
-                'foto'   => $employee->foto,
+                'photo'          => $empleado->foto,
             ],
-            ...$data
+
+            'laboral'            => [
+                'puesto'       => $empleado->puesto,
+                'departamento' => $empleado->departamento,
+                'fechaIngreso' => $empleado->fecha_ingreso ?? $empleado->creacion,
+            ],
+
+            'documents_empleado' => $documents,
+            'cursos_empleado'    => $cursos,
+            'examenes_empleado'  => $examenes,
+
+            'incidencias'        => $incidencias,
+
         ]);
     }
 }

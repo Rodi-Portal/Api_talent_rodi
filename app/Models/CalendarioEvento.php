@@ -32,6 +32,7 @@ class CalendarioEvento extends Model
         'archivo',
         'eliminado',
         'tipo_incapacidad_sat',
+        'estado',
     ];
 
     // Relación con el modelo Empleado (ajusta el namespace si tu modelo es diferente)
