@@ -12,6 +12,7 @@ use App\Http\Controllers\Auth\PermissionController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
 //use App\Http\Controllers\Api\Empleado\DashboardController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Api\Rodi\ReporteBecasController;
 
 use App\Http\Controllers\Api\Empleado\ProfileController;
 use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
@@ -67,6 +68,9 @@ use Illuminate\Http\Request;
 |
  */
 //  rutas  para  envio de  mensajes  de  whatsssApp
+Route::prefix('rodi')->group(function () {
+    Route::get('/reportes/becas/{id_candidato}', [ReporteBecasController::class, 'show']);
+});
 
 Route::prefix('empleado/auth')->group(function () {
     Route::post('/recovery/send', [EmpleadoRecoveryController::class, 'sendOtp']);

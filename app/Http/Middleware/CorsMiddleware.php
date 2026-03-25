@@ -14,6 +14,7 @@ class CorsMiddleware
         $allowedOrigins = [
             'https://portal.talentsafecontrol.com',
             'https://rodicontrol.rodi.com.mx',
+            'https://miportal.talentsafecontrol.com',
             'http://localhost',
             'http://localhost:8080',
             'http://localhost:8000',
