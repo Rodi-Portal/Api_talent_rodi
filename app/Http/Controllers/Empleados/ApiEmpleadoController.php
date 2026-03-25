@@ -176,8 +176,7 @@ class ApiEmpleadoController extends Controller
 
     public function getMyProfilePicture(Request $request)
     {
-        $empleado = $request->user();
-
+        $empleado = auth('empleado')->user();
         $filename = $empleado->foto;
         $carpeta  = '_perfilEmpleado';
 

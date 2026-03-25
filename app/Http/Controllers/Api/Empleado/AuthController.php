@@ -32,15 +32,18 @@ class AuthController extends Controller
         if (! $empleado) {
             return response()->json([
                 'status'  => false,
-                'message' => 'Credenciales incorrectas',
-            ], 401);
+                'message' => 'Usuario incorrecto ',
+            ], 404);
         }
 
         // 🔐 Verificar si está bloqueado
         if ($empleado->locked_until && now()->lt($empleado->locked_until)) {
             return response()->json([
-                'status'  => false,
-                'message' => 'Cuenta bloqueada temporalmente. Intenta más tarde.',
+                'status'        => false,
+                'message'       => 'Cuenta bloqueada temporalmente.',
+                'blocked'       => true,
+                'blocked_until' => $empleado->locked_until,
+                'attempts_left' => 0,
             ], 423);
         }
 
@@ -49,7 +52,8 @@ class AuthController extends Controller
 
             $empleado->login_attempts += 1;
 
-            // 🔥 Bloquear después de 5 intentos
+            $attemptsLeft = 5 - $empleado->login_attempts;
+
             if ($empleado->login_attempts >= 5) {
                 $empleado->locked_until   = now()->addMinutes(15);
                 $empleado->login_attempts = 0;
@@ -58,8 +62,11 @@ class AuthController extends Controller
             $empleado->save();
 
             return response()->json([
-                'status'  => false,
-                'message' => 'Credenciales incorrectas',
+                'status'        => false,
+                'message'       => 'Credenciales incorrectas',
+                'attempts_left' => max($attemptsLeft, 0),
+                'blocked'       => $empleado->locked_until ? true : false,
+                'blocked_until' => $empleado->locked_until,
             ], 401);
         }
 
@@ -91,11 +98,25 @@ class AuthController extends Controller
     }
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+
+        if ($user && $user->currentAccessToken()) {
+
+            $tokenId = $user->currentAccessToken()->id;
+
+            $user->currentAccessToken()->delete();
+
+            \Log::info('Empleado logout', [
+                'user_id'    => $user->id,
+                'token_id'   => $tokenId,
+                'ip'         => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+        }
 
         return response()->json([
             'status'  => true,
-            'message' => 'Sesión cerrada',
+            'message' => 'Sesión cerrada correctamente',
         ]);
     }
 

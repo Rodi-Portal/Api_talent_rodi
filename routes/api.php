@@ -10,14 +10,17 @@ use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 use App\Http\Controllers\Auth\PermissionController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
-
+use App\Http\Controllers\Api\Empleado\DashboardController;
+use App\Http\Controllers\Api\Empleado\ProfileController;
+use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
+use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
 //use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\ChecadasController;
 use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
-use App\Http\Controllers\DashboardController;
+
 use App\Http\Controllers\Dashboard\OrganigramaController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
@@ -45,7 +48,9 @@ use App\Http\Controllers\ProyectosHistorialController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
-use App\Http\Controllers\WhatsAppController;
+use App\Modules\AuthCore\Controllers\AdminRecoveryController;
+use App\Modules\AuthCore\Controllers\EmpleadoRecoveryController;
+
 // routes/api.php
 use Illuminate\Http\Request;
 
@@ -60,6 +65,22 @@ use Illuminate\Http\Request;
 |
  */
 //  rutas  para  envio de  mensajes  de  whatsssApp
+
+Route::prefix('empleado/auth')->group(function () {
+    Route::post('/recovery/send', [EmpleadoRecoveryController::class, 'sendOtp']);
+    Route::post('/recovery/verify', [EmpleadoRecoveryController::class, 'verifyOtp']);
+    Route::post('/recovery/reset', [EmpleadoRecoveryController::class, 'resetPassword']);
+    Route::post('recovery/check-user', [EmpleadoRecoveryController::class, 'checkUser']);
+    Route::post('/recovery/verify-phone', [EmpleadoRecoveryController::class, 'verifyPhone']);
+});
+
+Route::prefix('admin/auth')->group(function () {
+    Route::post('/recovery/check-user', [AdminRecoveryController::class, 'checkUser']);
+    Route::post('/recovery/send', [AdminRecoveryController::class, 'sendOtp']);
+    Route::post('/recovery/verify-phone', [AdminRecoveryController::class, 'verifyPhone']);
+    Route::post('/recovery/verify', [AdminRecoveryController::class, 'verifyOtp']);
+    Route::post('/recovery/reset', [AdminRecoveryController::class, 'resetPassword']);
+});
 
 Route::get('/api/test-status', function () {
     $id_portal  = 5;
@@ -306,6 +327,7 @@ Route::middleware(['api'])->group(function () {
     /** Former Employe   endpoints */
     // enviar   empleado  a exempleados
     Route::post('/comentarios-former-empleado', [FormerEmpleadoController::class, 'storeComentarioFormer']);
+    Route::post('/update-fecha-salida', [FormerEmpleadoController::class, 'updateFechaSalida']);
     Route::get('empleados/{id_empleado}/documentos-y-cursos', [FormerEmpleadoController::class, 'getDocumentosYCursos']);
     Route::post('/documentos/former', [FormerEmpleadoController::class, 'storeDocumentos']);
     Route::get('/conclusions/{id_empleado}', [FormerEmpleadoController::class, 'getConclusionsByEmployeeId']);
@@ -400,56 +422,101 @@ Route::middleware(['api'])->group(function () {
 
 });
 
-//**********************Inicio  Ruta para  mi portal Empleados **************************** */
+//********************** Inicio Rutas MiPortal Empleados ****************************//
+
+/*
+|--------------------------------------------------------------------------
+| AUTH
+|--------------------------------------------------------------------------
+*/
 
 Route::prefix('empleado/auth')->group(function () {
 
     // Login público
-    Route::post('/login',
-        [\App\Http\Controllers\Api\Empleado\AuthController::class, 'login']
-    );
+    Route::post('/login', [
+        \App\Http\Controllers\Api\Empleado\AuthController::class,
+        'login',
+    ]);
 
-    // Logout protegido
-    Route::middleware('auth:empleado')->post('/logout',
-        [\App\Http\Controllers\Api\Empleado\AuthController::class, 'logout']
-    );
+    // Logout
+    Route::middleware('auth:empleado')->post('/logout', [
+        \App\Http\Controllers\Api\Empleado\AuthController::class,
+        'logout',
+    ]);
 
-    // Cambio de contraseña protegido
-    Route::middleware('auth:empleado')->post('/change-password',
-        [\App\Http\Controllers\Api\Empleado\AuthController::class, 'changePassword']
-    );
+    // Cambio de contraseña
+    Route::middleware('auth:empleado')->post('/change-password', [
+        \App\Http\Controllers\Api\Empleado\AuthController::class,
+        'changePassword',
+    ]);
 
 });
 
+/*
+|--------------------------------------------------------------------------
+| PORTAL EMPLEADO (requiere autenticación)
+|--------------------------------------------------------------------------
+*/
 Route::middleware('auth:empleado')->get(
-    '/empleado/profile-photo',
-    [ApiEmpleadoController::class, 'getMyProfilePicture']
+    '/empleado/profile',
+    [ProfileController::class, 'profile']
 );
-Route::middleware(['auth:empleado', 'force.password.change'])
+Route::middleware('auth:empleado')->get(
+    '/empleado/approvers',
+[EmpleadoApproversController::class, 'index']
+);
+Route::middleware('auth:empleado')->post('/empleado/incidencias',[EmpleadoIncidenciasController::class,'store']);
+Route::middleware('auth:empleado')->get('empleado/incidencias', [EmpleadoIncidenciasController::class, 'index']);
+Route::middleware(['auth:empleado'])
     ->prefix('empleado')
     ->group(function () {
+
+        /*
+        |--------------------------------------------------------------------------
+        | PERFIL
+        |--------------------------------------------------------------------------
+        */
 
         Route::get('/me', function (Request $request) {
             return response()->json($request->user());
         });
 
-        // futuras rutas:
-        // /recibos
-        // /documentos
-        // /solicitudes
+        Route::get('/profile-photo', [
+            ApiEmpleadoController::class,
+            'getMyProfilePicture',
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | DASHBOARD
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get('/dashboard', [
+            EmpleadoDashboardController::class,
+            'dashboard',
+        ]);
+
     });
 
-Route::middleware('auth:empleado')->group(function () {
+/*
+|--------------------------------------------------------------------------
+| PORTAL EMPLEADO - REQUIERE PASSWORD ACTUALIZADA
+|--------------------------------------------------------------------------
+*/
 
-    Route::get('/empleado/dashboard', [
-        EmpleadoDashboardController::class,
-        'index',
-    ]);
+Route::middleware(['auth:empleado', 'force.password.change'])
+    ->prefix('empleado')
+    ->group(function () {
 
-});
+        // futuras rutas protegidas
+        // Route::get('/recibos', ...);
+        // Route::get('/documentos', ...);
+        // Route::get('/solicitudes', ...);
 
-//**********************Fin Ruta para  mi portal Empleados **************************** */
+    });
 
+//********************** Fin Rutas MiPortal Empleados ****************************//
 /*notificaciones  via  whatsapp modulo empleados*/
 
 /*Este  endpoint  es para   mostrar  avances  de los  candidatos  en pre empleo  */

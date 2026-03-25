@@ -21,10 +21,17 @@ class FormerEmpleadoController extends Controller
     // Crear un nuevo comentario
     public function storeComentarioFormer(Request $request)
     {
-        // Validar los datos de entrada
+        // 🔹 LOG ENTRADA
+        Log::info('ComentarioFormer: request recibido', [
+            'id_empleado' => $request->id_empleado,
+            'id_usuario'  => $request->id_usuario ?? NULL,
+            'origen'      => $request->origen,
+        ]);
+
         $validator = Validator::make($request->all(), [
             'creacion'    => 'required|date',
             'id_empleado' => 'required|integer',
+            'id_usuario'  => 'nullable|integer',
             'titulo'      => 'required|string|max:255',
             'comentario'  => 'required|string',
             'origen'      => 'required|integer',
@@ -32,25 +39,131 @@ class FormerEmpleadoController extends Controller
         ]);
 
         if ($validator->fails()) {
+            Log::warning('ComentarioFormer: validación fallida', [
+                'errors' => $validator->errors()->toArray(),
+            ]);
+
             return response()->json($validator->errors(), 422);
         }
 
-        // Si 'status' está presente en el request, actualizar el campo en la tabla empleados
-        if ($request->has('status')) {
-            $empleado = Empleado::find($request->id_empleado); // Asegúrate de importar el modelo Empleado
-            if ($empleado) {
-                $empleado->edicion = $request->creacion;
+        try {
 
-                $empleado->status = $request->status;
-                $empleado->save(); // Guardar los cambios en el modelo empleado
+            // 🔹 ACTUALIZACIÓN EMPLEADO
+            if ($request->has('status')) {
+                $empleado = Empleado::find($request->id_empleado);
+
+                if ($empleado) {
+
+                    Log::info('ComentarioFormer: actualizando empleado', [
+                        'id_empleado' => $empleado->id,
+                        'status_old'  => $empleado->status,
+                        'status_new'  => $request->status,
+                    ]);
+
+                    $empleado->edicion = $request->creacion;
+                    $empleado->status  = $request->status;
+                    $empleado->save();
+
+                } else {
+
+                    Log::warning('ComentarioFormer: empleado no encontrado', [
+                        'id_empleado' => $request->id_empleado,
+                    ]);
+                }
             }
-        }
 
-        // Crear el nuevo comentario
-        $comentario = ComentarioFormerEmpleado::create($request->all());
-        return response()->json($comentario, 201);
+            // 🔹 CREACIÓN COMENTARIO
+            $comentario = ComentarioFormerEmpleado::create($request->all());
+
+            Log::info('ComentarioFormer: comentario creado', [
+                'comentario_id' => $comentario->id,
+                'id_empleado'   => $comentario->id_empleado,
+                'id_usuario'    => $comentario->id_usuario ?? NULL,
+            ]);
+
+            return response()->json($comentario, 201);
+
+        } catch (\Throwable $e) {
+
+            Log::error('ComentarioFormer: error inesperado', [
+                'message' => $e->getMessage(),
+                'line'    => $e->getLine(),
+            ]);
+
+            return response()->json([
+                'error' => 'Error interno',
+            ], 500);
+        }
     }
 
+    public function updateFechaSalida(Request $request)
+    {
+        $request->validate([
+            'id_empleado'  => 'required|integer',
+            'fecha_salida' => 'required|date',
+            'id_usuario'   => 'nullable|integer',
+        ]);
+
+        $empleado = Empleado::find($request->id_empleado);
+
+        if (! $empleado) {
+
+            Log::warning('Empleado no encontrado al actualizar fecha_salida', [
+                'id_empleado' => $request->id_empleado,
+                'id_usuario'  => $request->id_usuario ?? null,
+                'ip'          => $request->ip(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Empleado no encontrado',
+            ], 404);
+        }
+
+        $valorAnterior = $empleado->fecha_salida;
+        $valorNuevo    = $request->fecha_salida;
+
+        // 🔥 Log antes del cambio
+        Log::info('Intento de actualización de fecha_salida', [
+            'id_empleado'    => $empleado->id,
+            'id_usuario'     => $request->id_usuario ?? NULL,
+            'valor_anterior' => $valorAnterior,
+            'valor_nuevo'    => $valorNuevo,
+            'ip'             => $request->ip(),
+        ]);
+
+        if ($valorAnterior != $valorNuevo) {
+
+            $empleado->fecha_salida = $valorNuevo;
+            $empleado->id_usuario   = $request->id_usuario ?? NULL;
+            $empleado->save();
+
+            // 🔥 Log después del cambio
+            Log::info('Fecha_salida actualizada correctamente', [
+                'id_empleado'    => $empleado->id,
+                'id_usuario'     => $request->id_usuario ?? NULL,
+                'valor_anterior' => $valorAnterior,
+                'valor_nuevo'    => $valorNuevo,
+                'ip'             => $request->ip(),
+            ]);
+
+        } else {
+
+            Log::notice('No hubo cambio en fecha_salida', [
+                'id_empleado' => $empleado->id,
+                'id_usuario'  => $request->id_usuario ?? NULL,
+                'fecha'       => $valorNuevo,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Fecha de salida actualizada',
+            'data'    => [
+                'fecha_salida' => $empleado->fecha_salida,
+            ],
+        ]);
+    }
     public function getDocumentosYCursos($id_empleado)
     {
         // Validar que el empleado existe

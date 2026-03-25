@@ -308,7 +308,7 @@ class DocumentOptionController extends Controller
         try {
             $now = Carbon::now('America/Mexico_City');
 
-                                                                                      // === Detectar UPDATE por _method=PUT o por método/ID de ruta ===
+                                                                                      // === Detectar UPDATE por _method=PUT por método/ID de ruta ===
             $routeId  = $request->route('id') ?? $request->route('document') ?? null; // ajusta al nombre de tu parámetro
             $isPut    = $request->isMethod('PUT') || strtoupper($request->input('_method', '')) === 'PUT';
             $isUpdate = $isPut || ! empty($routeId);
@@ -316,13 +316,14 @@ class DocumentOptionController extends Controller
 
             Log::info('⌛ Inicio STORE', [
                 'ip'           => $request->ip(),
-                'user_id'      => optional($request->user())->id,
+                'user_id'      => $request->id_usuario ?? null,
                 'method'       => $request->method(),
                 'uri'          => $request->path(),
                 'is_update'    => $isUpdate,
                 'doc_id'       => $docId,
                 'content_type' => $request->header('Content-Type'),
                 'files_count'  => count($request->files->all()),
+
             ]);
 
             if ($request->has('file') && $request->input('file') === 'null') {
@@ -338,6 +339,7 @@ class DocumentOptionController extends Controller
                 'expiry_reminder' => 'nullable|integer',
                 'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:15360',
                 'id_portal'       => 'required|integer',
+                'id_usuario'      => 'nullable|integer',
                 'status'          => 'required|integer',
                 'carpeta'         => 'nullable|string|max:255',
             ];
@@ -445,6 +447,7 @@ class DocumentOptionController extends Controller
                 $existing->fill([
                     'edicion'         => $now,
                     'employee_id'     => (int) $request->input('employee_id'),
+                    'id_usuario'      => (int) $request->input('id_usuario', null),
                     'name'            => $newFileName,
                     'nameDocument'    => $nameDocument,
                     'id_opcion'       => $idOpcion,
@@ -470,6 +473,7 @@ class DocumentOptionController extends Controller
                 'creacion'        => $now,
                 'edicion'         => $now,
                 'employee_id'     => (int) $request->input('employee_id'),
+                'id_usuario'      => (int) $request->input('id_usuario', null),
                 'name'            => $newFileName,
                 'nameDocument'    => $nameDocument,
                 'id_opcion'       => $idOpcion,
@@ -1245,7 +1249,7 @@ class DocumentOptionController extends Controller
             'id'      => $document->id,
         ]);
     }
-
+/* ***************Funcion  Borrado  Permanente   usar  solo   para  mantenimiento, antes de eso ajustar
     public function deleteDocument(Request $request)
     {
         // Reglas dinámicas por tabla
@@ -1299,6 +1303,64 @@ class DocumentOptionController extends Controller
         return response()->json(['message' => 'Record deleted successfully'], 200);
     }
 
+    */
+
+    public function deleteDocument(Request $request)
+    {
+        $rules = [
+            'tabla' => 'required|string',
+            'id'    => 'required|integer',
+        ];
+
+        $request->validate($rules);
+
+        $tabla       = $request->tabla;
+        $id          = $request->id;
+        $id_usuario  = $request->input('id_usuario', null);
+        $tablaModelo = [
+            'examenes'   => [ExamEmpleado::class, '_examEmpleado/'],
+            'documentos' => [DocumentEmpleado::class, '_documentEmpleado/'],
+            'cursos'     => [CursoEmpleado::class, '_cursos/'],
+        ];
+
+        if (! isset($tablaModelo[$tabla])) {
+            return response()->json(['message' => 'Invalid table specified'], 400);
+        }
+
+        [$modelClass, $carpeta] = $tablaModelo[$tabla];
+
+        $document = $modelClass::find($id);
+
+        if (! $document) {
+            return response()->json(['message' => 'Record not found'], 404);
+        }
+
+        // 🚫 Evitar eliminar dos veces
+        if ($document->status == 999) {
+            return response()->json(['message' => 'Already deleted'], 200);
+        }
+
+        // ⚠️ OPCIONAL: eliminar archivo físico
+        $basePath = env('APP_ENV') === 'local'
+            ? env('LOCAL_IMAGE_PATH')
+            : env('PROD_IMAGE_PATH');
+
+        $fileName = $document->nameDocument ?? null;
+
+        if ($fileName) {
+            $filePath = $basePath . $carpeta . $fileName;
+            if (file_exists($filePath)) {
+                unlink($filePath);
+            }
+        }
+
+        // ✅ Soft delete manual
+        $document->update([
+            'status' => 999,
+        ]);
+
+        return response()->json(['message' => 'Soft deleted successfully'], 200);
+    }
     public function generateRandomString($length = 10)
     {
         return substr(str_shuffle(str_repeat($x = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', ceil($length / strlen($x)))), 1, $length);
