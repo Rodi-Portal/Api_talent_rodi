@@ -24,7 +24,7 @@ class FormerEmpleadoController extends Controller
         // 🔹 LOG ENTRADA
         Log::info('ComentarioFormer: request recibido', [
             'id_empleado' => $request->id_empleado,
-            'id_usuario'  => $request->id_usuario ?? NULL,
+            'id_usuario'  => $request->id_usuario ?? null,
             'origen'      => $request->origen,
         ]);
 
@@ -60,8 +60,10 @@ class FormerEmpleadoController extends Controller
                         'status_new'  => $request->status,
                     ]);
 
-                    $empleado->edicion = $request->creacion;
-                    $empleado->status  = $request->status;
+                    $empleado->edicion     = $request->creacion;
+                    $empleado->status      = $request->status;
+                    $empleado->fecha_final = $request->creacion;
+
                     $empleado->save();
 
                 } else {
@@ -78,7 +80,7 @@ class FormerEmpleadoController extends Controller
             Log::info('ComentarioFormer: comentario creado', [
                 'comentario_id' => $comentario->id,
                 'id_empleado'   => $comentario->id_empleado,
-                'id_usuario'    => $comentario->id_usuario ?? NULL,
+                'id_usuario'    => $comentario->id_usuario ?? null,
             ]);
 
             return response()->json($comentario, 201);
@@ -94,6 +96,229 @@ class FormerEmpleadoController extends Controller
                 'error' => 'Error interno',
             ], 500);
         }
+    }
+    public function exportar_excel_rotacion()
+    {
+        $portal = $this->session->userdata('idPortal');
+        $this->load->database();
+
+        $sucursal     = $this->input->post('sucursal');
+        $fecha_inicio = $this->input->post('fecha_inicio');
+        $fecha_fin    = $this->input->post('fecha_fin');
+        $puesto       = $this->input->post('puesto');
+        $departamento = $this->input->post('departamento');
+
+        if (empty($fecha_inicio) || empty($fecha_fin)) {
+            show_error('Debes indicar fecha_inicio y fecha_fin');
+            return;
+        }
+
+        $inicio = $fecha_inicio . ' 00:00:00';
+        $fin    = $fecha_fin . ' 23:59:59';
+
+        /*
+    |--------------------------------------------------------------------------
+    | 1. Plantilla inicial
+    |--------------------------------------------------------------------------
+    | Empleados que ingresaron antes del inicio del periodo
+    | y que no habían salido antes de esa fecha.
+    */
+        $this->db->from('empleados');
+        $this->db->where('empleados.eliminado', 0);
+
+        if ($sucursal) {
+            $this->db->where('empleados.id_cliente', $sucursal);
+        } else {
+            $this->db->where('empleados.id_portal', $portal);
+        }
+
+        $this->db->where("IFNULL(empleados.fecha_ingreso, empleados.creacion) <", $inicio);
+
+        $this->db->group_start();
+        $this->db->where('empleados.fecha_salida IS NULL', null, false);
+        $this->db->or_where('empleados.fecha_salida >=', $inicio);
+        $this->db->group_end();
+
+        if ($puesto) {
+            $this->db->where('empleados.puesto', $puesto);
+        }
+
+        if ($departamento) {
+            $this->db->where('empleados.departamento', $departamento);
+        }
+
+        $plantilla_inicial = $this->db->count_all_results();
+
+        /*
+    |--------------------------------------------------------------------------
+    | 2. Ingresos del periodo
+    |--------------------------------------------------------------------------
+    */
+        $this->db->from('empleados');
+        $this->db->where('empleados.eliminado', 0);
+
+        if ($sucursal) {
+            $this->db->where('empleados.id_cliente', $sucursal);
+        } else {
+            $this->db->where('empleados.id_portal', $portal);
+        }
+
+        $this->db->where("IFNULL(empleados.fecha_ingreso, empleados.creacion) >=", $inicio);
+        $this->db->where("IFNULL(empleados.fecha_ingreso, empleados.creacion) <=", $fin);
+
+        if ($puesto) {
+            $this->db->where('empleados.puesto', $puesto);
+        }
+
+        if ($departamento) {
+            $this->db->where('empleados.departamento', $departamento);
+        }
+
+        $ingresos = $this->db->count_all_results();
+
+        /*
+    |--------------------------------------------------------------------------
+    | 3. Bajas del periodo
+    |--------------------------------------------------------------------------
+    */
+        $this->db->from('empleados');
+        $this->db->where('empleados.eliminado', 0);
+        $this->db->where('empleados.fecha_salida IS NOT NULL', null, false);
+        $this->db->where('empleados.fecha_salida >=', $inicio);
+        $this->db->where('empleados.fecha_salida <=', $fin);
+
+        if ($sucursal) {
+            $this->db->where('empleados.id_cliente', $sucursal);
+        } else {
+            $this->db->where('empleados.id_portal', $portal);
+        }
+
+        if ($puesto) {
+            $this->db->where('empleados.puesto', $puesto);
+        }
+
+        if ($departamento) {
+            $this->db->where('empleados.departamento', $departamento);
+        }
+
+        $bajas = $this->db->count_all_results();
+
+        /*
+    |--------------------------------------------------------------------------
+    | 4. Plantilla final
+    |--------------------------------------------------------------------------
+    | Empleados que ingresaron hasta la fecha fin
+    | y que no habían salido antes o en esa fecha.
+    */
+        $this->db->from('empleados');
+        $this->db->where('empleados.eliminado', 0);
+
+        if ($sucursal) {
+            $this->db->where('empleados.id_cliente', $sucursal);
+        } else {
+            $this->db->where('empleados.id_portal', $portal);
+        }
+
+        $this->db->where("IFNULL(empleados.fecha_ingreso, empleados.creacion) <=", $fin);
+
+        $this->db->group_start();
+        $this->db->where('empleados.fecha_salida IS NULL', null, false);
+        $this->db->or_where('empleados.fecha_salida >', $fin);
+        $this->db->group_end();
+
+        if ($puesto) {
+            $this->db->where('empleados.puesto', $puesto);
+        }
+
+        if ($departamento) {
+            $this->db->where('empleados.departamento', $departamento);
+        }
+
+        $plantilla_final = $this->db->count_all_results();
+
+        /*
+    |--------------------------------------------------------------------------
+    | 5. Cálculos
+    |--------------------------------------------------------------------------
+    */
+        $promedio_plantilla = ($plantilla_inicial + $plantilla_final) / 2;
+        $rotacion           = $promedio_plantilla > 0
+            ? round(($bajas / $promedio_plantilla) * 100, 2)
+            : 0;
+
+        /*
+    |--------------------------------------------------------------------------
+    | 6. Datos finales
+    |--------------------------------------------------------------------------
+    */
+        $finalData = [[
+            'Fecha_Inicio'        => $fecha_inicio,
+            'Fecha_Fin'           => $fecha_fin,
+            'Plantilla_Inicial'   => $plantilla_inicial,
+            'Ingresos'            => $ingresos,
+            'Bajas'               => $bajas,
+            'Plantilla_Final'     => $plantilla_final,
+            'Promedio_Plantilla'  => $promedio_plantilla,
+            'Rotacion_Porcentaje' => $rotacion . '%',
+        ]];
+
+        /*
+    |--------------------------------------------------------------------------
+    | 7. Generar Excel
+    |--------------------------------------------------------------------------
+    */
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet       = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Rotacion');
+
+        $headers = array_keys($finalData[0]);
+        $sheet->fromArray($headers, null, 'A1');
+        $sheet->fromArray($finalData, null, 'A2');
+
+        $headerStyle = [
+            'font'      => [
+                'bold'  => true,
+                'color' => ['rgb' => 'FFFFFF'],
+                'size'  => 12,
+            ],
+            'fill'      => [
+                'fillType'   => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['rgb' => '1F4E78'],
+            ],
+            'alignment' => [
+                'horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER,
+                'vertical'   => \PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER,
+                'wrapText'   => true,
+            ],
+        ];
+
+        $bodyStyle = [
+            'alignment' => [
+                'horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER,
+                'vertical'   => \PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER,
+                'wrapText'   => true,
+            ],
+        ];
+
+        $lastColumn = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers));
+
+        $sheet->getStyle("A1:{$lastColumn}1")->applyFromArray($headerStyle);
+        $sheet->getStyle("A2:{$lastColumn}2")->applyFromArray($bodyStyle);
+
+        for ($col = 1; $col <= count($headers); $col++) {
+            $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col);
+            $sheet->getColumnDimension($colLetter)->setAutoSize(true);
+        }
+
+        $filename = 'reporte_rotacion_' . date('Ymd_His') . '.xlsx';
+
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header("Content-Disposition: attachment;filename=\"$filename\"");
+        header('Cache-Control: max-age=0');
+
+        $writer = \PhpOffice\PhpSpreadsheet\IOFactory::createWriter($spreadsheet, 'Xlsx');
+        $writer->save('php://output');
+        exit;
     }
 
     public function updateFechaSalida(Request $request)
@@ -126,7 +351,7 @@ class FormerEmpleadoController extends Controller
         // 🔥 Log antes del cambio
         Log::info('Intento de actualización de fecha_salida', [
             'id_empleado'    => $empleado->id,
-            'id_usuario'     => $request->id_usuario ?? NULL,
+            'id_usuario'     => $request->id_usuario ?? null,
             'valor_anterior' => $valorAnterior,
             'valor_nuevo'    => $valorNuevo,
             'ip'             => $request->ip(),
@@ -135,13 +360,13 @@ class FormerEmpleadoController extends Controller
         if ($valorAnterior != $valorNuevo) {
 
             $empleado->fecha_salida = $valorNuevo;
-            $empleado->id_usuario   = $request->id_usuario ?? NULL;
+            $empleado->id_usuario   = $request->id_usuario ?? null;
             $empleado->save();
 
             // 🔥 Log después del cambio
             Log::info('Fecha_salida actualizada correctamente', [
                 'id_empleado'    => $empleado->id,
-                'id_usuario'     => $request->id_usuario ?? NULL,
+                'id_usuario'     => $request->id_usuario ?? null,
                 'valor_anterior' => $valorAnterior,
                 'valor_nuevo'    => $valorNuevo,
                 'ip'             => $request->ip(),
@@ -151,7 +376,7 @@ class FormerEmpleadoController extends Controller
 
             Log::notice('No hubo cambio en fecha_salida', [
                 'id_empleado' => $empleado->id,
-                'id_usuario'  => $request->id_usuario ?? NULL,
+                'id_usuario'  => $request->id_usuario ?? null,
                 'fecha'       => $valorNuevo,
             ]);
         }
