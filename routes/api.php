@@ -196,6 +196,7 @@ Route::middleware(['api'])->group(function () {
     //Pre Nomina Empleados //
     Route::post('/empleados/registro_prenomina', [LaboralesController::class, 'guardarPrenomina']);
     Route::get('/empleados/obtener_prenomina_masiva_ultima', [LaboralesController::class, 'empleadosMasivoPrenomina']);
+    Route::get('/empleados/periodicidades-disponibles', [LaboralesController::class, 'obtenerPeriodicidadesDisponibles']);
     Route::post('/empleados/registro_prenomina_masiva', [LaboralesController::class, 'guardarPrenominaMasiva']);
     // Incidencias pre nomina
     Route::post('/incidencias/preview', [IncidenciasController::class, 'preview']);

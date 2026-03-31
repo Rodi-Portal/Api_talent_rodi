@@ -6,33 +6,41 @@ use App\Models\CalendarioEvento;
 use App\Models\ClienteTalent;
 use App\Models\Empleado;
 use App\Models\EventosOption;
-use App\Services\Asistencia\AsistenciaServicio;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Response;
-
+use Illuminate\Support\Facades\Log;
 class CalendarioController extends Controller
 {
     //
-
     public function colaboradoresPorSucursal(Request $request)
     {
-        $idCliente = $request->query('id_cliente');
+        $raw = $request->query('id_cliente', []);
 
-        // Si viene como string y contiene comas, lo convertimos a array
-        if (is_string($idCliente) && str_contains($idCliente, ',')) {
-            $ids = explode(',', $idCliente);
-        } else {
-            $ids = is_array($idCliente) ? $idCliente : [$idCliente];
+        if (! is_array($raw)) {
+            $raw = is_string($raw) ? explode(',', $raw) : [$raw];
         }
 
-        // Recuperar clientes
-        $clientes = ClienteTalent::whereIn('id', $ids)
+        $ids = collect($raw)
+            ->filter(fn($v) => $v !== null && $v !== '')
+            ->map(fn($v) => (int) $v)
+            ->filter(fn($v) => $v > 0)
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return response()->json([
+                'clientes'  => [],
+                'empleados' => [],
+            ]);
+        }
+
+        $clientes = ClienteTalent::whereIn('id', $ids->all())
             ->select('id', 'nombre')
             ->get();
 
         $empleados = Empleado::with('cliente')
-            ->whereIn('id_cliente', $ids)
+            ->whereIn('id_cliente', $ids->all())
             ->where('status', 1)
             ->select('id', 'id_empleado', 'nombre', 'paterno', 'materno', 'id_cliente')
             ->get()
@@ -45,12 +53,14 @@ class CalendarioController extends Controller
                     'materno'         => $e->materno,
                     'nombre_completo' => trim("{$e->nombre} {$e->paterno} {$e->materno}"),
                     'nombre_cliente' => $e->cliente ? $e->cliente->nombre : '',
+                    'id_cliente'     => $e->id_cliente,
                 ];
             });
 
         return response()->json([
             'clientes'  => $clientes,
             'empleados' => $empleados,
+            'ids_debug' => $ids->all(),
         ]);
     }
 
@@ -130,7 +140,7 @@ class CalendarioController extends Controller
 
         return response()->json(['eventos' => $result]);
     }
-
+/*
     public function setEventos(Request $request)
     {
         \Log::info('Payload completo recibido en setEventos: ' . json_encode($request->all()));
@@ -398,46 +408,654 @@ class CalendarioController extends Controller
 
         return response()->json(['ok' => true, 'evento' => $evento]);
     }
+ */
+    public function eliminarEvento(Request $request, $id)
+{
+    $CONN               = 'portal_main';
+    $ID_TIPO_VACACIONES = 1;
 
-    public function eliminarEvento($id)
-    {
-        $CONN = 'portal_main';
+    $regresarVacaciones = (int) $request->input('regresar_vacaciones', 0) === 1;
+    $idUsuario          = (int) $request->input('id_usuario', 0);
 
-        // 1) Soft delete del evento
-        $evento            = \App\Models\CalendarioEvento::findOrFail($id);
+    DB::connection($CONN)->beginTransaction();
+
+    try {
+        /** @var \App\Models\CalendarioEvento $evento */
+        $evento = \App\Models\CalendarioEvento::where('id', $id)
+            ->where('eliminado', 0)
+            ->firstOrFail();
+
+        $esVacaciones     = ((int) $evento->id_tipo === $ID_TIPO_VACACIONES);
+        $diasReintegrados = 0;
+
+        // 1) Si es vacaciones y el usuario confirmó reintegrar saldo
+        if ($esVacaciones && $regresarVacaciones) {
+            $diasARestaurar = (float) ($evento->dias_evento ?? 0);
+
+            if ($diasARestaurar > 0) {
+                $laboral = DB::connection($CONN)
+                    ->table('laborales_empleado')
+                    ->where('id_empleado', $evento->id_empleado)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $laboral) {
+                    throw new \RuntimeException('No se encontró el registro laboral del empleado.');
+                }
+
+                $saldoActual = (float) ($laboral->vacaciones_disponibles ?? 0);
+                $nuevoSaldo  = $saldoActual + $diasARestaurar;
+
+                DB::connection($CONN)
+                    ->table('laborales_empleado')
+                    ->where('id_empleado', $evento->id_empleado)
+                    ->update([
+                        'vacaciones_disponibles' => $nuevoSaldo,
+                    ]);
+
+                $diasReintegrados = $diasARestaurar;
+            }
+        }
+
+        // 2) Soft delete del evento
         $evento->eliminado = 1;
+
+        if ($idUsuario > 0 && isset($evento->id_usuario)) {
+            $evento->id_usuario = $idUsuario;
+        }
+
         $evento->save();
 
-        // 2) Compensación + re-evaluación de asistencia
-        try {
-            /** @var AsistenciaServicio $svc */
-            $svc = app(AsistenciaServicio::class)->withConnection($CONN);
+        DB::connection($CONN)->commit();
 
-            // Esto:
-            // - Si el evento eliminado era Falta → inserta IN/OUT a horas de política y re-evalúa
-            // - Si era Retardo → asegura IN a hora de entrada y re-evalúa
-            // - Si era Salida anticipada → asegura OUT a hora de salida y re-evalúa
-            // - Limpia eventos auto (Falta/Retardo/Salida) del día y vuelve a calcular
-            $svc->handleCalendarEventDeletion((int) $evento->id);
+    } catch (\Throwable $e) {
+        DB::connection($CONN)->rollBack();
 
-        } catch (\Throwable $e) {
-            Log::error('[Calendario] Error en compensación post-delete', [
-                'evento_id' => $id,
-                'msg'       => $e->getMessage(),
-            ]);
-            // No interrumpimos la respuesta; el evento ya se borró.
-        }
+        Log::error('[Calendario] Error al eliminar evento', [
+            'evento_id' => $id,
+            'msg'       => $e->getMessage(),
+            'line'      => $e->getLine(),
+            'file'      => $e->getFile(),
+        ]);
 
-        // 3) (Opcional) Prenómina — tu lógica de siempre.
-        /*
-        if ($evento->id_periodo_nomina && in_array((int) $evento->id_tipo, [1, 4])) {
-            // actualizar prenómina/laborales aquí…
-        }
-        */
-
-        return response()->json(['ok' => true, 'evento' => $evento]);
+        return response()->json([
+            'ok'      => false,
+            'message' => $e->getMessage(),
+        ], 500);
     }
 
+    // 3) Compensación + re-evaluación de asistencia
+    try {
+        /** @var AsistenciaServicio $svc */
+        $svc = app(AsistenciaServicio::class)->withConnection($CONN);
+        $svc->handleCalendarEventDeletion((int) $evento->id);
+
+    } catch (\Throwable $e) {
+        Log::error('[Calendario] Error en compensación post-delete', [
+            'evento_id' => $id,
+            'msg'       => $e->getMessage(),
+        ]);
+        // No interrumpimos la respuesta; el evento ya se borró.
+    }
+
+    return response()->json([
+        'ok'                      => true,
+        'message'                 => 'Evento eliminado correctamente.',
+        'evento_id'               => (int) $evento->id,
+        'vacaciones_reintegradas' => $esVacaciones && $regresarVacaciones,
+        'dias_reintegrados'       => $diasReintegrados,
+    ], 200);
+}
+
+    public function setEventos(Request $request)
+    {
+        \Log::info('Payload completo recibido en setEventos: ' . json_encode($request->all()));
+
+        $eventos             = $request->input('eventos');
+        $id_portal           = (int) $request->input('id_portal');
+        $id_usuario          = (int) $request->input('id_usuario');
+        $id_periodo          = $request->input('periodo_nomina_id');
+        $descontarVacaciones = (int) $request->input('descontar_vacaciones', 0) === 1;
+
+        $ID_TIPO_VACACIONES = 1;
+
+        if (! is_array($eventos)) {
+            return response()->json(['error' => 'El campo eventos debe ser un array.'], 400);
+        }
+
+        $eventosGuardados  = [];
+        $eventosDuplicados = [];
+        $combosVistos      = [];
+
+        DB::connection('portal_main')->beginTransaction();
+
+        try {
+            foreach ($eventos as $i => $evento) {
+                // 1. Buscar o crear el tipo de evento si es personalizado
+                $tipoId = $evento['tipoId'] ?? null;
+
+                if (! $tipoId && ! empty($evento['tipoNombre'])) {
+                    $nuevoTipo = \App\Models\EventosOption::firstOrCreate(
+                        [
+                            'name'      => $evento['tipoNombre'],
+                            'id_portal' => $id_portal ?: null,
+                        ],
+                        [
+                            'color'    => $evento['backgroundColor'] ?? '#a78bfa',
+                            'creacion' => now(),
+                        ]
+                    );
+                    $tipoId = $nuevoTipo->id;
+                }
+
+                $idEmpleado = (int) ($evento['colaboradorId'] ?? 0);
+                $inicio     = $evento['start'] ?? null;
+                $fin        = $evento['end'] ?? null;
+
+                if (! $idEmpleado || ! $tipoId || ! $inicio || ! $fin) {
+                    $eventosDuplicados[] = [
+                        'index'       => $i,
+                        'id_empleado' => $idEmpleado ?: null,
+                        'id_tipo'     => $tipoId ?: null,
+                        'inicio'      => $inicio,
+                        'fin'         => $fin,
+                        'motivo'      => 'Faltan datos obligatorios del evento',
+                    ];
+                    continue;
+                }
+
+                // 2. Archivo
+                $archivoNombre = null;
+                $archivo       = $request->file("eventos.$i.archivo");
+
+                if ($archivo && $archivo->isValid()) {
+                    $extension         = $archivo->getClientOriginalExtension();
+                    $archivoNombre     = "portal{$id_portal}_emp{$idEmpleado}_" . time() . "_" . uniqid() . "." . $extension;
+                    $directorioDestino = rtrim(env('LOCAL_IMAGE_PATH'), '/') . '/_archivo_calendario';
+
+                    if (! file_exists($directorioDestino)) {
+                        mkdir($directorioDestino, 0777, true);
+                    }
+
+                    $archivo->move($directorioDestino, $archivoNombre);
+                }
+
+                // 3. Sanitizar tipo_incapacidad_sat
+                $tipoIncapSat = $evento['tipo_incapacidad_sat'] ?? null;
+                if ($tipoIncapSat !== null && ! in_array($tipoIncapSat, ['01', '02', '03', '04'], true)) {
+                    $tipoIncapSat = null;
+                }
+
+                $esVacaciones = ((int) $tipoId === $ID_TIPO_VACACIONES);
+
+                // =====================================================
+                // VACACIONES: fragmentar y guardar bloques válidos
+                // =====================================================
+                if ($esVacaciones) {
+                    $ctx = $this->obtenerContextoEmpleado($idEmpleado);
+
+                    if (! $ctx) {
+                        $eventosDuplicados[] = [
+                            'index'       => $i,
+                            'id_empleado' => $idEmpleado,
+                            'id_tipo'     => $tipoId,
+                            'inicio'      => $inicio,
+                            'fin'         => $fin,
+                            'motivo'      => 'No se encontró contexto del empleado',
+                        ];
+                        continue;
+                    }
+
+                    $diasDescanso = $this->obtenerDiasDescansoEfectivos(
+                        $id_portal,
+                        (int) $ctx->id_cliente,
+                        $idEmpleado,
+                        $ctx->dias_descanso
+                    );
+
+                    $festivosNoLaborados = $this->obtenerFestivosNoLaborados(
+                        $id_portal,
+                        (int) $ctx->id_cliente,
+                        $idEmpleado,
+                        $inicio,
+                        $fin
+                    );
+
+                    $diasValidos = $this->expandirDiasLaborablesVacaciones(
+                        $inicio,
+                        $fin,
+                        $diasDescanso,
+                        $festivosNoLaborados
+                    );
+
+                    if (empty($diasValidos)) {
+                        $eventosDuplicados[] = [
+                            'index'       => $i,
+                            'id_empleado' => $idEmpleado,
+                            'id_tipo'     => $tipoId,
+                            'inicio'      => $inicio,
+                            'fin'         => $fin,
+                            'motivo'      => 'No hay días laborables válidos para registrar vacaciones',
+                        ];
+                        continue;
+                    }
+
+                    $bloques          = $this->agruparFechasConsecutivas($diasValidos);
+                    $diasDescontables = 0;
+
+                    foreach ($bloques as $bloque) {
+                        $bloqueInicio = $bloque['inicio'];
+                        $bloqueFin    = $bloque['fin'];
+                        $diasBloque   = $bloque['dias'];
+
+                        // Duplicado dentro del payload
+                        $comboKey = $idEmpleado . '|' . $tipoId . '|' . $bloqueInicio . '|' . $bloqueFin;
+                        if (in_array($comboKey, $combosVistos, true)) {
+                            $eventosDuplicados[] = [
+                                'index'       => $i,
+                                'id_empleado' => $idEmpleado,
+                                'id_tipo'     => $tipoId,
+                                'inicio'      => $bloqueInicio,
+                                'fin'         => $bloqueFin,
+                                'motivo'      => 'Duplicado en el mismo payload',
+                            ];
+                            continue;
+                        }
+                        $combosVistos[] = $comboKey;
+
+                        // Duplicado en BD
+                        $existe = CalendarioEvento::where('id_empleado', $idEmpleado)
+                            ->where('id_tipo', $tipoId)
+                            ->where('inicio', $bloqueInicio)
+                            ->where('fin', $bloqueFin)
+                            ->where('eliminado', 0)
+                            ->exists();
+
+                        if ($existe) {
+                            $eventosDuplicados[] = [
+                                'index'       => $i,
+                                'id_empleado' => $idEmpleado,
+                                'id_tipo'     => $tipoId,
+                                'inicio'      => $bloqueInicio,
+                                'fin'         => $bloqueFin,
+                                'motivo'      => 'Ya existe un evento igual en la base de datos',
+                            ];
+                            continue;
+                        }
+
+                        $eventoGuardado = CalendarioEvento::create([
+                            'id_usuario'           => $id_usuario,
+                            'id_empleado'          => $idEmpleado,
+                            'id_tipo'              => $tipoId,
+                            'inicio'               => $bloqueInicio,
+                            'fin'                  => $bloqueFin,
+                            'dias_evento'          => $diasBloque,
+                            'descripcion'          => $evento['descripcion'] ?? '',
+                            'archivo'              => $archivoNombre,
+                            'eliminado'            => 0,
+                            'tipo_incapacidad_sat' => $tipoIncapSat,
+                        ]);
+
+                        $eventosGuardados[]  = $eventoGuardado;
+                        $diasDescontables   += $diasBloque;
+                    }
+
+                    // Descontar saldo si el usuario confirmó
+                    if ($descontarVacaciones && $diasDescontables > 0) {
+                        $vacActual  = (float) ($ctx->vacaciones_disponibles ?? 0);
+                        $nuevoSaldo = max(0, $vacActual - $diasDescontables);
+
+                        DB::connection('portal_main')
+                            ->table('laborales_empleado')
+                            ->where('id_empleado', $idEmpleado)
+                            ->update([
+                                'vacaciones_disponibles' => $nuevoSaldo,
+                            ]);
+                    }
+
+                    continue;
+                }
+
+                // =====================================================
+                // EVENTOS NORMALES: guardar como hoy
+                // =====================================================
+                $comboKey = $idEmpleado . '|' . $tipoId . '|' . $inicio . '|' . $fin;
+
+                if (in_array($comboKey, $combosVistos, true)) {
+                    $eventosDuplicados[] = [
+                        'index'       => $i,
+                        'id_empleado' => $idEmpleado,
+                        'id_tipo'     => $tipoId,
+                        'inicio'      => $inicio,
+                        'fin'         => $fin,
+                        'motivo'      => 'Duplicado en el mismo payload',
+                    ];
+                    continue;
+                }
+                $combosVistos[] = $comboKey;
+
+                $fechaInicio = new \DateTime($inicio);
+                $fechaFin    = new \DateTime($fin);
+                $dias        = $fechaInicio->diff($fechaFin)->days + 1;
+
+                $existe = CalendarioEvento::where('id_empleado', $idEmpleado)
+                    ->where('id_tipo', $tipoId)
+                    ->where('inicio', $inicio)
+                    ->where('fin', $fin)
+                    ->where('eliminado', 0)
+                    ->exists();
+
+                if ($existe) {
+                    $eventosDuplicados[] = [
+                        'index'       => $i,
+                        'id_empleado' => $idEmpleado,
+                        'id_tipo'     => $tipoId,
+                        'inicio'      => $inicio,
+                        'fin'         => $fin,
+                        'motivo'      => 'Ya existe un evento igual en la base de datos',
+                    ];
+                    continue;
+                }
+
+                $eventoGuardado = CalendarioEvento::create([
+                    'id_usuario'           => $id_usuario,
+                    'id_empleado'          => $idEmpleado,
+                    'id_tipo'              => $tipoId,
+                    'inicio'               => $inicio,
+                    'fin'                  => $fin,
+                    'dias_evento'          => $dias,
+                    'descripcion'          => $evento['descripcion'] ?? '',
+                    'archivo'              => $archivoNombre,
+                    'eliminado'            => 0,
+                    'tipo_incapacidad_sat' => $tipoIncapSat,
+                ]);
+
+                $eventosGuardados[] = $eventoGuardado;
+            }
+
+            DB::connection('portal_main')->commit();
+
+        } catch (\Throwable $e) {
+            DB::connection('portal_main')->rollBack();
+
+            \Log::error('[setEventos] Error al guardar eventos', [
+                'message' => $e->getMessage(),
+                'line'    => $e->getLine(),
+                'file'    => $e->getFile(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'ok'      => false,
+                'message' => $e->getMessage(),
+                'line'    => $e->getLine(),
+                'file'    => $e->getFile(),
+            ], 500);
+        }
+
+        $totalGuardados  = count($eventosGuardados);
+        $totalDuplicados = count($eventosDuplicados);
+
+        if ($totalGuardados === 0 && $totalDuplicados > 0) {
+            return response()->json([
+                'ok'                 => false,
+                'message'            => 'No se guardó ningún evento porque ya existían con el mismo empleado, tipo y fechas, o no hubo días laborables válidos.',
+                'eventos'            => [],
+                'eventos_duplicados' => $eventosDuplicados,
+            ], 200);
+        }
+
+        if ($totalGuardados > 0 && $totalDuplicados > 0) {
+            return response()->json([
+                'ok'      => true,
+                'message' => "Se guardaron {$totalGuardados} evento(s). {$totalDuplicados} se omitieron por duplicidad o porque no había días laborables válidos.",
+                'eventos'            => $eventosGuardados,
+                'eventos_duplicados' => $eventosDuplicados,
+            ], 200);
+        }
+
+        return response()->json([
+            'ok'      => true,
+            'message' => "Se guardaron {$totalGuardados} evento(s) correctamente.",
+            'eventos'            => $eventosGuardados,
+            'eventos_duplicados' => $eventosDuplicados,
+        ], 200);
+    }
+    protected function obtenerContextoEmpleado(int $idEmpleado)
+    {
+        return DB::connection('portal_main')
+            ->table('empleados as e')
+            ->join('laborales_empleado as l', 'l.id_empleado', '=', 'e.id')
+            ->where('e.id', $idEmpleado)
+            ->select(
+                'e.id',
+                'e.id_cliente',
+                'l.dias_descanso',
+                'l.vacaciones_disponibles'
+            )
+            ->first();
+    }
+    protected function obtenerDiasDescansoEfectivos(int $idPortal, int $idCliente, int $idEmpleado, $diasDescansoLaboralRaw = null): array
+    {
+        // 1) Obtener descansos base desde laborales_empleado
+        $laborales = [];
+
+        if (is_array($diasDescansoLaboralRaw)) {
+            $laborales = $diasDescansoLaboralRaw;
+        } elseif (is_string($diasDescansoLaboralRaw) && trim($diasDescansoLaboralRaw) !== '') {
+            $decoded = json_decode($diasDescansoLaboralRaw, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $laborales = $decoded;
+            }
+        }
+
+        $dias = $this->normalizarDiasDescanso($laborales);
+
+        // 2) Aplicar política SOLO para sábado y domingo
+        $politica = $this->resolverPoliticaAsistenciaAplicable($idPortal, $idCliente, $idEmpleado);
+
+        if ($politica) {
+            // Sábado
+            if ((bool) $politica->trabaja_sabado) {
+                $dias = array_values(array_diff($dias, ['sabado']));
+            } else {
+                if (! in_array('sabado', $dias, true)) {
+                    $dias[] = 'sabado';
+                }
+            }
+
+            // Domingo
+            if ((bool) $politica->trabaja_domingo) {
+                $dias = array_values(array_diff($dias, ['domingo']));
+            } else {
+                if (! in_array('domingo', $dias, true)) {
+                    $dias[] = 'domingo';
+                }
+            }
+        }
+
+        return array_values(array_unique($dias));
+    }
+    protected function normalizarDiasDescanso(array $dias): array
+    {
+        $mapa = [
+            'lunes'     => 'lunes',
+            'martes'    => 'martes',
+            'miercoles' => 'miercoles',
+            'miércoles' => 'miercoles',
+            'jueves'    => 'jueves',
+            'viernes'   => 'viernes',
+            'sabado'    => 'sabado',
+            'sábado'    => 'sabado',
+            'domingo'   => 'domingo',
+        ];
+
+        $salida = [];
+
+        foreach ($dias as $dia) {
+            if (! is_string($dia)) {
+                continue;
+            }
+
+            $dia = trim(mb_strtolower($dia, 'UTF-8'));
+
+            if (isset($mapa[$dia])) {
+                $salida[] = $mapa[$dia];
+            }
+        }
+
+        return array_values(array_unique($salida));
+    }
+    protected function resolverPoliticaAsistenciaAplicable(int $idPortal, int $idCliente, int $idEmpleado)
+    {
+        $cn = DB::connection('portal_main');
+
+        // 1. EMPLEADO
+        $politica = $cn->table('politica_asistencia as pa')
+            ->join('politica_asistencia_empleado as pae', 'pae.id_politica_asistencia', '=', 'pa.id')
+            ->where('pa.id_portal', $idPortal)
+            ->where('pa.estado', 'publicada')
+            ->where('pa.scope', 'EMPLEADO')
+            ->where('pae.id_empleado', (string) $idEmpleado)
+            ->orderByDesc('pa.actualizado_en')
+            ->orderByDesc('pa.id')
+            ->select('pa.*')
+            ->first();
+
+        if ($politica) {
+            return $politica;
+        }
+
+        // 2. SUCURSAL
+        $politica = $cn->table('politica_asistencia as pa')
+            ->join('politica_asistencia_cliente as pac', 'pac.id_politica_asistencia', '=', 'pa.id')
+            ->where('pa.id_portal', $idPortal)
+            ->where('pa.estado', 'publicada')
+            ->where('pa.scope', 'SUCURSAL')
+            ->where('pac.id_cliente', $idCliente)
+            ->orderByDesc('pa.actualizado_en')
+            ->orderByDesc('pa.id')
+            ->select('pa.*')
+            ->first();
+
+        if ($politica) {
+            return $politica;
+        }
+
+        // 3. PORTAL
+        $politica = $cn->table('politica_asistencia as pa')
+            ->where('pa.id_portal', $idPortal)
+            ->where('pa.estado', 'publicada')
+            ->where('pa.scope', 'PORTAL')
+            ->orderByDesc('pa.actualizado_en')
+            ->orderByDesc('pa.id')
+            ->select('pa.*')
+            ->first();
+
+        return $politica ?: null;
+    }
+
+    protected function obtenerFestivosNoLaborados(int $idPortal, int $idCliente, int $idEmpleado, string $inicio, string $fin): array
+    {
+        $politica = $this->resolverPoliticaAsistenciaAplicable($idPortal, $idCliente, $idEmpleado);
+
+        if (! $politica) {
+            return [];
+        }
+
+        return DB::connection('portal_main')
+            ->table('politica_festivos')
+            ->where('id_politica_asistencia', $politica->id)
+            ->where('es_laborado', 0)
+            ->whereBetween('fecha', [$inicio, $fin])
+            ->pluck('fecha')
+            ->map(fn($f) => is_string($f) ? substr($f, 0, 10) : (string) $f)
+            ->values()
+            ->all();
+    }
+
+    protected function expandirDiasLaborablesVacaciones(string $inicio, string $fin, array $diasDescanso = [], array $festivosNoLaborados = []): array
+    {
+        $mapaDias = [
+            1 => 'lunes',
+            2 => 'martes',
+            3 => 'miercoles',
+            4 => 'jueves',
+            5 => 'viernes',
+            6 => 'sabado',
+            7 => 'domingo',
+        ];
+
+        $diasDescanso = $this->normalizarDiasDescanso($diasDescanso);
+
+        $festivosNoLaborados = array_values(array_unique(array_filter(array_map(function ($f) {
+            return is_string($f) ? substr(trim($f), 0, 10) : null;
+        }, $festivosNoLaborados))));
+
+        $fechaInicio = new \DateTime(substr($inicio, 0, 10));
+        $fechaFin    = new \DateTime(substr($fin, 0, 10));
+
+        $diasValidos = [];
+
+        while ($fechaInicio <= $fechaFin) {
+            $fechaYmd  = $fechaInicio->format('Y-m-d');
+            $numeroDia = (int) $fechaInicio->format('N');
+            $nombreDia = $mapaDias[$numeroDia] ?? null;
+
+            $esDescanso          = $nombreDia && in_array($nombreDia, $diasDescanso, true);
+            $esFestivoNoLaborado = in_array($fechaYmd, $festivosNoLaborados, true);
+
+            if (! $esDescanso && ! $esFestivoNoLaborado) {
+                $diasValidos[] = $fechaYmd;
+            }
+
+            $fechaInicio->modify('+1 day');
+        }
+
+        return $diasValidos;
+    }
+
+    protected function agruparFechasConsecutivas(array $fechas): array
+    {
+        if (empty($fechas)) {
+            return [];
+        }
+
+        sort($fechas);
+
+        $bloques      = [];
+        $inicioBloque = $fechas[0];
+        $finBloque    = $fechas[0];
+        $diasBloque   = 1;
+
+        for ($i = 1; $i < count($fechas); $i++) {
+            $prev = new \DateTime($finBloque);
+            $prev->modify('+1 day');
+
+            if ($prev->format('Y-m-d') === $fechas[$i]) {
+                $finBloque = $fechas[$i];
+                $diasBloque++;
+            } else {
+                $bloques[] = [
+                    'inicio' => $inicioBloque,
+                    'fin'    => $finBloque,
+                    'dias'   => $diasBloque,
+                ];
+
+                $inicioBloque = $fechas[$i];
+                $finBloque    = $fechas[$i];
+                $diasBloque   = 1;
+            }
+        }
+
+        $bloques[] = [
+            'inicio' => $inicioBloque,
+            'fin'    => $finBloque,
+            'dias'   => $diasBloque,
+        ];
+
+        return $bloques;
+    }
     public function getTiposEvento(Request $request)
     {
         $query = EventosOption::query();

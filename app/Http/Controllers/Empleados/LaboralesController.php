@@ -469,6 +469,55 @@ class LaboralesController extends Controller
 
         return response()->json($rows);
     }
+    public function obtenerPeriodicidadesDisponibles(Request $request)
+    {
+        $idPortal      = (int) $request->query('id_portal');
+        $idClientesRaw = $request->query('id_cliente', []);
+        $idClientes    = [];
+
+        if (! $idPortal) {
+            return response()->json(['message' => 'Faltan parámetros.'], 400);
+        }
+
+        if (is_string($idClientesRaw)) {
+            $decoded = json_decode($idClientesRaw, true);
+
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $idClientes = $decoded;
+            } elseif (! empty($idClientesRaw)) {
+                $idClientes = explode(',', $idClientesRaw);
+            }
+        } elseif (is_array($idClientesRaw)) {
+            $idClientes = $idClientesRaw;
+        }
+
+        $idClientes = array_filter(array_map('intval', $idClientes));
+
+        if (empty($idClientes)) {
+            return response()->json([]);
+        }
+
+        $cn = DB::connection('portal_main');
+
+        $rows = $cn->table('empleados as e')
+            ->join('laborales_empleado as l', 'l.id_empleado', '=', 'e.id')
+            ->join('sat_periodicidad_pago as s', 's.clave', '=', 'l.periodicidad_pago_sat')
+            ->where('e.status', 1)
+            ->where('e.eliminado', 0)
+            ->whereIn('e.id_cliente', $idClientes)
+            ->where('e.id_portal', $idPortal)
+            ->whereNotNull('l.periodicidad_pago_sat')
+            ->where('l.periodicidad_pago_sat', '<>', '')
+            ->select([
+                's.clave as id',
+                's.descripcion',
+            ])
+            ->distinct()
+            ->orderBy('s.clave')
+            ->get();
+       
+        return response()->json($rows);
+    }
 
 /**  traer prenomina   anterior
 public function empleadosMasivoPrenomina(Request $request)
