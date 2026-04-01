@@ -17,7 +17,6 @@ class ApiCandidatoConProyectoPrevioController extends Controller
     public function store(Request $request)
     {
 
-      
         $date = Carbon::now()->setTimezone('America/Mexico_City');
 
         $frases_permitidas = ['General Nacional', 'Laborales Nacional'];
@@ -34,7 +33,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
             : null;
 
         $documentos = $request->input('documentos', []);
-        
+
         DB::beginTransaction();
 
         try {
@@ -55,9 +54,9 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 'token'           => $request->token,
                 'id_cliente'      => $request->id_cliente,
                 'celular'         => $request->celular,
-                'subproyecto'     => $request->subproyecto_previo ?? null,
-                'pais'            => $request->pais_previo ?? null,
-                'privacidad'      => $request->privacidad_usuario ?? 0,
+                'subproyecto'     => $request->subproyecto ?? null,
+                'pais'            => $request->pais ?? null,
+                'privacidad'      => $request->privacidad ?? 0,
             ]);
             $candidato->save();
 
@@ -187,7 +186,9 @@ class ApiCandidatoConProyectoPrevioController extends Controller
 
             return response()->json([
                 'codigo' => 0,
-                'msg'    => 'Error interno al registrar candidato',
+                'msg'    => $e->getMessage(),
+                'line'   => $e->getLine(),
+                'file'   => $e->getFile(),
             ], 500);
         }
 
