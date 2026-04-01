@@ -78,14 +78,30 @@ class ApiCandidatoConProyectoPrevioController extends Controller
             /* ==========================
              *  PRUEBAS
              * ========================== */
+            $tipoAntidoping = (int) ($request->tipo_antidoping ?? 0);
+
+            $antidoping = null;
+            if ($request->filled('antidoping') && (int) $request->antidoping > 0) {
+                $antidoping = (int) $request->antidoping;
+            }
+
+            $tipoPsicometrico = null;
+            if ($request->filled('tipo_psicometrico')) {
+                $tipoPsicometrico = (int) $request->tipo_psicometrico;
+            }
+
+            $psicometrico = 0;
+            if ($request->filled('psicometrico') && (int) $request->psicometrico > 0) {
+                $psicometrico = (int) $request->psicometrico;
+            }
             $candidatoPruebas = new CandidatoPruebas([
                 'creacion'          => $request->creacion,
                 'edicion'           => $request->edicion,
-                'tipo_antidoping'   => $request->tipo_antidoping ?? 0,
-                'antidoping'        => $request->antidoping ?? 0,
-                'medico'            => $request->medico ?? 0,
-                'tipo_psicometrico' => $request->tipo_psicometrico ?? 0,
-                'psicometrico'      => $request->psicometrico ?? 0,
+                'tipo_antidoping'   => $tipoAntidoping,
+                'antidoping'        => $antidoping,
+                'medico'            => (int) ($request->medico ?? 0),
+                'tipo_psicometrico' => $tipoPsicometrico,
+                'psicometrico'      => $psicometrico,
                 'id_usuario'        => 1,
                 'id_candidato'      => $candidato->id,
                 'id_cliente'        => 273,
