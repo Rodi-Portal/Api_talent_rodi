@@ -98,7 +98,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
             }
             $candidatoPruebas = new CandidatoPruebas([
                 'creacion'          => $request->creacion,
-                'edicion'           => $request->edicion,
+               
                 'tipo_antidoping'   => $tipoAntidoping,
                 'antidoping'        => $antidoping,
                 'medico'            => (int) ($request->medico ?? 0),
