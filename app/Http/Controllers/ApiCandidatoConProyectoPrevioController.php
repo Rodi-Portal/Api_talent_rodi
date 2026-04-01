@@ -97,8 +97,8 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 $psicometrico = (int) $request->psicometrico;
             }
             $candidatoPruebas = new CandidatoPruebas([
-                'creacion'          => $request->creacion,
-               
+                'creacion'          => $date,
+                'edicion'           => $date,
                 'tipo_antidoping'   => $tipoAntidoping,
                 'antidoping'        => $antidoping,
                 'medico'            => (int) ($request->medico ?? 0),
@@ -131,7 +131,6 @@ class ApiCandidatoConProyectoPrevioController extends Controller
             $candidatoSeccion               = $plantillaSeccion->replicate();
             $candidatoSeccion->id_candidato = $candidato->id;
             $candidatoSeccion->creacion     = $date;
-            $candidatoSeccion->edicion      = $date;
             $candidatoSeccion->save();
          
 
