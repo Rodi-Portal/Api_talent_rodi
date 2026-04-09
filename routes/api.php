@@ -23,7 +23,7 @@ use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
-
+use App\Http\Controllers\Api\Comunicacion360\AccesosController;
 use App\Http\Controllers\Dashboard\OrganigramaController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
@@ -524,6 +524,21 @@ Route::middleware(['auth:empleado', 'force.password.change'])
     });
 
 //********************** Fin Rutas MiPortal Empleados ****************************//
+
+//********************** Fin Rutas Comunicacion 360  ****************************//
+
+Route::prefix('comunicacion360')->group(function () {
+    Route::get('/accesos', [AccesosController::class, 'index']);
+    Route::post('/accesos/generar', [AccesosController::class, 'generar']);
+    Route::post('/accesos/actualizar', [AccesosController::class, 'actualizar']);
+    Route::post('/accesos/generar-individual', [AccesosController::class, 'generarIndividual']);
+    Route::post('/accesos/actualizar-individual', [AccesosController::class, 'actualizarIndividual']);
+});
+
+
+
+//********************** Fin Rutas Comunicacion 360 ****************************//
+
 /*notificaciones  via  whatsapp modulo empleados*/
 
 /*Este  endpoint  es para   mostrar  avances  de los  candidatos  en pre empleo  */

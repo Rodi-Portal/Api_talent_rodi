@@ -168,7 +168,7 @@ class ReporteBecasService
                 $join->on('tp.id', '=', 'cp.id_tipo_parentesco')
                     ->where('tp.eliminado', 0);
             })
-            ->leftJoin('grado_estudio as ge', function ($join) {
+            ->leftJoin('tipo_escolaridad as ge', function ($join) {
                 $join->on('ge.id', '=', 'cp.id_grado_estudio')
                     ->where('ge.eliminado', 0);
             })
