@@ -7,15 +7,23 @@ use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
+use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 use App\Http\Controllers\Auth\PermissionController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
-use App\Http\Controllers\Comunicacion\ChecadasController;
+//use App\Http\Controllers\Api\Empleado\DashboardController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Api\Rodi\ReporteBecasController;
+
+use App\Http\Controllers\Api\Empleado\ProfileController;
+use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
+use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
 //use App\Http\Controllers\AvanceController;
+use App\Http\Controllers\Comunicacion\ChecadasController;
 use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
-use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Api\Comunicacion360\AccesosController;
 use App\Http\Controllers\Dashboard\OrganigramaController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
@@ -43,10 +51,11 @@ use App\Http\Controllers\ProyectosHistorialController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
+use App\Modules\AuthCore\Controllers\AdminRecoveryController;
+use App\Modules\AuthCore\Controllers\EmpleadoRecoveryController;
 use App\Http\Controllers\WhatsAppController;
-use Illuminate\Http\Request;
 // routes/api.php
-use Illuminate\Support\Facades\Route;
+use Illuminate\Http\Request;
 
 /*
 |--------------------------------------------------------------------------
@@ -59,6 +68,25 @@ use Illuminate\Support\Facades\Route;
 |
  */
 //  rutas  para  envio de  mensajes  de  whatsssApp
+Route::prefix('rodi')->group(function () {
+    Route::get('/reportes/becas/{id_candidato}', [ReporteBecasController::class, 'show']);
+});
+
+Route::prefix('empleado/auth')->group(function () {
+    Route::post('/recovery/send', [EmpleadoRecoveryController::class, 'sendOtp']);
+    Route::post('/recovery/verify', [EmpleadoRecoveryController::class, 'verifyOtp']);
+    Route::post('/recovery/reset', [EmpleadoRecoveryController::class, 'resetPassword']);
+    Route::post('recovery/check-user', [EmpleadoRecoveryController::class, 'checkUser']);
+    Route::post('/recovery/verify-phone', [EmpleadoRecoveryController::class, 'verifyPhone']);
+});
+
+Route::prefix('admin/auth')->group(function () {
+    Route::post('/recovery/check-user', [AdminRecoveryController::class, 'checkUser']);
+    Route::post('/recovery/send', [AdminRecoveryController::class, 'sendOtp']);
+    Route::post('/recovery/verify-phone', [AdminRecoveryController::class, 'verifyPhone']);
+    Route::post('/recovery/verify', [AdminRecoveryController::class, 'verifyOtp']);
+    Route::post('/recovery/reset', [AdminRecoveryController::class, 'resetPassword']);
+});
 
 Route::get('/api/test-status', function () {
     $id_portal  = 5;
@@ -168,6 +196,7 @@ Route::middleware(['api'])->group(function () {
     //Pre Nomina Empleados //
     Route::post('/empleados/registro_prenomina', [LaboralesController::class, 'guardarPrenomina']);
     Route::get('/empleados/obtener_prenomina_masiva_ultima', [LaboralesController::class, 'empleadosMasivoPrenomina']);
+    Route::get('/empleados/periodicidades-disponibles', [LaboralesController::class, 'obtenerPeriodicidadesDisponibles']);
     Route::post('/empleados/registro_prenomina_masiva', [LaboralesController::class, 'guardarPrenominaMasiva']);
     // Incidencias pre nomina
     Route::post('/incidencias/preview', [IncidenciasController::class, 'preview']);
@@ -305,6 +334,7 @@ Route::middleware(['api'])->group(function () {
     /** Former Employe   endpoints */
     // enviar   empleado  a exempleados
     Route::post('/comentarios-former-empleado', [FormerEmpleadoController::class, 'storeComentarioFormer']);
+    Route::post('/update-fecha-salida', [FormerEmpleadoController::class, 'updateFechaSalida']);
     Route::get('empleados/{id_empleado}/documentos-y-cursos', [FormerEmpleadoController::class, 'getDocumentosYCursos']);
     Route::post('/documentos/former', [FormerEmpleadoController::class, 'storeDocumentos']);
     Route::get('/conclusions/{id_empleado}', [FormerEmpleadoController::class, 'getConclusionsByEmployeeId']);
@@ -398,6 +428,116 @@ Route::middleware(['api'])->group(function () {
     //**********************Fin Ruta para  fotos de perfil **************************** */
 
 });
+
+//********************** Inicio Rutas MiPortal Empleados ****************************//
+
+/*
+|--------------------------------------------------------------------------
+| AUTH
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('empleado/auth')->group(function () {
+
+    // Login público
+    Route::post('/login', [
+        \App\Http\Controllers\Api\Empleado\AuthController::class,
+        'login',
+    ]);
+
+    // Logout
+    Route::middleware('auth:empleado')->post('/logout', [
+        \App\Http\Controllers\Api\Empleado\AuthController::class,
+        'logout',
+    ]);
+
+    // Cambio de contraseña
+    Route::middleware('auth:empleado')->post('/change-password', [
+        \App\Http\Controllers\Api\Empleado\AuthController::class,
+        'changePassword',
+    ]);
+
+});
+
+/*
+|--------------------------------------------------------------------------
+| PORTAL EMPLEADO (requiere autenticación)
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:empleado')->get(
+    '/empleado/profile',
+    [ProfileController::class, 'profile']
+);
+Route::middleware('auth:empleado')->get(
+    '/empleado/approvers',
+[EmpleadoApproversController::class, 'index']
+);
+Route::middleware('auth:empleado')->post('/empleado/incidencias',[EmpleadoIncidenciasController::class,'store']);
+Route::middleware('auth:empleado')->get('empleado/incidencias', [EmpleadoIncidenciasController::class, 'index']);
+Route::middleware(['auth:empleado'])
+    ->prefix('empleado')
+    ->group(function () {
+
+        /*
+        |--------------------------------------------------------------------------
+        | PERFIL
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get('/me', function (Request $request) {
+            return response()->json($request->user());
+        });
+
+        Route::get('/profile-photo', [
+            ApiEmpleadoController::class,
+            'getMyProfilePicture',
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | DASHBOARD
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get('/dashboard', [
+            EmpleadoDashboardController::class,
+            'dashboard',
+        ]);
+
+    });
+
+/*
+|--------------------------------------------------------------------------
+| PORTAL EMPLEADO - REQUIERE PASSWORD ACTUALIZADA
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(['auth:empleado', 'force.password.change'])
+    ->prefix('empleado')
+    ->group(function () {
+
+        // futuras rutas protegidas
+        // Route::get('/recibos', ...);
+        // Route::get('/documentos', ...);
+        // Route::get('/solicitudes', ...);
+
+    });
+
+//********************** Fin Rutas MiPortal Empleados ****************************//
+
+//********************** Fin Rutas Comunicacion 360  ****************************//
+
+Route::prefix('comunicacion360')->group(function () {
+    Route::get('/accesos', [AccesosController::class, 'index']);
+    Route::post('/accesos/generar', [AccesosController::class, 'generar']);
+    Route::post('/accesos/actualizar', [AccesosController::class, 'actualizar']);
+    Route::post('/accesos/generar-individual', [AccesosController::class, 'generarIndividual']);
+    Route::post('/accesos/actualizar-individual', [AccesosController::class, 'actualizarIndividual']);
+});
+
+
+
+//********************** Fin Rutas Comunicacion 360 ****************************//
 
 /*notificaciones  via  whatsapp modulo empleados*/
 

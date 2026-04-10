@@ -36,10 +36,13 @@ class Empleado extends Model
         'fecha_ingreso',
         'id_departamento',
         'id_puesto',
+        'fecha_salida',
     ];
     protected $casts = [
         'fecha_nacimiento' => 'date:Y-m-d',
         'fecha_ingreso'    => 'date:Y-m-d',
+        'fecha_salida'    => 'date:Y-m-d',
+
 
     ];
 

@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'default' => env('MAIL_MAILER', 'smtp'),
+    'default'  => env('MAIL_MAILER', 'smtp'),
 
     /*
     |--------------------------------------------------------------------------
@@ -33,47 +33,59 @@ return [
     |
     */
 
-    'mailers' => [
-        'smtp' => [
-            'transport' => 'smtp',
-            'host' => env('MAIL_HOST', 'smtp.mailgun.org'),
-            'port' => env('MAIL_PORT', 587),
-            'encryption' => env('MAIL_ENCRYPTION', 'tls'),
-            'username' => env('MAIL_USERNAME'),
-            'password' => env('MAIL_PASSWORD'),
-            'timeout' => null,
+    'mailers'  => [
+        'smtp'      => [
+            'transport'    => 'smtp',
+            'host'         => env('MAIL_HOST'),
+            'port'         => env('MAIL_PORT'),
+            'encryption'   => env('MAIL_ENCRYPTION'),
+            'username'     => env('MAIL_USERNAME'),
+            'password'     => env('MAIL_PASSWORD'),
+            'timeout'      => null,
             'local_domain' => env('MAIL_EHLO_DOMAIN'),
         ],
+        // 👇 NUEVO MAILER PARA AUTH
+        'auth_smtp' => [
+            'transport'    => 'smtp',
+            'host'         => env('AUTH_MAIL_HOST'),
+            'port'         => env('AUTH_MAIL_PORT'),
+            'encryption'   => env('AUTH_MAIL_ENCRYPTION'),
+            'username'     => env('AUTH_MAIL_USERNAME'),
+            'password'     => env('AUTH_MAIL_PASSWORD'),
+            'timeout'      => null,
+            'local_domain' => env('MAIL_EHLO_DOMAIN'),
 
-        'ses' => [
+        ],
+
+        'ses'       => [
             'transport' => 'ses',
         ],
 
-        'mailgun' => [
+        'mailgun'   => [
             'transport' => 'mailgun',
         ],
 
-        'postmark' => [
+        'postmark'  => [
             'transport' => 'postmark',
         ],
 
-        'sendmail' => [
+        'sendmail'  => [
             'transport' => 'sendmail',
-            'path' => env('MAIL_SENDMAIL_PATH', '/usr/sbin/sendmail -bs -i'),
+            'path'      => env('MAIL_SENDMAIL_PATH', '/usr/sbin/sendmail -bs -i'),
         ],
 
-        'log' => [
+        'log'       => [
             'transport' => 'log',
-            'channel' => env('MAIL_LOG_CHANNEL'),
+            'channel'   => env('MAIL_LOG_CHANNEL'),
         ],
 
-        'array' => [
+        'array'     => [
             'transport' => 'array',
         ],
 
-        'failover' => [
+        'failover'  => [
             'transport' => 'failover',
-            'mailers' => [
+            'mailers'   => [
                 'smtp',
                 'log',
             ],
@@ -91,9 +103,9 @@ return [
     |
     */
 
-    'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', 'Example'),
+    'from'     => [
+        'address' => env('MAIL_FROM_ADDRESS'),
+        'name'    => env('MAIL_FROM_NAME'),
     ],
 
     /*

@@ -174,6 +174,36 @@ class ApiEmpleadoController extends Controller
         ]);
     }
 
+    public function getMyProfilePicture(Request $request)
+    {
+        $empleado = auth('empleado')->user();
+        $filename = $empleado->foto;
+        $carpeta  = '_perfilEmpleado';
+
+        $rutaBase = config('app.env') === 'production'
+            ? config('paths.prod_images')
+            : config('paths.local_images');
+
+        $filePath = $rutaBase . '/' . $carpeta . '/' . $filename;
+
+        // 🔹 Si no existe la foto del usuario
+        if (! $filename || ! file_exists($filePath)) {
+            $filePath = $rutaBase . '/' . $carpeta . '/perfil.png';
+        }
+
+        // 🔹 Si tampoco existe el perfil.png (ultra fallback)
+        if (! file_exists($filePath)) {
+            return response()->json([
+                'error' => 'Imagen no disponible',
+            ], 404);
+        }
+
+        return response()->file($filePath, [
+            'Content-Type'  => mime_content_type($filePath),
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+        ]);
+    }
+
     public function getAntidopinPaquetes()
     {
                                                              // Obtiene todos los paquetes de antidoping

@@ -50,40 +50,31 @@ class EmpleadoController extends Controller
         if ($status == 2) {
 
             foreach ($empleados as $empleado) {
-                                                                                      // Obtener el campo 'creacion' de ComentarioFormerEmpleado
-                $comentario = \App\Models\ComentarioFormerEmpleado::on('portal_main') // fuerza la conexión del modelo
-                    ->where('id_empleado', $empleado->id)
-                    ->whereNotNull('fecha_salida_reingreso')
-                    ->whereRaw("TRIM(fecha_salida_reingreso) <> ''")
-                    ->where('fecha_salida_reingreso', '!=', '0000-00-00')
-                // si lo que te interesa es la última FECHA de salida/reingreso, ordena por esa columna:
-                    ->orderByDesc('fecha_salida_reingreso')
-                // alternativamente, si quieres el último registro creado usa ->orderByDesc('id') o ->latest('creacion')
-                    ->first(['id', 'creacion', 'titulo', 'comentario', 'fecha_salida_reingreso']);
 
-                // Log de lo que trae el comentario
-                //Log::info('Comentario para empleado ' . $empleado->id . ': ', ['comentario' => $comentario]);
+                // 🔴 ESTE BLOQUE YA NO ES NECESARIO (lo puedes eliminar si ya no lo usas)
+                // $comentario = \App\Models\ComentarioFormerEmpleado::on('portal_main')
+                //     ->where('id_empleado', $empleado->id)
+                //     ->whereNotNull('fecha_salida_reingreso')
+                //     ->whereRaw("TRIM(fecha_salida_reingreso) <> ''")
+                //     ->where('fecha_salida_reingreso', '!=', '0000-00-00')
+                //     ->orderByDesc('fecha_salida_reingreso')
+                //     ->first(['id', 'creacion', 'titulo', 'comentario', 'fecha_salida_reingreso']);
 
-                // Obtener los documentos con status = 2
+                // Obtener los documentos
                 $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
                     ->where('status', 2)
                     ->get();
 
-                // Log de los documentos obtenidos
-                //Log::info('Documentos para empleado ' . $empleado->id . ': ', ['documentos' => $documentos]);
-
-                // Verificar el estado de los documentos
                 $statusDocuments = $this->checkDocumentStatus($documentos);
 
-                // Log del estado de los documentos
-                // Log::info('Estado de los documentos para empleado ' . $empleado->id . ': ', ['statusDocuments' => $statusDocuments]);
-
-                // Convertir el empleado a un array
+                // Convertir a array
                 $empleadoArray                 = $empleado->toArray();
                 $empleadoArray['departamento'] = $empleado->depto->nombre ?? null;
                 $empleadoArray['puesto']       = $empleado->puestoRel->nombre ?? null;
-                            unset($empleadoArray['id_departamento'], $empleadoArray['id_puesto']);
 
+                unset($empleadoArray['id_departamento'], $empleadoArray['id_puesto']);
+
+                // Domicilio
                 if (isset($empleadoArray['domicilio_empleado']) && is_array($empleadoArray['domicilio_empleado'])) {
                     $camposPermitidos = ['pais', 'estado', 'ciudad', 'colonia', 'calle', 'cp', 'num_int', 'num_ext'];
 
@@ -93,14 +84,13 @@ class EmpleadoController extends Controller
                         }
                     }
                 }
-                // Agregar el campo 'fecha_salida' si existe
-                $empleadoArray['fecha_salida']    = $comentario ? $comentario->fecha_salida_reingreso : null;
+
+                // ✅ AQUÍ EL CAMBIO IMPORTANTE
+                $empleadoArray['fecha_salida'] = $empleado->fecha_salida
+                    ? \Carbon\Carbon::parse($empleado->fecha_salida)->format('d/m/Y')
+                    : null;
                 $empleadoArray['statusDocuments'] = $statusDocuments;
 
-                // Log del empleado procesado
-                // Log::info('Empleado procesado: ', ['empleado' => $empleadoArray]);
-
-                // Agregar al resultado
                 $resultados[] = $empleadoArray;
             }
 
@@ -111,6 +101,7 @@ class EmpleadoController extends Controller
             foreach ($empleados as $empleado) {
                 // Obtener documentos del empleado
                 $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
+                    ->whereNot('status', 999)
                     ->get();
                 $cursos     = CursoEmpleado::where('employee_id', $empleado->id)->get();
                 $examenes   = ExamEmpleado::where('employee_id', $empleado->id)->get();
@@ -174,7 +165,7 @@ class EmpleadoController extends Controller
             'foto', 'statusMedico', 'statusDocuments', 'statusExam',
             'estadoExam', 'statusCursos', 'estadoDocumento',
             'id_domicilio_empleado', 'creacion', 'edicion',
-            'id_portal', 'id_cliente', 'id_usuario', 'id', 'Id', 'campoExtra', 'eliminado', 'status', 'paterno', 'materno', 'nombre', 'id_bolsa','id_departamento','id_puesto',
+            'id_portal', 'id_cliente', 'id_usuario', 'id', 'Id', 'campoExtra', 'eliminado', 'status', 'paterno', 'materno', 'nombre', 'id_bolsa', 'id_departamento', 'id_puesto', 'password', 'email_verified_at', 'activation_token', 'activation_expires_at', 'force_password_change', 'login_attempts', 'locked_until', 'last_login_at', 'last_login_ip', 'password_changed_at',
         ];
 
         foreach ($empleados as $empleado) {

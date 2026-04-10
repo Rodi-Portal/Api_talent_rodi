@@ -17,7 +17,6 @@ class ApiCandidatoConProyectoPrevioController extends Controller
     public function store(Request $request)
     {
 
-      
         $date = Carbon::now()->setTimezone('America/Mexico_City');
 
         $frases_permitidas = ['General Nacional', 'Laborales Nacional'];
@@ -34,7 +33,7 @@ class ApiCandidatoConProyectoPrevioController extends Controller
             : null;
 
         $documentos = $request->input('documentos', []);
-        
+
         DB::beginTransaction();
 
         try {
@@ -55,9 +54,9 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 'token'           => $request->token,
                 'id_cliente'      => $request->id_cliente,
                 'celular'         => $request->celular,
-                'subproyecto'     => $request->subproyecto_previo ?? null,
-                'pais'            => $request->pais_previo ?? null,
-                'privacidad'      => $request->privacidad_usuario ?? 0,
+                'subproyecto'     => $request->subproyecto ?? null,
+                'pais'            => $request->pais ?? null,
+                'privacidad'      => $request->privacidad ?? 0,
             ]);
             $candidato->save();
 
@@ -67,6 +66,8 @@ class ApiCandidatoConProyectoPrevioController extends Controller
             $candidatoSync = new CandidatoSync([
                 'id_cliente_talent'     => $request->id_cliente_talent ?? null,
                 'id_aspirante_talent'   => $request->id_aspirante_talent ?? 0,
+                'id_usuario_talent'     => $request->id_usuario ?? null,
+
                 'nombre_cliente_talent' => $request->nombre_cliente_talent ?? null,
                 'id_portal'             => $request->id_portal ?? null,
                 'id_candidato_rodi'     => $candidato->id,
@@ -79,14 +80,30 @@ class ApiCandidatoConProyectoPrevioController extends Controller
             /* ==========================
              *  PRUEBAS
              * ========================== */
+            $tipoAntidoping = (int) ($request->tipo_antidoping ?? 0);
+
+            $antidoping = null;
+            if ($request->filled('antidoping') && (int) $request->antidoping > 0) {
+                $antidoping = (int) $request->antidoping;
+            }
+
+            $tipoPsicometrico = null;
+            if ($request->filled('tipo_psicometrico')) {
+                $tipoPsicometrico = (int) $request->tipo_psicometrico;
+            }
+
+            $psicometrico = 0;
+            if ($request->filled('psicometrico') && (int) $request->psicometrico > 0) {
+                $psicometrico = (int) $request->psicometrico;
+            }
             $candidatoPruebas = new CandidatoPruebas([
-                'creacion'          => $request->creacion,
-                'edicion'           => $request->edicion,
-                'tipo_antidoping'   => $request->tipo_antidoping ?? 0,
-                'antidoping'        => $request->antidoping ?? 0,
-                'medico'            => $request->medico ?? 0,
-                'tipo_psicometrico' => $request->tipo_psicometrico ?? 0,
-                'psicometrico'      => $request->psicometrico ?? 0,
+                'creacion'          => $date,
+                'edicion'           => $date,
+                'tipo_antidoping'   => $tipoAntidoping,
+                'antidoping'        => $antidoping,
+                'medico'            => (int) ($request->medico ?? 0),
+                'tipo_psicometrico' => $tipoPsicometrico,
+                'psicometrico'      => $psicometrico,
                 'id_usuario'        => 1,
                 'id_candidato'      => $candidato->id,
                 'id_cliente'        => 273,
@@ -97,29 +114,25 @@ class ApiCandidatoConProyectoPrevioController extends Controller
             /* ==========================
              *  SECCIONES
              * ========================== */
-            $candidatoSeccion = new CandidatoSeccion([
-                'creacion'         => $request->creacion,
-                'id_usuario'       => 1,
-                'id_candidato'     => $candidato->id,
+            $nombreProyecto = trim((string) ($secciones['proyecto'] ?? ''));
 
-                'proyecto'         => $secciones['proyecto'] ?? null,
-                'secciones'        => $seccionesHtml ?? '',
+            if ($nombreProyecto === '') {
+                throw new \Exception('No llegó el nombre del proyecto para clonar candidato_seccion');
+            }
 
-                'lleva_identidad'  => $secciones['lleva_identidad'] ?? 0,
-                'lleva_empleos'    => $secciones['lleva_empleos'] ?? 0,
-                'lleva_criminal'   => $secciones['lleva_criminal'] ?? 0,
-                'lleva_estudios'   => $secciones['lleva_estudios'] ?? 0,
-                'lleva_domicilios' => $secciones['lleva_domicilios'] ?? 0,
-                'lleva_gaps'       => $secciones['lleva_gaps'] ?? 0,
-                'lleva_credito'    => $secciones['lleva_credito'] ?? 0,
-                'lleva_sociales'   => $secciones['lleva_sociales'] ?? 0,
+            $plantillaSeccion = CandidatoSeccion::where('proyecto', $nombreProyecto)
+                ->orderByDesc('id')
+                ->first();
 
-                'tiempo_empleos'   => $secciones['tiempo_empleos'] ?? null,
-                'tipo_pdf'         => $secciones['tipo_pdf'] ?? null,
-                'visita'           => $visitaHtml ?? '',
+            if (! $plantillaSeccion) {
+                throw new \Exception('No se encontró candidato_seccion para el proyecto: ' . $nombreProyecto);
+            }
 
-            ]);
+            $candidatoSeccion               = $plantillaSeccion->replicate();
+            $candidatoSeccion->id_candidato = $candidato->id;
+            $candidatoSeccion->creacion     = $date;
             $candidatoSeccion->save();
+         
 
             /* ==========================
              *  VISITA (si aplica)
@@ -187,7 +200,9 @@ class ApiCandidatoConProyectoPrevioController extends Controller
 
             return response()->json([
                 'codigo' => 0,
-                'msg'    => 'Error interno al registrar candidato',
+                'msg'    => $e->getMessage(),
+                'line'   => $e->getLine(),
+                'file'   => $e->getFile(),
             ], 500);
         }
 

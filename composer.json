@@ -9,7 +9,7 @@
         "bshaffer/oauth2-server-php": "^1.14",
         "guzzlehttp/guzzle": "^7.2",
         "laravel/framework": "^9.19",
-        "laravel/sanctum": "^3.0",
+        "laravel/sanctum": "^3.3",
         "laravel/tinker": "^2.7",
         "maatwebsite/excel": "^3.1"
     }, 
@@ -60,9 +60,6 @@
         "sort-packages": true,
         "allow-plugins": {
             "pestphp/pest-plugin": true
-        },
-        "platform": {
-            "php": "8.1.33"
         }
     },
     "minimum-stability": "stable",
