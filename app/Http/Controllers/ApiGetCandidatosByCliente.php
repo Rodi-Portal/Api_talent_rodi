@@ -39,6 +39,7 @@ class ApiGetCandidatosByCliente extends Controller
 
             ->where('CSY.id_cliente_talent', $id_cliente_talent)
             ->where('candidato.eliminado', 0) // Asegúrate de que 0 representa no eliminado
+            ->orderBy('candidato.liberado', 'DESC')
 
             ->select(
                 'candidato.*',
