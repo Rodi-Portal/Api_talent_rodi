@@ -55,7 +55,7 @@ class ApiGetCandidatosByCliente extends Controller
                 'candidato.fecha_documentos AS fecha_documentos',
                 'candidato.tiempo_parcial AS tiempo_parcial',
                 'candidato.cancelado AS cancelado',
-
+                'candidato.liberado',
                 'CSY.creacion AS creacion',
                 'CSY.edicion AS edicion',
                 DB::raw("CONCAT(US.nombre, ' ', US.paterno, ' ', COALESCE(US.materno, '')) as usuario"),
