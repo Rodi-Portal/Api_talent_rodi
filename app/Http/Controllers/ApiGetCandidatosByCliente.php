@@ -1,14 +1,13 @@
 <?php
-
 namespace App\Http\Controllers;
+
+use App\Http\Controllers\Empleados\EmpleadoController;
 use App\Models\Candidato;
 use App\Models\ExamEmpleado;
 use Carbon\Carbon;
-
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use App\Http\Controllers\Empleados\EmpleadoController;
-use Illuminate\Http\Request;
 
 // Añade esta línea
 
@@ -23,7 +22,7 @@ class ApiGetCandidatosByCliente extends Controller
     public function getByClienteTalent($id_cliente_talent)
     {
         // Validar que id_cliente_talent sea un entero
-        if (!is_numeric($id_cliente_talent)) {
+        if (! is_numeric($id_cliente_talent)) {
             return response()->json(['error' => 'Invalid id_cliente_talent'], 400);
         }
 
@@ -39,11 +38,11 @@ class ApiGetCandidatosByCliente extends Controller
 
             ->where('CSY.id_cliente_talent', $id_cliente_talent)
             ->where('candidato.eliminado', 0) // Asegúrate de que 0 representa no eliminado
-            ->orderBy('candidato.liberado', 'DESC')
-
+            ->orderByRaw('COALESCE(candidato.liberado, 0) DESC')
             ->select(
                 'candidato.*',
                 'candidato.id AS id',
+                'candidato.liberado',
                 DB::raw("CONCAT(COALESCE(candidato.nombre, ''), ' ', COALESCE(candidato.paterno, ''), ' ', COALESCE(candidato.materno, '')) as candidato"),
                 'candidato.nombre AS nombre',
                 'candidato.paterno AS paterno',
@@ -55,7 +54,6 @@ class ApiGetCandidatosByCliente extends Controller
                 'candidato.fecha_documentos AS fecha_documentos',
                 'candidato.tiempo_parcial AS tiempo_parcial',
                 'candidato.cancelado AS cancelado',
-                'candidato.liberado',
                 'CSY.creacion AS creacion',
                 'CSY.edicion AS edicion',
                 DB::raw("CONCAT(US.nombre, ' ', US.paterno, ' ', COALESCE(US.materno, '')) as usuario"),
@@ -68,7 +66,7 @@ class ApiGetCandidatosByCliente extends Controller
                 'CAP.medico',
                 'CAP.psicometrico',
                 'CAP.socioeconomico',
-                
+
                 'MED.id AS idMedico',
                 'MED.imagen_historia_clinica AS imagen',
                 'MED.conclusion',
@@ -77,7 +75,7 @@ class ApiGetCandidatosByCliente extends Controller
 
                 'PSI.id as idPsicometrico',
                 'PSI.archivo',
-           
+
                 'DOP.id as idDoping',
                 'DOP.fecha_resultado',
                 'DOP.resultado as resultado_doping',
@@ -85,7 +83,7 @@ class ApiGetCandidatosByCliente extends Controller
 
             )
             ->get();
-           // Log::info('Datos del candidato: ' . print_r($results->toArray(), true));
+        // Log::info('Datos del candidato: ' . print_r($results->toArray(), true));
 
         return response()->json($results);
 
@@ -94,7 +92,7 @@ class ApiGetCandidatosByCliente extends Controller
     public function sendCandidateToEmployee($id_candidato)
     {
         // Validar que id_candidato sea un número
-        if (!is_numeric($id_candidato)) {
+        if (! is_numeric($id_candidato)) {
             return response()->json(['error' => 'Invalid id_candidato'], 400);
         }
         $fechaHoy = $this->getCurrentDateTime();
@@ -108,7 +106,7 @@ class ApiGetCandidatosByCliente extends Controller
             ->leftJoin('medico AS MED', 'MED.id_candidato', '=', 'candidato.id')
             ->leftJoin('psicometrico AS PSI', 'PSI.id_candidato', '=', 'candidato.id')
             ->where('CSY.id_candidato_rodi', $id_candidato)
-            ->where('candidato.eliminado', 0) 
+            ->where('candidato.eliminado', 0)
             ->select(
                 'candidato.id AS id',
                 'candidato.id_usuario',
@@ -156,61 +154,60 @@ class ApiGetCandidatosByCliente extends Controller
                 'DOP.resultado as resultado_doping',
                 'DOP.status as statusDoping',
             )
-            ->first();  // Usamos 'first' porque es un solo candidato
-    
-        if (!$candidate) {
+            ->first(); // Usamos 'first' porque es un solo candidato
+
+        if (! $candidate) {
             return response()->json(['error' => 'Candidato no encontrado'], 404);
         }
-         $resultString = ""; // Variable para almacenar los resultados
+        $resultString = ""; // Variable para almacenar los resultados
 
         // Evaluar cada opción y concatenar el string correspondiente
         if ($candidate->socioeconomico == 1) {
-          $resultString .= "Bgv \n "; // Concatenar el valor del proyecto
+            $resultString .= "Bgv \n "; // Concatenar el valor del proyecto
         }
-  
+
         if ($candidate->tipo_antidoping > 0) {
-          $resultString .= "Drug Test\n "; // Concatenar el valor del paquete
+            $resultString .= "Drug Test\n "; // Concatenar el valor del paquete
         }
-  
+
         if ($candidate->psicometrico == 1) {
-          $resultString .= "Psicométric \n" ; // Concatenar el valor psicométrico
+            $resultString .= "Psicométric \n"; // Concatenar el valor psicométrico
         }
-  
+
         if ($candidate->medico == 1) {
-          $resultString .= "Medical Test "; // Concatenar el valor del examen médico
+            $resultString .= "Medical Test "; // Concatenar el valor del examen médico
         }
         // Iniciar una transacción para asegurarse de que todas las operaciones se realicen correctamente
         DB::beginTransaction();
-        
-    
+
         try {
             // Actualizar o insertar el candidato en la tabla de Empleados
             $validatedData = [
-                'creacion' => $fechaHoy,
-                'edicion' => $fechaHoy,
-                'id_portal' => $candidate->id_portal, 
-                'id_usuario' => $candidate->id_usuario,
-                'id_cliente' => $candidate->id_cliente_talent,
-                'id_empleado' => $candidate->id,
-                'correo' => $candidate->correo,
-                'fecha_nacimiento' => $candidate->fecha_naciemiento,
-                'curp' => $candidate->curp, 
-                'rfc' => $candidate->rfc,
-                'nss' => $candidate->nss,
-                'nombre' => $candidate->nombre,
-                'paterno' => $candidate->paterno,
-                'materno' => $candidate->materno,
-                'puesto' => null, 
-                'telefono' => $candidate->telefono,
+                'creacion'           => $fechaHoy,
+                'edicion'            => $fechaHoy,
+                'id_portal'          => $candidate->id_portal,
+                'id_usuario'         => $candidate->id_usuario,
+                'id_cliente'         => $candidate->id_cliente_talent,
+                'id_empleado'        => $candidate->id,
+                'correo'             => $candidate->correo,
+                'fecha_nacimiento'   => $candidate->fecha_naciemiento,
+                'curp'               => $candidate->curp,
+                'rfc'                => $candidate->rfc,
+                'nss'                => $candidate->nss,
+                'nombre'             => $candidate->nombre,
+                'paterno'            => $candidate->paterno,
+                'materno'            => $candidate->materno,
+                'puesto'             => null,
+                'telefono'           => $candidate->telefono,
                 'domicilio_empleado' => [
-                    'calle' => $candidate->calle,
+                    'calle'   => $candidate->calle,
                     'num_ext' => $candidate->num_ext,
                     'num_int' => $candidate->num_int,
                     'colonia' => $candidate->colonia,
-                    'ciudad' => null, 
-                    'estado' => null, 
-                    'pais' => $candidate->pais,
-                    'cp' => $candidate->cp,
+                    'ciudad'  => null,
+                    'estado'  => null,
+                    'pais'    => $candidate->pais,
+                    'cp'      => $candidate->cp,
                 ],
             ];
             $empleadoController = new EmpleadoController();
@@ -220,25 +217,25 @@ class ApiGetCandidatosByCliente extends Controller
             if ($resultString != "") {
                 // Verifica si la respuesta contiene la propiedad 'data' antes de acceder a ella
                 $empleadoData = $response->getData()->data ?? null;
-            
+
                 // Asegúrate de que el objeto empleado existe
                 if ($empleadoData) {
                     $empleadoId = $empleadoData->id;
-            
+
                     $examEmpleado = new ExamEmpleado([
-                        'creacion' => $fechaHoy,
-                        'edicion' => $fechaHoy,
-                        'employee_id' => $empleadoId,
-                        'name' => $resultString,
-                        'id_opcion' => null,
-                        'descripcion' => null,
-                        'expiry_date' => null,
+                        'creacion'        => $fechaHoy,
+                        'edicion'         => $fechaHoy,
+                        'employee_id'     => $empleadoId,
+                        'name'            => $resultString,
+                        'id_opcion'       => null,
+                        'descripcion'     => null,
+                        'expiry_date'     => null,
                         'expiry_reminder' => null,
-                        'id_candidato' => $candidate->id ?? null,
+                        'id_candidato'    => $candidate->id ?? null,
                     ]);
-            
-                   // Log::info('Insertando en Empleado:', ['examEmpleado' => $examEmpleado->toArray()]);
-            
+
+                    // Log::info('Insertando en Empleado:', ['examEmpleado' => $examEmpleado->toArray()]);
+
                     $examEmpleado->save();
                 } else {
                     // Si el objeto empleado no está disponible, puedes manejar el error aquí
@@ -249,10 +246,10 @@ class ApiGetCandidatosByCliente extends Controller
             $candidate->save();
             // Si todo es correcto, confirmamos la transacción
             DB::commit();
-    
+
             // Devolvemos la respuesta con los datos del candidato actualizado
             return response()->json(['success' => 'Candidato procesado correctamente', 'candidato' => $candidate]);
-    
+
         } catch (\Exception $e) {
             // Si ocurre un error, revertimos la transacción
             DB::rollBack();
@@ -261,7 +258,7 @@ class ApiGetCandidatosByCliente extends Controller
         }
     }
 
-     public function getCurrentDateTime()
+    public function getCurrentDateTime()
     {
         // Obtiene la fecha y hora actuales en la zona horaria de México
         $currentDateTime = Carbon::now('America/Mexico_City');
@@ -269,6 +266,5 @@ class ApiGetCandidatosByCliente extends Controller
         // Formatea la fecha y hora
         return $currentDateTime->format('Y-m-d H:i:s');
     }
-
 
 }
