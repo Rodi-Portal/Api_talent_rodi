@@ -60,9 +60,18 @@ class FormerEmpleadoController extends Controller
                         'status_new'  => $request->status,
                     ]);
 
-                    $empleado->edicion     = $request->creacion;
-                    $empleado->status      = $request->status;
-                    $empleado->fecha_salida = $request->creacion;
+                    $empleado->edicion = $request->creacion;
+                    $empleado->status  = $request->status;
+                    if ($request->origen == 1) {
+
+                        if ($request->filled('fecha_salida_reingreso')) {
+                            // 🔁 REINGRESO
+                            $empleado->fecha_ingreso = $request->fecha_salida_reingreso;
+                        } else {
+                            // 🚪 SALIDA
+                            $empleado->fecha_salida = $request->creacion;
+                        }
+                    }
 
                     $empleado->save();
 
@@ -97,7 +106,6 @@ class FormerEmpleadoController extends Controller
             ], 500);
         }
     }
-    
 
     public function updateFechaSalida(Request $request)
     {
