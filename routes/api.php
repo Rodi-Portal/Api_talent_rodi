@@ -7,23 +7,22 @@ use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
+use App\Http\Controllers\Api\Comunicacion360\AccesosController;
+use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
 use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
+//use App\Http\Controllers\Api\Empleado\DashboardController;
+use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
+use App\Http\Controllers\Api\Empleado\ProfileController;
+use App\Http\Controllers\Api\Rodi\ReporteBecasController;
 use App\Http\Controllers\Auth\PermissionController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
-//use App\Http\Controllers\Api\Empleado\DashboardController;
-use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\Api\Rodi\ReporteBecasController;
-
-use App\Http\Controllers\Api\Empleado\ProfileController;
-use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
-use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
 //use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\ChecadasController;
 use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
 use App\Http\Controllers\Comunicacion\RecordatorioController;
 use App\Http\Controllers\ConfiguracionColumnasController;
-use App\Http\Controllers\Api\Comunicacion360\AccesosController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Dashboard\OrganigramaController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
@@ -51,9 +50,9 @@ use App\Http\Controllers\ProyectosHistorialController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
+use App\Http\Controllers\WhatsAppController;
 use App\Modules\AuthCore\Controllers\AdminRecoveryController;
 use App\Modules\AuthCore\Controllers\EmpleadoRecoveryController;
-use App\Http\Controllers\WhatsAppController;
 // routes/api.php
 use Illuminate\Http\Request;
 
@@ -470,9 +469,9 @@ Route::middleware('auth:empleado')->get(
 );
 Route::middleware('auth:empleado')->get(
     '/empleado/approvers',
-[EmpleadoApproversController::class, 'index']
+    [EmpleadoApproversController::class, 'index']
 );
-Route::middleware('auth:empleado')->post('/empleado/incidencias',[EmpleadoIncidenciasController::class,'store']);
+Route::middleware('auth:empleado')->post('/empleado/incidencias', [EmpleadoIncidenciasController::class, 'store']);
 Route::middleware('auth:empleado')->get('empleado/incidencias', [EmpleadoIncidenciasController::class, 'index']);
 Route::middleware(['auth:empleado'])
     ->prefix('empleado')
@@ -534,8 +533,23 @@ Route::prefix('comunicacion360')->group(function () {
     Route::post('/accesos/generar-individual', [AccesosController::class, 'generarIndividual']);
     Route::post('/accesos/actualizar-individual', [AccesosController::class, 'actualizarIndividual']);
 });
+Route::prefix('comunicacion360/tasks')->group(function () {
 
+    // Obtener todas las tareas
+    Route::get('/', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'index']);
 
+    // Crear tarea
+    Route::post('/', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'store']);
+
+    // Obtener una tarea por ID
+    Route::get('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'show']);
+
+    // Actualizar tarea
+    Route::put('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'update']);
+
+    // Eliminar (opcional)
+    Route::delete('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'destroy']);
+});
 
 //********************** Fin Rutas Comunicacion 360 ****************************//
 
