@@ -8,15 +8,16 @@ use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
+use App\Http\Controllers\Api\Comunicacion360\PlantillasController;
 use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
-use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 //use App\Http\Controllers\Api\Empleado\DashboardController;
+use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
 use App\Http\Controllers\Api\Empleado\ProfileController;
 use App\Http\Controllers\Api\Rodi\ReporteBecasController;
 use App\Http\Controllers\Auth\PermissionController;
-use App\Http\Controllers\Comunicacion\CalendarioController;
 //use App\Http\Controllers\AvanceController;
+use App\Http\Controllers\Comunicacion\CalendarioController;
 use App\Http\Controllers\Comunicacion\ChecadasController;
 use App\Http\Controllers\Comunicacion\ChecadorController;
 use App\Http\Controllers\Comunicacion\PoliticasAsistenciaController;
@@ -52,9 +53,8 @@ use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
 use App\Http\Controllers\WhatsAppController;
 use App\Modules\AuthCore\Controllers\AdminRecoveryController;
-use App\Modules\AuthCore\Controllers\EmpleadoRecoveryController;
 // routes/api.php
-use Illuminate\Http\Request;
+use App\Modules\AuthCore\Controllers\EmpleadoRecoveryController;
 
 /*
 |--------------------------------------------------------------------------
@@ -551,6 +551,25 @@ Route::prefix('comunicacion360/tasks')->group(function () {
     Route::delete('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'destroy']);
 });
 
+use Illuminate\Http\Request;
+
+Route::prefix('comunicacion360/plantillas')->group(function () {
+
+    // Obtener todas las plantillas
+    Route::get('/', [PlantillasController::class, 'index']);
+    // Crear plantilla
+    Route::post('/', [PlantillasController::class, 'store']);
+    // Actualizar plantilla
+    Route::put('/{id}', [PlantillasController::class, 'update']);
+    // Eliminado Suave
+    Route::delete('/{id}', [PlantillasController::class, 'destroy']);
+    Route::post('/{id}/asignar', [PlantillasController::class, 'asignar']);
+
+    Route::get('/empleados/{id}/plantillas', [PlantillasController::class, 'empleadoPlantillas']);
+    Route::post('/{id}/desasignar', [PlantillasController::class, 'desasignarEmpleado']
+    );
+
+});
 //********************** Fin Rutas Comunicacion 360 ****************************//
 
 /*notificaciones  via  whatsapp modulo empleados*/
