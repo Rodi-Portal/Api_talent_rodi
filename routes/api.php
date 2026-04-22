@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
 //use App\Http\Controllers\Api\Empleado\DashboardController;
 use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
+use App\Http\Controllers\Api\Empleado\EmpleadoTareasController;
 use App\Http\Controllers\Api\Empleado\ProfileController;
 use App\Http\Controllers\Api\Rodi\ReporteBecasController;
 use App\Http\Controllers\Auth\PermissionController;
@@ -471,6 +472,14 @@ Route::middleware('auth:empleado')->get(
     '/empleado/approvers',
     [EmpleadoApproversController::class, 'index']
 );
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/empleado/tareas', [EmpleadoTareasController::class, 'index']);
+    Route::post('/empleado/tareas/{id}/toggle', [EmpleadoTareasController::class, 'toggle']);
+    Route::post('/empleado/tareas/{id}/comentarios',[EmpleadoTareasController::class, 'storeComentario']
+    );
+
+});
+Route::post('/empleado/tareas/{id}/toggle', [EmpleadoTareasController::class, 'toggle']);
 Route::middleware('auth:empleado')->post('/empleado/incidencias', [EmpleadoIncidenciasController::class, 'store']);
 Route::middleware('auth:empleado')->get('empleado/incidencias', [EmpleadoIncidenciasController::class, 'index']);
 Route::middleware(['auth:empleado'])
