@@ -346,6 +346,8 @@ class PlantillasController extends Controller
             'id_portal'   => ['required', 'integer', 'min:1'],
             'empleados'   => ['required', 'array', 'min:1'],
             'empleados.*' => ['required', 'integer', 'min:1'],
+            'tipo'        => ['required', 'string', 'in:unica,recurrente'],
+            'frecuencia'  => ['nullable', 'string', 'in:diaria,semanal,mensual'],
         ]);
 
         $idPortal = (int) $validated['id_portal'];
@@ -355,6 +357,19 @@ class PlantillasController extends Controller
             ->filter(fn($item) => $item > 0)
             ->unique()
             ->values();
+
+        $tipo       = $validated['tipo'];
+        $frecuencia = $tipo === 'recurrente'
+            ? ($validated['frecuencia'] ?? null)
+            : null;
+
+        if ($tipo === 'recurrente' && ! $frecuencia) {
+            return response()->json([
+                'ok'   => false,
+                'code' => 'FREQUENCY_REQUIRED',
+                'data' => null,
+            ], 422);
+        }
 
         $plantilla = Plantilla::query()
             ->with(['tareas'])
@@ -455,6 +470,9 @@ class PlantillasController extends Controller
                             'fecha_asignacion'   => $fechaAsignacion,
                             'fecha_inicio'       => null,
                             'fecha_limite'       => null,
+                            'tipo'               => $tipo,
+                            'frecuencia'         => $frecuencia,
+                            'ultima_generacion'  => null,
                             'fecha_finalizacion' => null,
                             'updated_at'         => now(),
                         ]);
@@ -481,6 +499,9 @@ class PlantillasController extends Controller
                             'fecha_asignacion'   => $fechaAsignacion,
                             'fecha_inicio'       => null,
                             'fecha_limite'       => null,
+                            'tipo'               => $tipo,
+                            'frecuencia'         => $frecuencia,
+                            'ultima_generacion'  => null,
                             'fecha_finalizacion' => null,
                             'created_at'         => now(),
                             'updated_at'         => now(),
@@ -489,6 +510,13 @@ class PlantillasController extends Controller
                     $asignados++;
                     $resultadoCode = 'ASSIGNED';
                 }
+                \Log::info('Tareas de plantilla al asignar', [
+                    'plantilla_id'  => $plantilla->id,
+                    'total_tareas'  => $plantilla->tareas->count(),
+                    'empleado_id'   => $empleado->id,
+                    'asignacion_id' => $plantillaAsignacionId ?? null,
+                ]);
+                $tareasInsertadas = 0;
 
                 foreach ($plantilla->tareas as $tarea) {
                     DB::connection('portal_main')
@@ -517,6 +545,18 @@ class PlantillasController extends Controller
                             'created_at'              => now(),
                             'updated_at'              => now(),
                         ]);
+
+                    $tareasInsertadas++;
+                }
+
+                if ($tipo === 'recurrente' && $tareasInsertadas > 0) {
+                    DB::connection('portal_main')
+                        ->table('comunicacion360_plantilla_asignaciones')
+                        ->where('id', $plantillaAsignacionId)
+                        ->update([
+                            'ultima_generacion' => $fechaAsignacion,
+                            'updated_at'        => $fechaAsignacion,
+                        ]);
                 }
 
                 DB::connection('portal_main')->commit();
@@ -532,6 +572,8 @@ class PlantillasController extends Controller
                 \Log::error('Error al asignar plantilla Comunicación 360', [
                     'plantilla_id' => $plantilla->id,
                     'empleado_id'  => $empleado->id ?? $empleadoId,
+                    'tipo'         => $tipo,
+                    'frecuencia'   => $frecuencia,
                     'error'        => $e->getMessage(),
                 ]);
 
