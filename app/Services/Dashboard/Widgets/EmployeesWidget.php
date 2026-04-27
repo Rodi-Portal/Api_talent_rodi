@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Services\Dashboard\Widgets;
 
 use Carbon\Carbon;
@@ -47,8 +46,7 @@ class EmployeesWidget
         return $this->db()->table('empleados as e')
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)
-            ->where('e.status', 1)
-
+            ->whereIn('e.status', [1, 2]) // activos y exempleados
             ->when(
                 $clientId,
                 fn($q) => $q->where('e.id_cliente', $clientId),
@@ -58,6 +56,33 @@ class EmployeesWidget
                 DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
                 [$rangeStart->toDateString(), $rangeEnd->toDateString()]
             )
+            ->count();
+    }
+
+    public function activeInPeriodCount(
+        int $portalId,
+        Collection $allowedClients,
+        ?int $clientId,
+        Carbon $rangeStart,
+        Carbon $rangeEnd
+    ): int {
+        return $this->db()->table('empleados as e')
+            ->where('e.id_portal', $portalId)
+            ->where('e.eliminado', 0)
+            ->whereIn('e.status', [1, 2]) // activos y exempleados; excluye preempleo
+            ->when(
+                $clientId,
+                fn($q) => $q->where('e.id_cliente', $clientId),
+                fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+            )
+            ->whereRaw(
+                'COALESCE(e.fecha_ingreso, DATE(e.creacion)) <= ?',
+                [$rangeEnd->toDateString()]
+            )
+            ->where(function ($q) use ($rangeStart) {
+                $q->whereNull('e.fecha_salida')
+                    ->orWhere('e.fecha_salida', '>=', $rangeStart->toDateString());
+            })
             ->count();
     }
 }
