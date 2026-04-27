@@ -38,14 +38,17 @@ class TurnoverWidget
         return $this->db()->table('empleados as e')
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)
-            ->where('e.status', 1) // solo contratados
+            ->whereIn('e.status', [1, 2])
             ->when(
                 $clientId,
                 fn($q) => $q->where('e.id_cliente', $clientId),
                 fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
             )
             ->whereRaw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) <= ?', [$asOfDate])
-
+            ->where(function ($q) use ($asOfDate) {
+                $q->whereNull('e.fecha_salida')
+                    ->orWhere('e.fecha_salida', '>=', $asOfDate);
+            })
             ->count();
     }
 
@@ -61,21 +64,21 @@ class TurnoverWidget
     ): array {
 
         $terminations = $this->db()
-            ->table('comentarios_former_empleado as cf')
-            ->join('empleados as e', 'e.id', '=', 'cf.id_empleado')
+            ->table('empleados as e')
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)
+            ->where('e.status', 2)
             ->when(
                 $clientId,
                 fn($q) => $q->where('e.id_cliente', $clientId),
                 fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
             )
-            ->whereBetween('cf.creacion', [
+            ->whereNotNull('e.fecha_salida')
+            ->whereBetween('e.fecha_salida', [
                 $rangeStart->toDateString(),
                 $rangeEnd->toDateString(),
             ])
-            ->distinct('cf.id_empleado')
-            ->count('cf.id_empleado');
+            ->count();
 
         $hcStart = $this->headcountAsOf(
             $portalId,
@@ -147,21 +150,21 @@ class TurnoverWidget
             // BAJAS (nuevo modelo)
             // ======================
             $terms = $this->db()
-                ->table('comentarios_former_empleado as cf')
-                ->join('empleados as e', 'e.id', '=', 'cf.id_empleado')
+                ->table('empleados as e')
                 ->where('e.id_portal', $portalId)
                 ->where('e.eliminado', 0)
+                ->where('e.status', 2)
                 ->when(
                     $clientId,
                     fn($q) => $q->where('e.id_cliente', $clientId),
                     fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
                 )
-                ->whereBetween('cf.creacion', [
+                ->whereNotNull('e.fecha_salida')
+                ->whereBetween('e.fecha_salida', [
                     $mStart->toDateString(),
                     $mEnd->toDateString(),
                 ])
-                ->distinct('cf.id_empleado')
-                ->count('cf.id_empleado');
+                ->count();
 
             // ======================
             // HEADCOUNT PROMEDIO
@@ -246,21 +249,21 @@ class TurnoverWidget
             // BAJAS (corregido)
             // =======================
             $terms = $this->db()
-                ->table('comentarios_former_empleado as cf')
-                ->join('empleados as e', 'e.id', '=', 'cf.id_empleado')
+                ->table('empleados as e')
                 ->where('e.id_portal', $portalId)
                 ->where('e.eliminado', 0)
+                ->where('e.status', 2)
                 ->when(
                     $clientId,
                     fn($q) => $q->where('e.id_cliente', $clientId),
                     fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
                 )
-                ->whereBetween('cf.creacion', [
+                ->whereNotNull('e.fecha_salida')
+                ->whereBetween('e.fecha_salida', [
                     $mStart->toDateString(),
                     $mEnd->toDateString(),
                 ])
-                ->distinct('cf.id_empleado')
-                ->count('cf.id_empleado');
+                ->count();
 
             // =======================
             // HEADCOUNT PROMEDIO
@@ -348,17 +351,18 @@ class TurnoverWidget
         // BAJAS agrupadas por día (CORREGIDO)
         // =======================
         $termsByDay = $this->db()
-            ->table('comentarios_former_empleado as cf')
-            ->join('empleados as e', 'e.id', '=', 'cf.id_empleado')
-            ->selectRaw("DATE(cf.creacion) as d, COUNT(DISTINCT cf.id_empleado) as total")
+            ->table('empleados as e')
+            ->selectRaw("DATE(e.fecha_salida) as d, COUNT(*) as total")
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)
+            ->where('e.status', 2)
             ->when(
                 $clientId,
                 fn($q) => $q->where('e.id_cliente', $clientId),
                 fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
             )
-            ->whereBetween('cf.creacion', [
+            ->whereNotNull('e.fecha_salida')
+            ->whereBetween('e.fecha_salida', [
                 $start->toDateString(),
                 $end->toDateString(),
             ])
@@ -414,23 +418,22 @@ class TurnoverWidget
         Carbon $rangeEnd,
         int $limit = 5
     ): array {
-
         $termsByClient = $this->db()
-            ->table('comentarios_former_empleado as cf')
-            ->join('empleados as e', 'e.id', '=', 'cf.id_empleado')
-            ->selectRaw('e.id_cliente as client_id, COUNT(DISTINCT cf.id_empleado) as total')
+            ->table('empleados as e')
+            ->selectRaw('e.id_cliente as client_id, COUNT(*) as total')
             ->where('e.id_portal', $portalId)
             ->where('e.eliminado', 0)
+            ->where('e.status', 2)
             ->when(
                 $clientId,
                 fn($q) => $q->where('e.id_cliente', $clientId),
                 fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
             )
-            ->whereBetween('cf.creacion', [
+            ->whereNotNull('e.fecha_salida')
+            ->whereBetween('e.fecha_salida', [
                 $rangeStart->toDateString(),
                 $rangeEnd->toDateString(),
             ])
-
             ->groupBy('e.id_cliente')
             ->pluck('total', 'client_id'); // [12 => 3, 7 => 1]
 

@@ -115,7 +115,7 @@ class DashboardController extends Controller
         } else {
             $requestedClientId = $requestedClientId ? (int) $requestedClientId : null;
         }
-
+        $roleId        = $this->roleIdOf($user);
         $scopeCacheKey = "dash:scope:p{$portalId}:u{$user->id}:r{$roleId}";
 
         $scope = Cache::remember($scopeCacheKey, 300, function () use ($request, $user) {
@@ -200,7 +200,6 @@ class DashboardController extends Controller
         // =========================================
         // 8) Cache 60s (incluye rol)
         // =========================================
-        $roleId = $this->roleIdOf($user);
 
         // scope estable (ordenado)
         $scopeSorted   = $allowedClients->values()->sort()->values()->all();
@@ -318,59 +317,6 @@ class DashboardController extends Controller
                     $rangeEnd,
                     5
                 );
-            }
-
-            /* =====================================================
-                    ⭐ 1) RECLUTAMIENTO – Servicio KPIs + Chart
-                ===================================================== */
-
-            $recruit = new \App\Services\Dashboard\RecruitmentService($conn);
-
-            // KPIs Reclutamiento
-            $kpis = array_merge(
-                $kpis,
-                $recruit->getKpis($portalId, $allowedClients, $clientId, $rangeStart, $rangeEnd)
-            );
-
-            // 🟡 Reclutamiento: mantener lógica actual por ahora
-            if ($periodType === 'by-month') {
-
-                $tmp = $recruit->getChartDaily(
-                    $portalId,
-                    $allowedClients,
-                    $clientId,
-                    $periodBase
-                );
-
-                $charts['recruitment_overview'] = [
-                    'labels' => $tmp['days'], // ✅ CORRECTO
-                    'series' => [
-                        ['name' => 'En espera', 'data' => $tmp['waiting']],
-                        ['name' => 'En proceso', 'data' => $tmp['in_process']],
-                        ['name' => 'Cerradas', 'data' => $tmp['closed']],
-                        ['name' => 'Canceladas', 'data' => $tmp['cancelled']],
-                    ],
-                ];
-
-            } else {
-
-                $tmp = $recruit->getChartByRange(
-                    $portalId,
-                    $allowedClients,
-                    $clientId,
-                    $rangeStart,
-                    $rangeEnd
-                );
-
-                $charts['recruitment_overview'] = [
-                    'labels' => $tmp['months'], // ✅ CORRECTO
-                    'series' => [
-                        ['name' => 'En espera', 'data' => $tmp['waiting']],
-                        ['name' => 'En proceso', 'data' => $tmp['in_process']],
-                        ['name' => 'Cerradas', 'data' => $tmp['closed']],
-                        ['name' => 'Canceladas', 'data' => $tmp['cancelled']],
-                    ],
-                ];
             }
 
             // =========================
@@ -600,7 +546,7 @@ class DashboardController extends Controller
                         ->whereDate('ev.inicio', '<=', $rangeEnd->toDateString())
                         ->whereDate('ev.fin', '>=', $rangeStart->toDateString())
                         ->whereIn('ev.id_tipo', [1, 2, 3, 4]) // FALTA y PERMISO (verifica ids reales)
-                        ->selectRaw('SUM(DATEDIFF(ev.fin, ev.inicio) + 1) as total')
+                        ->selectRaw('SUM(GREATEST(DATEDIFF(ev.fin, ev.inicio) + 1, 0)) as total')
                         ->value('total') ?? 0;
 
                     // 2️⃣ Calcular días laborales del periodo
@@ -632,9 +578,11 @@ class DashboardController extends Controller
                     $avgEmployees = ($hcStart + $hcEnd) / 2;
 
                     // 4️⃣ Índice real
-                    if ($avgEmployees > 0 && $workingDays > 0) {
+                    $denominator = $avgEmployees * $workingDays;
+
+                    if ($denominator > 0 && $totalAbsences >= 0) {
                         $kpis['absences_period_pct'] = round(
-                            ($totalAbsences / ($avgEmployees * $workingDays)) * 100,
+                            ($totalAbsences / $denominator) * 100,
                             2
                         );
                     } else {
@@ -682,7 +630,7 @@ class DashboardController extends Controller
                         ->whereDate('ev.inicio', '<=', $rangeEnd->toDateString())
                         ->whereDate('ev.fin', '>=', $rangeStart->toDateString())
                         ->whereIn('ev.id_tipo', [1, 2, 3, 4]) // FALTA y PERMISO (verifica ids reales)
-                        ->selectRaw('SUM(DATEDIFF(ev.fin, ev.inicio) + 1) as total')
+                        ->selectRaw('SUM(GREATEST(DATEDIFF(ev.fin, ev.inicio) + 1, 0)) as total')
                         ->value('total') ?? 0;
 
                     // 2️⃣ Calcular días laborales del periodo
@@ -714,9 +662,11 @@ class DashboardController extends Controller
                     $avgEmployees = ($hcStart + $hcEnd) / 2;
 
                     // 4️⃣ Índice real
-                    if ($avgEmployees > 0 && $workingDays > 0) {
+                    $denominator = $avgEmployees * $workingDays;
+
+                    if ($denominator > 0 && $totalAbsences >= 0) {
                         $kpis['absences_period_pct'] = round(
-                            ($totalAbsences / ($avgEmployees * $workingDays)) * 100,
+                            ($totalAbsences / $denominator) * 100,
                             2
                         );
                     } else {
@@ -730,7 +680,9 @@ class DashboardController extends Controller
             // =========================
             // 💰 PRENÓMINA (gráfica)
             // =========================
-            if ($modulesUser['pre']) {
+// 💰 PRENÓMINA (gráfica)
+// 💰 PRENÓMINA (gráfica + KPI)
+            if ($modulesUser['com']) {
 
                 $charts['prenominapayments'] =
                 $prenominaService->chartByPeriod(
@@ -743,21 +695,85 @@ class DashboardController extends Controller
                 $lastPayroll = null;
 
                 if (! empty($charts['prenominapayments']['series'])) {
+
                     foreach ($charts['prenominapayments']['series'] as $serie) {
-                        if ($serie['name'] === 'Total pagado') {
-                            $lastPayroll = end($serie['data']);
+
+                        // 🔥 AQUI ESTA EL FIX
+                        if (in_array($serie['name'], ['Total pagado', 'Total Final'], true)) {
+
+                            $data = $serie['data'];
+
+                            if (! empty($data)) {
+                                $lastPayroll = end($data); // último valor
+                            }
+
                             break;
                         }
                     }
                 }
 
-                $kpis['last_payroll_amount'] = $lastPayroll;
+                $kpis['last_payroll_amount'] = $lastPayroll ?? 0;
             }
 
             // =========================
-            // 🎯 ORIGEN DEL TALENTO (pie) — bolsa_trabajo
+            // RECLUTAMIENTO: KPIs, gráfica y origen del talento
             // =========================
             if ($modulesUser['reclu']) {
+
+                $recruit = new \App\Services\Dashboard\RecruitmentService($conn);
+
+                // KPIs
+                $kpis = array_merge(
+                    $kpis,
+                    $recruit->getKpis(
+                        $portalId,
+                        $allowedClients,
+                        $clientId,
+                        $rangeStart,
+                        $rangeEnd
+                    )
+                );
+
+                // Charts
+                if ($periodType === 'by-month') {
+
+                    $tmp = $recruit->getChartDaily(
+                        $portalId,
+                        $allowedClients,
+                        $clientId,
+                        $periodBase
+                    );
+
+                    $charts['recruitment_overview'] = [
+                        'labels' => $tmp['days'],
+                        'series' => [
+                            ['name' => 'En espera', 'data' => $tmp['waiting']],
+                            ['name' => 'En proceso', 'data' => $tmp['in_process']],
+                            ['name' => 'Cerradas', 'data' => $tmp['closed']],
+                            ['name' => 'Canceladas', 'data' => $tmp['cancelled']],
+                        ],
+                    ];
+
+                } else {
+
+                    $tmp = $recruit->getChartByRange(
+                        $portalId,
+                        $allowedClients,
+                        $clientId,
+                        $rangeStart,
+                        $rangeEnd
+                    );
+
+                    $charts['recruitment_overview'] = [
+                        'labels' => $tmp['months'],
+                        'series' => [
+                            ['name' => 'En espera', 'data' => $tmp['waiting']],
+                            ['name' => 'En proceso', 'data' => $tmp['in_process']],
+                            ['name' => 'Cerradas', 'data' => $tmp['closed']],
+                            ['name' => 'Canceladas', 'data' => $tmp['cancelled']],
+                        ],
+                    ];
+                }
                 $charts['talent_sources'] = $talentSourceSvc->breakdown(
                     $portalId,
                     $rangeStart,
@@ -1018,7 +1034,7 @@ class DashboardController extends Controller
                     fn($q) => $q->where('e.id_cliente', $clientId),
                     fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
                 )
-                ->whereRaw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) <= ?', [$start])
+                ->whereRaw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) <= ?', [$start->toDateString()])
                 ->where(function ($q) use ($start) {
                     $q->whereNull('e.fecha_salida')
                         ->orWhere('e.fecha_salida', '>=', $start);
@@ -1034,7 +1050,7 @@ class DashboardController extends Controller
                     fn($q) => $q->where('e.id_cliente', $clientId),
                     fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
                 )
-                ->whereRaw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) <= ?', [$end])
+                ->whereRaw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) <= ?', [$end->toDateString()])
                 ->where(function ($q) use ($end) {
                     $q->whereNull('e.fecha_salida')
                         ->orWhere('e.fecha_salida', '>=', $end);
@@ -1047,7 +1063,7 @@ class DashboardController extends Controller
                 ? round(($terminations / $avgEmployees) * 100, 2)
                 : 0;
 
-// LISTA (altas)
+            // LISTA (altas)
             $hireItems = $this->db()->table('empleados as e')
                 ->select([
                     'e.id',
@@ -1077,7 +1093,7 @@ class DashboardController extends Controller
                 )
                 ->get();
 
-// LISTA (bajas)
+            // LISTA (bajas)
             $terminationItems = $this->db()->table('empleados as e')
                 ->select([
                     'e.id',
@@ -1154,16 +1170,18 @@ class DashboardController extends Controller
                 ])
                 ->where('r.id_portal', $portalId)
                 ->where('r.eliminado', 0)
-                ->whereIn('r.status', [2, 3, 0])
                 ->when(
                     $clientId,
                     fn($q) => $q->where('r.id_cliente', $clientId),
                     fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
                 )
-                ->whereDate('r.creacion', '<=', $end->toDateString())
+                ->where('r.creacion', '<=', $end)
                 ->where(function ($q) use ($start) {
                     $q->where('r.status', 2)
-                        ->orWhereDate('r.edicion', '>=', $start->toDateString());
+                        ->orWhere(function ($sub) use ($start) {
+                            $sub->whereIn('r.status', [0, 3])
+                                ->where('r.edicion', '>=', $start);
+                        });
                 })
                 ->orderBy('r.creacion', 'desc')
                 ->limit(500)
