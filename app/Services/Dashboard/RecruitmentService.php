@@ -40,11 +40,13 @@ class RecruitmentService
             );
         $activePeriod = (clone $baseQuery)
             ->where('r.eliminado', 0)
-            ->whereIn('r.status', [2, 3, 0])
             ->where('r.creacion', '<=', $end)
             ->where(function ($q) use ($start) {
                 $q->where('r.status', 2)
-                    ->orWhere('r.edicion', '>=', $start);
+                    ->orWhere(function ($sub) use ($start) {
+                        $sub->whereIn('r.status', [0, 3])
+                            ->where('r.edicion', '>=', $start);
+                    });
             })
             ->count();
         // ======================================
@@ -227,14 +229,19 @@ class RecruitmentService
             $inProcess[] = $this->db()->table('requisicion as r')
                 ->where('r.id_portal', $portalId)
                 ->where('r.eliminado', 0)
-                ->whereNull('r.comentario_final')
-                ->where('r.status', 2)
+                ->where('r.creacion', '<=', $mEnd)
                 ->when(
                     $clientId,
                     fn($q) => $q->where('r.id_cliente', $clientId),
                     fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
                 )
-                ->whereBetween('r.creacion', [$mStart, $mEnd])
+                ->where(function ($q) use ($mStart) {
+                    $q->where('r.status', 2)
+                        ->orWhere(function ($sub) use ($mStart) {
+                            $sub->whereIn('r.status', [0, 3])
+                                ->where('r.edicion', '>=', $mStart);
+                        });
+                })
                 ->count();
 
             // ============================
@@ -243,7 +250,7 @@ class RecruitmentService
             $closed[] = $this->db()->table('requisicion as r')
                 ->where('r.id_portal', $portalId)
                 ->where('r.eliminado', 0)
-                ->whereNotNull('r.comentario_final')
+                ->where('r.status', 3)
                 ->when(
                     $clientId,
                     fn($q) => $q->where('r.id_cliente', $clientId),
@@ -257,7 +264,8 @@ class RecruitmentService
             // ============================
             $cancelled[] = $this->db()->table('requisicion as r')
                 ->where('r.id_portal', $portalId)
-                ->where('r.eliminado', 1)
+                ->where('r.eliminado', 0)
+                ->where('r.status', 0)
                 ->when(
                     $clientId,
                     fn($q) => $q->where('r.id_cliente', $clientId),
@@ -330,14 +338,19 @@ class RecruitmentService
             $inProcess[] = $this->db()->table('requisicion as r')
                 ->where('r.id_portal', $portalId)
                 ->where('r.eliminado', 0)
-                ->whereNull('r.comentario_final')
-                ->where('r.status', 2)
+                ->where('r.creacion', '<=', $cursor->copy()->endOfDay())
                 ->when(
                     $clientId,
                     fn($q) => $q->where('r.id_cliente', $clientId),
                     fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
                 )
-                ->whereDate('r.creacion', $cursor->toDateString())
+                ->where(function ($q) use ($cursor) {
+                    $q->where('r.status', 2)
+                        ->orWhere(function ($sub) use ($cursor) {
+                            $sub->whereIn('r.status', [0, 3])
+                                ->where('r.edicion', '>=', $cursor->copy()->startOfDay());
+                        });
+                })
                 ->count();
 
             // ============================
@@ -346,7 +359,7 @@ class RecruitmentService
             $closed[] = $this->db()->table('requisicion as r')
                 ->where('r.id_portal', $portalId)
                 ->where('r.eliminado', 0)
-                ->whereNotNull('r.comentario_final')
+                ->where('r.status', 3)
                 ->when(
                     $clientId,
                     fn($q) => $q->where('r.id_cliente', $clientId),
@@ -360,7 +373,8 @@ class RecruitmentService
             // ============================
             $cancelled[] = $this->db()->table('requisicion as r')
                 ->where('r.id_portal', $portalId)
-                ->where('r.eliminado', 1)
+                ->where('r.eliminado', 0)
+                ->where('r.status', 0)
                 ->when(
                     $clientId,
                     fn($q) => $q->where('r.id_cliente', $clientId),
