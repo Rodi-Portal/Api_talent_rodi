@@ -127,7 +127,7 @@ Route::middleware(['api'])->group(function () {
     } else {
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     }
-
+    Route::get('/dashboard/kpi-detail', [DashboardController::class, 'kpiDetail']);
     Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
     Route::post('/send-message-movimiento', [WhatsAppController::class, 'sendMessage_movimiento_aspirante']);
     Route::post('/send-message-comentario-reclu', [WhatsAppController::class, 'sendMessage_comentario_reclu']);

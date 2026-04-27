@@ -205,12 +205,13 @@ class DashboardController extends Controller
         // scope estable (ordenado)
         $scopeSorted   = $allowedClients->values()->sort()->values()->all();
         $scopeHash     = md5(implode(',', $scopeSorted));
-        $periodTypeRaw = (string) $request->query('period_type', 'month');
+        $periodTypeRaw = (string) $request->query('period_type', 'last-365');
 
         $periodType = match ($periodTypeRaw) {
-            'by-month', 'month' => 'month',
+            'by-month', 'month' => 'by-month',
+            'by-year', 'year'   => 'by-year',
             'last-365' => 'last-365',
-            default    => 'month',
+            default    => 'last-365',
         };
 
         // hash del rango real de fechas
@@ -261,6 +262,7 @@ class DashboardController extends Controller
                 'com'    => $modules['com'] && $this->hasPermission($user, 'module.comunicacion.ver', $clientId),
                 'com360' => $modules['com360'] && $this->hasPermission($user, 'module.comunicacion360.ver', $clientId),
             ];
+
             // =====================================================
             // ⭐ RECLUTAMIENTO: Servicio KPIs + gráfica 6 meses
             // =====================================================
@@ -331,7 +333,7 @@ class DashboardController extends Controller
             );
 
             // 🟡 Reclutamiento: mantener lógica actual por ahora
-            if ($periodType === 'month') {
+            if ($periodType === 'by-month') {
 
                 $tmp = $recruit->getChartDaily(
                     $portalId,
@@ -389,7 +391,7 @@ class DashboardController extends Controller
                         $rangeEnd
                     )
                 );
-                if ($periodType === 'month') {
+                if ($periodType === 'by-month') {
 
                     $raw = $turnoverWidget->chartDaily(
                         $portalId,
@@ -467,7 +469,13 @@ class DashboardController extends Controller
                     $allowedClients,
                     $clientId
                 );
-
+                $kpis['employees_active_period'] = $employeesWidget->activeInPeriodCount(
+                    $portalId,
+                    $allowedClients,
+                    $clientId,
+                    $rangeStart,
+                    $rangeEnd
+                );
                 $kpis['hires_month'] = $employeesWidget->hiresInRange(
                     $portalId,
                     $allowedClients,
@@ -475,6 +483,7 @@ class DashboardController extends Controller
                     $rangeStart,
                     $rangeEnd
                 );
+
                 $quality = $qualityService->fetch(
                     $portalId,
                     $allowedClients->all(),
@@ -552,7 +561,7 @@ class DashboardController extends Controller
                 // =========================
                 // 📊 INCIDENCIAS (gráfica)
                 // =========================
-                if ($periodType === 'month') {
+                if ($periodType === 'by-month') {
 
                     $tmp = $calendarWidget->incidencesDaily(
                         $portalId,
@@ -767,6 +776,7 @@ class DashboardController extends Controller
             // =========================
             // Alertas (sin nuevas queries)
             // =========================
+
             $lists['alerts'] = $alertsWidget->build(
                 $kpis,
                 $lists,
@@ -789,6 +799,387 @@ class DashboardController extends Controller
                 'charts' => $charts,
             ]);
         })();
+    }
+
+    public function kpiDetail(Request $request)
+    {
+        $user = $request->user();
+
+        if (! $user && app()->environment('local', 'production')) {
+            $userId   = (int) $request->query('user_id', 0);
+            $portalId = (int) $request->query('portal_id', 0);
+            $roleId   = (int) $request->query('role_id', 0);
+
+            if ($userId > 0 && $portalId > 0) {
+                $fakeUser = (object) [
+                    'id'        => $userId,
+                    'id_portal' => $portalId,
+                    'id_rol'    => $roleId,
+                ];
+
+                $request->setUserResolver(fn() => $fakeUser);
+                $user = $fakeUser;
+            }
+        }
+
+        if (! $user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $portalId = (int) ($user->id_portal ?? $request->query('portal_id', 0));
+        $kpiKey   = (string) $request->query('kpi_key', '');
+
+        $start = Carbon::parse($request->query('start_date'))->startOfDay();
+        $end   = Carbon::parse($request->query('end_date'))->endOfDay();
+
+        $clientIdParam = $request->query('client_id');
+
+        if (is_array($clientIdParam)) {
+            $allowedClients = collect($clientIdParam)->map(fn($v) => (int) $v)->filter()->values();
+            $clientId       = null;
+        } else {
+            $clientId = $clientIdParam && $clientIdParam !== 'all'
+                ? (int) $clientIdParam
+                : null;
+
+            $allowedClients = collect(
+                $request->query('client_ids', [])
+            )->map(fn($v) => (int) $v)->filter()->values();
+        }
+
+        if ($allowedClients->isEmpty() && ! $clientId) {
+            return response()->json([
+                'items'   => [],
+                'total'   => 0,
+                'message' => 'No hay clientes permitidos para consultar.',
+            ]);
+        }
+
+        if ($kpiKey === 'employees_active_period') {
+            $items = $this->db()
+                ->table('empleados as e')
+                ->select([
+                    'e.id',
+                    'e.id_cliente',
+                    'e.nombre',
+                    'e.paterno',
+                    'e.materno',
+                    'e.correo',
+                    'e.puesto',
+                    'e.departamento',
+                    'e.fecha_ingreso',
+                    'e.fecha_salida',
+                    'e.status',
+                ])
+                ->where('e.id_portal', $portalId)
+                ->where('e.eliminado', 0)
+                ->whereIn('e.status', [1, 2])
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('e.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+                )
+                ->whereRaw(
+                    'COALESCE(e.fecha_ingreso, DATE(e.creacion)) <= ?',
+                    [$end->toDateString()]
+                )
+                ->where(function ($q) use ($start) {
+                    $q->whereNull('e.fecha_salida')
+                        ->orWhere('e.fecha_salida', '>=', $start->toDateString());
+                })
+                ->orderBy('e.paterno')
+                ->orderBy('e.materno')
+                ->orderBy('e.nombre')
+                ->limit(500)
+                ->get();
+
+            return response()->json([
+                'kpi_key' => $kpiKey,
+                'total'   => $items->count(),
+                'items'   => $items,
+            ]);
+        }
+        if ($kpiKey === 'hires_period') {
+            $items = $this->db()
+                ->table('empleados as e')
+                ->select([
+                    'e.id',
+                    'e.id_cliente',
+                    'e.nombre',
+                    'e.paterno',
+                    'e.materno',
+                    'e.correo',
+                    'e.puesto',
+                    'e.departamento',
+                    'e.fecha_ingreso',
+                    'e.fecha_salida',
+                    'e.status',
+                ])
+                ->where('e.id_portal', $portalId)
+                ->where('e.eliminado', 0)
+                ->whereIn('e.status', [1, 2])
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('e.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+                )
+                ->whereBetween(
+                    DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
+                    [$start->toDateString(), $end->toDateString()]
+                )
+                ->orderByRaw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) DESC')
+                ->limit(500)
+                ->get();
+
+            return response()->json([
+                'kpi_key' => $kpiKey,
+                'total'   => $items->count(),
+                'items'   => $items,
+            ]);
+        }
+        if ($kpiKey === 'terminations_period') {
+            $items = $this->db()
+                ->table('empleados as e')
+                ->select([
+                    'e.id',
+                    'e.id_cliente',
+                    'e.nombre',
+                    'e.paterno',
+                    'e.materno',
+                    'e.correo',
+                    'e.puesto',
+                    'e.departamento',
+                    'e.fecha_ingreso',
+                    'e.fecha_salida',
+                    'e.status',
+                ])
+                ->where('e.id_portal', $portalId)
+                ->where('e.eliminado', 0)
+                ->where('e.status', 2) // exempleado
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('e.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+                )
+                ->whereNotNull('e.fecha_salida')
+                ->whereBetween('e.fecha_salida', [
+                    $start->toDateString(),
+                    $end->toDateString(),
+                ])
+                ->orderBy('e.fecha_salida', 'desc')
+                ->limit(500)
+                ->get();
+
+            return response()->json([
+                'kpi_key' => $kpiKey,
+                'total'   => $items->count(),
+                'items'   => $items,
+            ]);
+        }
+        if ($kpiKey === 'turnover_period') {
+
+            // ALTAS
+            $hires = $this->db()->table('empleados as e')
+                ->where('e.id_portal', $portalId)
+                ->where('e.eliminado', 0)
+                ->whereIn('e.status', [1, 2])
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('e.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+                )
+                ->whereBetween(
+                    DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
+                    [$start->toDateString(), $end->toDateString()]
+                )
+                ->count();
+
+            // BAJAS
+            $terminations = $this->db()->table('empleados as e')
+                ->where('e.id_portal', $portalId)
+                ->where('e.eliminado', 0)
+                ->where('e.status', 2)
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('e.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+                )
+                ->whereNotNull('e.fecha_salida')
+                ->whereBetween('e.fecha_salida', [$start, $end])
+                ->count();
+
+            // ACTIVOS (inicio y fin)
+            $activeStart = $this->db()->table('empleados as e')
+                ->where('e.id_portal', $portalId)
+                ->where('e.eliminado', 0)
+                ->whereIn('e.status', [1, 2])
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('e.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+                )
+                ->whereRaw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) <= ?', [$start])
+                ->where(function ($q) use ($start) {
+                    $q->whereNull('e.fecha_salida')
+                        ->orWhere('e.fecha_salida', '>=', $start);
+                })
+                ->count();
+
+            $activeEnd = $this->db()->table('empleados as e')
+                ->where('e.id_portal', $portalId)
+                ->where('e.eliminado', 0)
+                ->whereIn('e.status', [1, 2])
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('e.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+                )
+                ->whereRaw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) <= ?', [$end])
+                ->where(function ($q) use ($end) {
+                    $q->whereNull('e.fecha_salida')
+                        ->orWhere('e.fecha_salida', '>=', $end);
+                })
+                ->count();
+
+            $avgEmployees = ($activeStart + $activeEnd) / 2;
+
+            $turnover = $avgEmployees > 0
+                ? round(($terminations / $avgEmployees) * 100, 2)
+                : 0;
+
+// LISTA (altas)
+            $hireItems = $this->db()->table('empleados as e')
+                ->select([
+                    'e.id',
+                    'e.id_cliente',
+                    'e.nombre',
+                    'e.paterno',
+                    'e.materno',
+                    'e.correo',
+                    'e.puesto',
+                    'e.departamento',
+                    'e.fecha_ingreso',
+                    'e.fecha_salida',
+                    'e.status',
+                    DB::raw("'alta' as movement_type"),
+                ])
+                ->where('e.id_portal', $portalId)
+                ->where('e.eliminado', 0)
+                ->whereIn('e.status', [1, 2])
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('e.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+                )
+                ->whereBetween(
+                    DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
+                    [$start->toDateString(), $end->toDateString()]
+                )
+                ->get();
+
+// LISTA (bajas)
+            $terminationItems = $this->db()->table('empleados as e')
+                ->select([
+                    'e.id',
+                    'e.id_cliente',
+                    'e.nombre',
+                    'e.paterno',
+                    'e.materno',
+                    'e.correo',
+                    'e.puesto',
+                    'e.departamento',
+                    'e.fecha_ingreso',
+                    'e.fecha_salida',
+                    'e.status',
+                    DB::raw("'baja' as movement_type"),
+                ])
+                ->where('e.id_portal', $portalId)
+                ->where('e.eliminado', 0)
+                ->where('e.status', 2)
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('e.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
+                )
+                ->whereNotNull('e.fecha_salida')
+                ->whereBetween('e.fecha_salida', [
+                    $start->toDateString(),
+                    $end->toDateString(),
+                ])
+                ->get();
+
+            $items = $hireItems
+                ->merge($terminationItems)
+                ->sortBy([
+                    ['movement_type', 'asc'],
+                    ['fecha_salida', 'desc'],
+                    ['fecha_ingreso', 'desc'],
+                ])
+                ->values();
+
+            return response()->json([
+                'kpi_key' => $kpiKey,
+                'total'   => $items->count(),
+                'items'   => $items,
+                'meta'    => [
+                    'hires'         => $hires,
+                    'terminations'  => $terminations,
+                    'avg_employees' => $avgEmployees,
+                    'turnover'      => $turnover,
+                ],
+            ]);
+        }
+        if ($kpiKey === 'requisitions_active_period') {
+
+            $items = $this->db()->table('requisicion as r')
+                ->join('cliente as c', 'c.id', '=', 'r.id_cliente')
+                ->select([
+                    'r.id',
+                    'r.id_cliente',
+                    'c.nombre as cliente_nombre',
+                    'r.puesto',
+                    'r.numero_vacantes',
+                    'r.creacion',
+                    'r.edicion',
+                    'r.status',
+                    'r.comentario_final',
+                    DB::raw("
+                CASE
+                    WHEN r.status = 2 THEN 'proceso'
+                    WHEN r.status = 3 THEN 'cerrada'
+                    WHEN r.status = 0 THEN 'cancelada'
+                    ELSE 'otro'
+                END as stage
+            "),
+                ])
+                ->where('r.id_portal', $portalId)
+                ->where('r.eliminado', 0)
+                ->whereIn('r.status', [2, 3, 0])
+                ->when(
+                    $clientId,
+                    fn($q) => $q->where('r.id_cliente', $clientId),
+                    fn($q) => $q->whereIn('r.id_cliente', $allowedClients)
+                )
+                ->whereDate('r.creacion', '<=', $end->toDateString())
+                ->where(function ($q) use ($start) {
+                    $q->where('r.status', 2)
+                        ->orWhereDate('r.edicion', '>=', $start->toDateString());
+                })
+                ->orderBy('r.creacion', 'desc')
+                ->limit(500)
+                ->get();
+
+            return response()->json([
+                'kpi_key' => $kpiKey,
+                'total'   => $items->count(),
+                'items'   => $items,
+            ]);
+        }
+        return response()->json([
+            'items'   => [],
+            'total'   => 0,
+            'message' => 'KPI no soportado todavía.',
+        ]);
     }
 
     private function hasPermission($user, string $key, ?int $clientId = null): bool
