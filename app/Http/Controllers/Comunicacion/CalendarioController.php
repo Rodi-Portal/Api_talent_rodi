@@ -8,8 +8,9 @@ use App\Models\Empleado;
 use App\Models\EventosOption;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Response;
+
 class CalendarioController extends Controller
 {
     //
@@ -139,6 +140,80 @@ class CalendarioController extends Controller
         });
 
         return response()->json(['eventos' => $result]);
+    }
+
+    public function getUltimoMesConEventos(Request $request)
+    {
+        $query = CalendarioEvento::where('eliminado', 0);
+
+        if ($request->has('id_empleado')) {
+            $ids = $request->input('id_empleado');
+
+            if (is_string($ids)) {
+                $ids = explode(',', $ids);
+            }
+
+            if (! is_array($ids)) {
+                $ids = [$ids];
+            }
+
+            $ids = array_filter($ids);
+
+            if (empty($ids)) {
+                return response()->json([
+                    'ok'   => true,
+                    'date' => null,
+                ]);
+            }
+
+            $query->whereIn('id_empleado', $ids);
+        } else {
+            $cli = $request->input('id_cliente');
+
+            if (is_string($cli)) {
+                $cli = explode(',', $cli);
+            }
+
+            if (! is_array($cli)) {
+                $cli = [$cli];
+            }
+
+            $cli = array_filter($cli);
+
+            if (empty($cli)) {
+                return response()->json([
+                    'ok'   => true,
+                    'date' => null,
+                ]);
+            }
+
+            $empleadosIds = Empleado::whereIn('id_cliente', $cli)->pluck('id');
+
+            if ($empleadosIds->isEmpty()) {
+                return response()->json([
+                    'ok'   => true,
+                    'date' => null,
+                ]);
+            }
+
+            $query->whereIn('id_empleado', $empleadosIds);
+        }
+
+        $ultimoInicio = $query->max('inicio');
+
+        if (! $ultimoInicio) {
+            return response()->json([
+                'ok'   => true,
+                'date' => null,
+            ]);
+        }
+
+        $date = \Carbon\Carbon::parse($ultimoInicio)->startOfMonth()->format('Y-m-d');
+
+        return response()->json([
+            'ok'   => true,
+            'date' => $date,
+        ]);
     }
 /*
     public function setEventos(Request $request)
@@ -410,102 +485,102 @@ class CalendarioController extends Controller
     }
  */
     public function eliminarEvento(Request $request, $id)
-{
-    $CONN               = 'portal_main';
-    $ID_TIPO_VACACIONES = 1;
+    {
+        $CONN               = 'portal_main';
+        $ID_TIPO_VACACIONES = 1;
 
-    $regresarVacaciones = (int) $request->input('regresar_vacaciones', 0) === 1;
-    $idUsuario          = (int) $request->input('id_usuario', 0);
+        $regresarVacaciones = (int) $request->input('regresar_vacaciones', 0) === 1;
+        $idUsuario          = (int) $request->input('id_usuario', 0);
 
-    DB::connection($CONN)->beginTransaction();
+        DB::connection($CONN)->beginTransaction();
 
-    try {
-        /** @var \App\Models\CalendarioEvento $evento */
-        $evento = \App\Models\CalendarioEvento::where('id', $id)
-            ->where('eliminado', 0)
-            ->firstOrFail();
+        try {
+            /** @var \App\Models\CalendarioEvento $evento */
+            $evento = \App\Models\CalendarioEvento::where('id', $id)
+                ->where('eliminado', 0)
+                ->firstOrFail();
 
-        $esVacaciones     = ((int) $evento->id_tipo === $ID_TIPO_VACACIONES);
-        $diasReintegrados = 0;
+            $esVacaciones     = ((int) $evento->id_tipo === $ID_TIPO_VACACIONES);
+            $diasReintegrados = 0;
 
-        // 1) Si es vacaciones y el usuario confirmó reintegrar saldo
-        if ($esVacaciones && $regresarVacaciones) {
-            $diasARestaurar = (float) ($evento->dias_evento ?? 0);
+            // 1) Si es vacaciones y el usuario confirmó reintegrar saldo
+            if ($esVacaciones && $regresarVacaciones) {
+                $diasARestaurar = (float) ($evento->dias_evento ?? 0);
 
-            if ($diasARestaurar > 0) {
-                $laboral = DB::connection($CONN)
-                    ->table('laborales_empleado')
-                    ->where('id_empleado', $evento->id_empleado)
-                    ->lockForUpdate()
-                    ->first();
+                if ($diasARestaurar > 0) {
+                    $laboral = DB::connection($CONN)
+                        ->table('laborales_empleado')
+                        ->where('id_empleado', $evento->id_empleado)
+                        ->lockForUpdate()
+                        ->first();
 
-                if (! $laboral) {
-                    throw new \RuntimeException('No se encontró el registro laboral del empleado.');
+                    if (! $laboral) {
+                        throw new \RuntimeException('No se encontró el registro laboral del empleado.');
+                    }
+
+                    $saldoActual = (float) ($laboral->vacaciones_disponibles ?? 0);
+                    $nuevoSaldo  = $saldoActual + $diasARestaurar;
+
+                    DB::connection($CONN)
+                        ->table('laborales_empleado')
+                        ->where('id_empleado', $evento->id_empleado)
+                        ->update([
+                            'vacaciones_disponibles' => $nuevoSaldo,
+                        ]);
+
+                    $diasReintegrados = $diasARestaurar;
                 }
-
-                $saldoActual = (float) ($laboral->vacaciones_disponibles ?? 0);
-                $nuevoSaldo  = $saldoActual + $diasARestaurar;
-
-                DB::connection($CONN)
-                    ->table('laborales_empleado')
-                    ->where('id_empleado', $evento->id_empleado)
-                    ->update([
-                        'vacaciones_disponibles' => $nuevoSaldo,
-                    ]);
-
-                $diasReintegrados = $diasARestaurar;
             }
+
+            // 2) Soft delete del evento
+            $evento->eliminado = 1;
+
+            if ($idUsuario > 0 && isset($evento->id_usuario)) {
+                $evento->id_usuario = $idUsuario;
+            }
+
+            $evento->save();
+
+            DB::connection($CONN)->commit();
+
+        } catch (\Throwable $e) {
+            DB::connection($CONN)->rollBack();
+
+            Log::error('[Calendario] Error al eliminar evento', [
+                'evento_id' => $id,
+                'msg'       => $e->getMessage(),
+                'line'      => $e->getLine(),
+                'file'      => $e->getFile(),
+            ]);
+
+            return response()->json([
+                'ok'      => false,
+                'message' => $e->getMessage(),
+            ], 500);
         }
 
-        // 2) Soft delete del evento
-        $evento->eliminado = 1;
+        // 3) Compensación + re-evaluación de asistencia
+        try {
+            /** @var AsistenciaServicio $svc */
+            $svc = app(AsistenciaServicio::class)->withConnection($CONN);
+            $svc->handleCalendarEventDeletion((int) $evento->id);
 
-        if ($idUsuario > 0 && isset($evento->id_usuario)) {
-            $evento->id_usuario = $idUsuario;
+        } catch (\Throwable $e) {
+            Log::error('[Calendario] Error en compensación post-delete', [
+                'evento_id' => $id,
+                'msg'       => $e->getMessage(),
+            ]);
+            // No interrumpimos la respuesta; el evento ya se borró.
         }
-
-        $evento->save();
-
-        DB::connection($CONN)->commit();
-
-    } catch (\Throwable $e) {
-        DB::connection($CONN)->rollBack();
-
-        Log::error('[Calendario] Error al eliminar evento', [
-            'evento_id' => $id,
-            'msg'       => $e->getMessage(),
-            'line'      => $e->getLine(),
-            'file'      => $e->getFile(),
-        ]);
 
         return response()->json([
-            'ok'      => false,
-            'message' => $e->getMessage(),
-        ], 500);
+            'ok'                      => true,
+            'message'                 => 'Evento eliminado correctamente.',
+            'evento_id'               => (int) $evento->id,
+            'vacaciones_reintegradas' => $esVacaciones && $regresarVacaciones,
+            'dias_reintegrados'       => $diasReintegrados,
+        ], 200);
     }
-
-    // 3) Compensación + re-evaluación de asistencia
-    try {
-        /** @var AsistenciaServicio $svc */
-        $svc = app(AsistenciaServicio::class)->withConnection($CONN);
-        $svc->handleCalendarEventDeletion((int) $evento->id);
-
-    } catch (\Throwable $e) {
-        Log::error('[Calendario] Error en compensación post-delete', [
-            'evento_id' => $id,
-            'msg'       => $e->getMessage(),
-        ]);
-        // No interrumpimos la respuesta; el evento ya se borró.
-    }
-
-    return response()->json([
-        'ok'                      => true,
-        'message'                 => 'Evento eliminado correctamente.',
-        'evento_id'               => (int) $evento->id,
-        'vacaciones_reintegradas' => $esVacaciones && $regresarVacaciones,
-        'dias_reintegrados'       => $diasReintegrados,
-    ], 200);
-}
 
     public function setEventos(Request $request)
     {

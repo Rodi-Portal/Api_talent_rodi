@@ -257,6 +257,7 @@ Route::middleware(['api'])->group(function () {
 
     Route::get('/eventos/tipos', [CalendarioController::class, 'getTiposEvento']);
     Route::get('/eventos', [CalendarioController::class, 'getEventosPorClientes']);
+    Route::get('/eventos/ultimo-mes', [CalendarioController::class, 'getUltimoMesConEventos']);
     Route::get('/archivos/calendario/{id}/stream', [CalendarioController::class, 'streamArchivoCalendario']);
     Route::get('/archivos/{id}/download', [CalendarioController::class, 'downloadArchivoCalendario']);
 
@@ -359,6 +360,7 @@ Route::middleware(['api'])->group(function () {
     Route::get('/checador/mappings', [ChecadorController::class, 'indexMappings']);
     Route::post('/checador/mappings', [ChecadorController::class, 'storeMapping']);
     Route::post('/checador/import', [ChecadorController::class, 'import']);
+    Route::get('/checador/ultimo-dia', [ChecadasController::class, 'ultimoDiaChecadas']);
 
     Route::prefix('checador')->group(function () {
         // crudas (lista simple, ordenadas por fecha/hora)
