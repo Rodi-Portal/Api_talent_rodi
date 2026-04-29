@@ -411,10 +411,25 @@ class ChecadorController extends Controller
             $datesInFile[$fecha] = true; // set
 
             // --- tipo/clase tolerante ---
-            $typeCol        = $cfg['type']['col'] ?? '';
-            $typeRaw        = $typeCol ? (string) ($row[$typeCol] ?? '') : ($norm['type_raw'] ?? '');
-            $typeNor        = $this->mapTypeTolerant((string) $typeRaw, $cfg['type']['dict'] ?? []);
-            [$tipo, $clase] = $this->mapTipoYClase($typeNor, $typeRaw);
+            // --- tipo/clase desde columnas normalizadas o fallback tolerante ---
+            $typeCol      = $cfg['type']['col'] ?? '';
+            $classCol     = $cfg['type']['classCol'] ?? '';
+            $typeRaw      = $typeCol ? (string) ($row[$typeCol] ?? '') : ($norm['type_raw'] ?? '');
+            $tipoDirecto  = $typeCol ? trim((string) ($row[$typeCol] ?? '')) : '';
+            $claseDirecta = $classCol ? trim((string) ($row[$classCol] ?? '')) : '';
+
+            $tipo  = in_array($tipoDirecto, ['in', 'out'], true) ? $tipoDirecto : null;
+            $clase = in_array($claseDirecta, ['work', 'break', 'meal'], true) ? $claseDirecta : null;
+
+            // Si no vienen normalizados, usar lógica anterior
+            if ($tipo === null || $clase === null) {
+                $typeNor = $this->mapTypeTolerant((string) $typeRaw, $cfg['type']['dict'] ?? []);
+
+                [$tipoFallback, $claseFallback] = $this->mapTipoYClase($typeNor, $typeRaw);
+
+                $tipo  = $tipo ?? $tipoFallback;
+                $clase = $clase ?? $claseFallback;
+            }
 
             if ($tipo === null) {
                 $needle = $this->normalizeText((string) $typeRaw);

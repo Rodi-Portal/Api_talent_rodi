@@ -36,11 +36,12 @@ class ChecadasController extends Controller
         $v = $req->validate([
             'id_portal'     => 'required|integer',
             'id_cliente'    => 'nullable',
-            'id_empleado'   => 'nullable', // csv | array | int (PK empleados)
+            'id_empleado'   => 'nullable',
             'from'          => 'nullable|date',
             'to'            => 'nullable|date',
             'order'         => 'nullable|in:asc,desc',
-            'limit'         => 'nullable|integer|min:1|max:5000',
+            'limit'         => 'nullable|integer|min:1|max:500',
+            'page'          => 'nullable|integer|min:1',
             'with_empleado' => 'nullable|boolean',
             'clase'         => 'nullable',
             'tipo'          => 'nullable',
@@ -49,7 +50,9 @@ class ChecadasController extends Controller
         $portalId  = (int) $v['id_portal'];
         $clientIds = $this->normalizeIdClienteParam($req->input('id_cliente'));
         $order     = Arr::get($v, 'order', 'asc');
-        $limit     = (int) Arr::get($v, 'limit', 500);
+        $limit     = (int) Arr::get($v, 'limit', 50);
+        $page      = max(1, (int) Arr::get($v, 'page', 1));
+        $offset    = ($page - 1) * $limit;
         $withEmp   = filter_var(Arr::get($v, 'with_empleado', true), FILTER_VALIDATE_BOOLEAN);
 
         [$from, $to] = $this->resolveDateRange(null, Arr::get($v, 'from'), Arr::get($v, 'to'));
@@ -57,50 +60,53 @@ class ChecadasController extends Controller
         $clases      = $this->normalizeCsvParam($req->input('clase'));
         $tipos       = $this->normalizeCsvParam($req->input('tipo'));
 
-        $rows = $this->checadasQB()
+        $baseQuery = $this->checadasQB()
+            ->where('id_portal', $portalId)
+            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->when(! empty($empFilter), fn($q) => $q->whereIn('id_empleado', $empFilter))
+            ->when(! empty($clases), fn($q) => $q->whereIn('clase', $clases))
+            ->when(! empty($tipos), fn($q) => $q->whereIn('tipo', $tipos))
+            ->whereBetween('check_time', [$from, $to]);
+
+        $total = (clone $baseQuery)->count();
+
+        $rows = (clone $baseQuery)
             ->select([
                 'id', 'id_portal', 'id_cliente', 'id_empleado',
                 'fecha', 'check_time', 'tipo', 'clase',
                 'dispositivo', 'origen', 'hash', 'creado_en',
             ])
-            ->where('id_portal', $portalId)
-            ->when(!empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
-            ->when(!empty($empFilter), fn($q) => $q->whereIn('id_empleado', $empFilter))
-            ->when(!empty($clases),    fn($q) => $q->whereIn('clase', $clases))
-            ->when(!empty($tipos),     fn($q) => $q->whereIn('tipo',  $tipos))
-            ->whereBetween('check_time', [$from, $to])
             ->orderBy('check_time', $order)
+            ->offset($offset)
             ->limit($limit)
             ->get();
 
-        // Enriquecer con datos del empleado (opcional)
         $empMap = collect();
         if ($withEmp && $rows->count()) {
             $ids    = $rows->pluck('id_empleado')->unique()->values();
             $empMap = $this->cargarEmpleadosMap($portalId, $ids);
         }
 
-        // 👇 id_empleado = número de empleado (catálogo). PK queda en id_empleado_pk
         $out = $rows->map(function ($r) use ($empMap) {
             $emp = $empMap->get((int) $r->id_empleado);
+
             return [
-                'id'              => (int) $r->id,
-                'id_portal'       => (int) $r->id_portal,
-                'id_cliente'      => (int) $r->id_cliente,
-                'id_empleado_pk'  => (int) $r->id_empleado,        // PK interno
-                'id_empleado'     => $emp->numero ?? null,         // 👈 número del catálogo
-                'empleado'        => $emp->nombre_completo ?? null,
-                'cliente_nom'     => $emp->nombre_cliente ?? null,
-                'fecha'           => $r->fecha,
-                'check_time'      => $r->check_time,
-                'tipo'            => $r->tipo,
-                'clase'           => $r->clase,
-                'dispositivo'     => $r->dispositivo,
-                'origen'          => $r->origen,
+                'id'             => (int) $r->id,
+                'id_portal'      => (int) $r->id_portal,
+                'id_cliente'     => (int) $r->id_cliente,
+                'id_empleado_pk' => (int) $r->id_empleado,
+                'id_empleado'    => $emp->numero ?? null,
+                'empleado'       => $emp->nombre_completo ?? null,
+                'cliente_nom'    => $emp->nombre_cliente ?? null,
+                'fecha'          => $r->fecha,
+                'check_time'     => $r->check_time,
+                'tipo'           => $r->tipo,
+                'clase'          => $r->clase,
+                'dispositivo'    => $r->dispositivo,
+                'origen'         => $r->origen,
             ];
         });
 
-        // Conteo por sucursal para meta
         $countByCliente = $rows->groupBy('id_cliente')->map->count();
 
         return response()->json([
@@ -109,8 +115,15 @@ class ChecadasController extends Controller
                 'range'            => ['from' => $from, 'to' => $to],
                 'order'            => $order,
                 'rows'             => $rows->count(),
+                'total'            => $total,
                 'id_clientes'      => array_values($clientIds),
                 'count_by_cliente' => (object) $countByCliente,
+                'pagination'       => [
+                    'page'        => $page,
+                    'per_page'    => $limit,
+                    'total'       => $total,
+                    'total_pages' => (int) ceil($total / max(1, $limit)),
+                ],
             ],
             'data' => $out,
         ]);
@@ -120,6 +133,26 @@ class ChecadasController extends Controller
      * GET /checador/checadas/rango
      * Agrupa checadas por día y por empleado dentro de un periodo.
      */
+    public function ultimoDiaChecadas(Request $req)
+    {
+        $req->validate([
+            'id_portal'  => 'required|integer',
+            'id_cliente' => 'nullable',
+        ]);
+
+        $portalId  = (int) $req->id_portal;
+        $clientIds = $this->normalizeIdClienteParam($req->input('id_cliente'));
+
+        $fecha = $this->checadasQB()
+            ->where('id_portal', $portalId)
+            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->max('fecha'); // 👈 clave
+
+        return response()->json([
+            'ok'    => true,
+            'fecha' => $fecha, // formato Y-m-d
+        ]);
+    }
     public function checadasPorRango(Request $req)
     {
         $v = $req->validate([
@@ -146,10 +179,10 @@ class ChecadasController extends Controller
 
         $rows = $this->checadasQB()
             ->where('id_portal', $portalId)
-            ->when(!empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
-            ->when(!empty($empFilter), fn($q) => $q->whereIn('id_empleado', $empFilter))
-            ->when(!empty($clases),    fn($q) => $q->whereIn('clase', $clases))
-            ->when(!empty($tipos),     fn($q) => $q->whereIn('tipo',  $tipos))
+            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->when(! empty($empFilter), fn($q) => $q->whereIn('id_empleado', $empFilter))
+            ->when(! empty($clases), fn($q) => $q->whereIn('clase', $clases))
+            ->when(! empty($tipos), fn($q) => $q->whereIn('tipo', $tipos))
             ->whereBetween('check_time', [$from, $to])
             ->orderBy('check_time', $order)
             ->get();
@@ -169,8 +202,8 @@ class ChecadasController extends Controller
 
             $grouped[$day] ??= [];
             $grouped[$day][$eid] ??= [
-                'id_empleado_pk' => $eid,                               // PK
-                'id_empleado'    => $empMap[$eid]->numero ?? null,      // número catálogo
+                'id_empleado_pk' => $eid,                          // PK
+                'id_empleado'    => $empMap[$eid]->numero ?? null, // número catálogo
                 'empleado'       => $empMap[$eid]->nombre_completo ?? null,
                 'cliente_nom'    => $empMap[$eid]->nombre_cliente ?? null,
                 'items'          => [],
@@ -244,10 +277,10 @@ class ChecadasController extends Controller
 
         $rows = $this->checadasQB()
             ->where('id_portal', $portalId)
-            ->when(!empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
-            ->when(!empty($empFilter), fn($q) => $q->whereIn('id_empleado', $empFilter))
-            ->when(!empty($clases),    fn($q) => $q->whereIn('clase', $clases))
-            ->when(!empty($tipos),     fn($q) => $q->whereIn('tipo',  $tipos))
+            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->when(! empty($empFilter), fn($q) => $q->whereIn('id_empleado', $empFilter))
+            ->when(! empty($clases), fn($q) => $q->whereIn('clase', $clases))
+            ->when(! empty($tipos), fn($q) => $q->whereIn('tipo', $tipos))
             ->whereBetween('check_time', [$from, $to])
             ->orderBy('check_time', $order)
             ->get();
@@ -264,8 +297,8 @@ class ChecadasController extends Controller
         foreach ($rows as $r) {
             $eid = (int) $r->id_empleado;
             $byEmp[$eid] ??= [
-                'id_empleado_pk' => $eid,                              // PK
-                'id_empleado'    => $empMap[$eid]->numero ?? null,     // número catálogo
+                'id_empleado_pk' => $eid,                          // PK
+                'id_empleado'    => $empMap[$eid]->numero ?? null, // número catálogo
                 'empleado'       => $empMap[$eid]->nombre_completo ?? null,
                 'cliente_nom'    => $empMap[$eid]->nombre_cliente ?? null,
                 'items'          => [],
@@ -324,10 +357,22 @@ class ChecadasController extends Controller
      */
     private function normalizeIdEmpleadoParam($param): array
     {
-        if (is_null($param) || $param === '') return [];
-        if (is_array($param))  return collect($param)->map(fn($v) => (int) $v)->filter()->values()->all();
-        if (is_string($param)) return collect(explode(',', $param))->map(fn($v) => (int) trim($v))->filter()->values()->all();
-        if (is_numeric($param)) return [(int) $param];
+        if (is_null($param) || $param === '') {
+            return [];
+        }
+
+        if (is_array($param)) {
+            return collect($param)->map(fn($v) => (int) $v)->filter()->values()->all();
+        }
+
+        if (is_string($param)) {
+            return collect(explode(',', $param))->map(fn($v) => (int) trim($v))->filter()->values()->all();
+        }
+
+        if (is_numeric($param)) {
+            return [(int) $param];
+        }
+
         return [];
     }
 
@@ -336,10 +381,22 @@ class ChecadasController extends Controller
      */
     private function normalizeIdClienteParam($param): array
     {
-        if (is_null($param) || $param === '') return [];
-        if (is_array($param))  return collect($param)->flatten()->map(fn($v) => (int) $v)->filter()->values()->all();
-        if (is_string($param)) return collect(explode(',', $param))->map(fn($v) => (int) trim($v))->filter()->values()->all();
-        if (is_numeric($param)) return [(int) $param];
+        if (is_null($param) || $param === '') {
+            return [];
+        }
+
+        if (is_array($param)) {
+            return collect($param)->flatten()->map(fn($v) => (int) $v)->filter()->values()->all();
+        }
+
+        if (is_string($param)) {
+            return collect(explode(',', $param))->map(fn($v) => (int) trim($v))->filter()->values()->all();
+        }
+
+        if (is_numeric($param)) {
+            return [(int) $param];
+        }
+
         return [];
     }
 
@@ -351,8 +408,8 @@ class ChecadasController extends Controller
         $prevRow = $this->checadasQB()
             ->selectRaw('DATE(check_time) as d')
             ->where('id_portal', $portalId)
-            ->when(!empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
-            ->when(!empty($empIds),    fn($q) => $q->whereIn('id_empleado', $empIds))
+            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->when(! empty($empIds), fn($q) => $q->whereIn('id_empleado', $empIds))
             ->where('check_time', '<', $dayStart)
             ->orderBy('check_time', 'desc')
             ->limit(1)
@@ -361,8 +418,8 @@ class ChecadasController extends Controller
         $nextRow = $this->checadasQB()
             ->selectRaw('DATE(check_time) as d')
             ->where('id_portal', $portalId)
-            ->when(!empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
-            ->when(!empty($empIds),    fn($q) => $q->whereIn('id_empleado', $empIds))
+            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->when(! empty($empIds), fn($q) => $q->whereIn('id_empleado', $empIds))
             ->where('check_time', '>', $dayEnd)
             ->orderBy('check_time', 'asc')
             ->limit(1)
@@ -383,7 +440,9 @@ class ChecadasController extends Controller
     private function cargarEmpleadosMap(int $portalId, $ids)
     {
         $ids = collect($ids)->filter()->unique()->values();
-        if ($ids->isEmpty()) return collect();
+        if ($ids->isEmpty()) {
+            return collect();
+        }
 
         $conn     = 'portal_main';
         $empTable = 'empleados';
@@ -434,7 +493,7 @@ class ChecadasController extends Controller
         $selectsForJoin = $selects;
         if ($has('id_cliente')) {
             $selectsForJoin[] = 'id_cliente';
-            $empRows = DB::connection($conn)->table($empTable)
+            $empRows          = DB::connection($conn)->table($empTable)
                 ->select($selectsForJoin)
                 ->where('id_portal', $portalId)
                 ->whereIn('id', $ids)
@@ -468,19 +527,22 @@ class ChecadasController extends Controller
             ->where('id_portal', $portalId)
             ->whereIn('id', $ids)
             ->get()
-            ->map(function ($r) { $r->nombre_cliente = null; return $r; })
+            ->map(function ($r) {$r->nombre_cliente = null;return $r;})
             ->keyBy('id');
     }
 
     /** clase/tipo aceptan csv, array o valor único */
     private function normalizeCsvParam($param): array
     {
-        if (is_null($param) || $param === '') return [];
+        if (is_null($param) || $param === '') {
+            return [];
+        }
+
         if (is_array($param)) {
-            return collect($param)->map(fn($v) => trim((string)$v))
+            return collect($param)->map(fn($v) => trim((string) $v))
                 ->filter()->values()->all();
         }
-        return collect(explode(',', (string)$param))
+        return collect(explode(',', (string) $param))
             ->map(fn($v) => trim($v))
             ->filter()->values()->all();
     }
