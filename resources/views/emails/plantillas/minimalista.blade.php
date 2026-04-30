@@ -47,9 +47,15 @@
 
 <body>
   <div class="containerPlantilla">
-  {{-- Logo inline --}}
+    {{-- Logo inline --}}
     @if (!empty($logo_src))
-    <img src="{{ $logo_src }}" alt="Logo" width="200" style="display:block; height:auto; margin:0 auto 20px;" />
+    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td align="center" style="padding-bottom: 20px;">
+          <img src="{{ $logo_src }}" alt="Logo" width="200" style="display:block; height:auto; border:0;" />
+        </td>
+      </tr>
+    </table>
     @endif
     <h1>{{ $titulo ?? 'Título' }}</h1>
     <div class="contentPlantilla">

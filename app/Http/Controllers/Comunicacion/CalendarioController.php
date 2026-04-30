@@ -366,7 +366,7 @@ class CalendarioController extends Controller
             'eventos_duplicados' => $eventosDuplicados,
         ], 200);
     }
-
+*/
     public function actualizarEvento(Request $request, $id)
     {
         \Log::info('>>> [actualizarEvento] REQUEST', [
@@ -483,7 +483,7 @@ class CalendarioController extends Controller
 
         return response()->json(['ok' => true, 'evento' => $evento]);
     }
- */
+ 
     public function eliminarEvento(Request $request, $id)
     {
         $CONN               = 'portal_main';
