@@ -20,11 +20,13 @@
     margin: auto;
     box-shadow: 0 5px 20px rgba(255, 255, 255, 0.1);
   }
+
   .contentPlantilla {
     line-height: 1.7;
     font-size: 16px;
     color: #ffffff !important;
-}
+  }
+
   .logoPlantilla {
     max-height: 50px;
     margin-bottom: 20px;
@@ -50,10 +52,15 @@
 
 <body>
   <div class="containerPlantilla">
-  {{-- Logo inline --}}
+    {{-- Logo inline --}}
     @if (!empty($logo_src))
-    <img src="{{ $logo_src }}" alt="Logo" width="200" style="display:block; height:auto; margin:0 auto 20px;" />
-    @endif
+    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td align="center" style="padding-bottom: 20px;">
+          <img src="{{ $logo_src }}" alt="Logo" width="200" style="display:block; height:auto; border:0;" />
+        </td>
+      </tr>
+    </table> @endif
     <div class="headerPlantilla">
       <h1>{{ $titulo ?? 'Título corporativo' }}</h1>
     </div>
