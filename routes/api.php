@@ -7,17 +7,25 @@ use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
+use App\Http\Controllers\Api\Checador\ChecadorUbicacionesController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorAsignacionController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorChecadaPlantillaController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorHorarioPlantillaController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorMetodoController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorQrController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorValidacionController;
+
+//use App\Http\Controllers\Api\Empleado\DashboardController;
 use App\Http\Controllers\Api\Comunicacion360\PlantillasController;
 use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
-//use App\Http\Controllers\Api\Empleado\DashboardController;
 use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
 use App\Http\Controllers\Api\Empleado\EmpleadoTareasController;
 use App\Http\Controllers\Api\Empleado\ProfileController;
+//use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Api\Rodi\ReporteBecasController;
 use App\Http\Controllers\Auth\PermissionController;
-//use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
 use App\Http\Controllers\Comunicacion\ChecadasController;
 use App\Http\Controllers\Comunicacion\ChecadorController;
@@ -52,9 +60,9 @@ use App\Http\Controllers\ProyectosHistorialController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
+// routes/api.php
 use App\Http\Controllers\WhatsAppController;
 use App\Modules\AuthCore\Controllers\AdminRecoveryController;
-// routes/api.php
 use App\Modules\AuthCore\Controllers\EmpleadoRecoveryController;
 
 /*
@@ -477,7 +485,7 @@ Route::middleware('auth:empleado')->get(
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/empleado/tareas', [EmpleadoTareasController::class, 'index']);
     Route::post('/empleado/tareas/{id}/toggle', [EmpleadoTareasController::class, 'toggle']);
-    Route::post('/empleado/tareas/{id}/comentarios',[EmpleadoTareasController::class, 'storeComentario']
+    Route::post('/empleado/tareas/{id}/comentarios', [EmpleadoTareasController::class, 'storeComentario']
     );
 
 });
@@ -581,6 +589,46 @@ Route::prefix('comunicacion360/plantillas')->group(function () {
     );
 
 });
+
+Route::prefix('checador')->group(function () {
+    //CRUD  Cat Ubicaciones
+    Route::get('/ubicaciones', [ChecadorUbicacionesController::class, 'index']);
+    Route::post('/ubicaciones', [ChecadorUbicacionesController::class, 'store']);
+    Route::put('/ubicaciones/{id}', [ChecadorUbicacionesController::class, 'update']);
+    Route::delete('/ubicaciones/{id}', [ChecadorUbicacionesController::class, 'destroy']);
+
+    //validate Ubications
+    Route::post('/validar-ubicacion', [ChecadorValidacionController::class, 'validarUbicacion']);
+
+    // QR routes
+    Route::post('/qr/generar', [ChecadorQrController::class, 'generar']);
+    Route::post('/qr/validar', [ChecadorQrController::class, 'validar']);
+
+    // Plantillas  para  el checador
+    Route::get('/plantillas-checada', [ChecadorChecadaPlantillaController::class, 'index']);
+    Route::post('/plantillas-checada', [ChecadorChecadaPlantillaController::class, 'store']);
+    Route::post('/plantillas-checada/{id}/metodos', [ChecadorChecadaPlantillaController::class, 'guardarMetodos']);
+    Route::put('/plantillas-checada/{id}', [ChecadorChecadaPlantillaController::class, 'update']);
+    Route::post('/plantillas-checada/{id}/estado', [ChecadorChecadaPlantillaController::class, 'cambiarEstado']);
+
+    // endoints  de horarios
+    Route::prefix('/horarios')->group(function () {
+        Route::get('/', [ChecadorHorarioPlantillaController::class, 'index']);
+        Route::post('/', [ChecadorHorarioPlantillaController::class, 'store']);
+        Route::put('/{id}', [ChecadorHorarioPlantillaController::class, 'update']);
+        Route::post('/{id}/estado', [ChecadorHorarioPlantillaController::class, 'cambiarEstado']);
+    });
+    Route::get('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'plantillaEmpleado']);
+    Route::post('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'guardarPlantillaEmpleado']);
+    // Metodos
+    Route::get('/metodos', [ChecadorMetodoController::class, 'index']);
+
+// Asignaciones de plantillas a empleados
+    Route::get('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'index']);
+    Route::post('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'store']);
+    Route::get('/empleados-acceso', [ChecadorAsignacionController::class, 'empleadosConAcceso']);
+});
+
 //********************** Fin Rutas Comunicacion 360 ****************************//
 
 /*notificaciones  via  whatsapp modulo empleados*/
