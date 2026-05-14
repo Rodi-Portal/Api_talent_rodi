@@ -13,12 +13,13 @@ class ChecadorQrController extends Controller
     {
         $data = $request->validate([
             'ubicacion_id' => ['required', 'integer'],
+            'modo'         => ['nullable', 'in:fijo,dinamico'],
         ]);
 
         $ubicacion = ChecadorUbicacion::where('id', $data['ubicacion_id'])
             ->where('activa', 1)
             ->first();
-
+        $modo = $data['modo'] ?? 'dinamico';
         if (! $ubicacion) {
             return response()->json([
                 'ok'      => false,
@@ -27,12 +28,23 @@ class ChecadorQrController extends Controller
         }
 
         $payload = [
-            'type'         => 'checador_qr',
+            'type'         => $modo === 'fijo'
+                ? 'checador_qr_fijo'
+                : 'checador_qr',
+
+            'modo'         => $modo,
+
             'ubicacion_id' => $ubicacion->id,
             'id_portal'    => $ubicacion->id_portal,
             'id_cliente'   => $ubicacion->id_cliente,
+
             'generated_at' => now()->toDateTimeString(),
-            'expires_at'   => now()->addSeconds(60)->toDateTimeString(),
+
+            'expires_at'   => $modo === 'dinamico'
+                ? now()->addSeconds(
+                $ubicacion->qr_expira_segundos ?: 60
+            )->toDateTimeString()
+                : null,
         ];
 
         $token = Crypt::encryptString(json_encode($payload));
@@ -40,8 +52,11 @@ class ChecadorQrController extends Controller
         return response()->json([
             'ok'                 => true,
             'token'              => $token,
-            'expires_in_seconds' => 60,
-            'ubicacion'          => [
+            'expires_in_seconds' => $modo === 'dinamico'
+                ? ($ubicacion->qr_expira_segundos ?: 60)
+                : null,
+
+            'modo'               => $modo, 'ubicacion' => [
                 'id'     => $ubicacion->id,
                 'nombre' => $ubicacion->nombre,
             ],
