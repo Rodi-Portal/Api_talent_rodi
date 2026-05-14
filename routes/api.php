@@ -1,5 +1,4 @@
 <?php
-
 use App\Http\Controllers\ApiCandidatoConProyectoPrevioController;
 use App\Http\Controllers\ApiCandidatoSinEseController;
 use App\Http\Controllers\ApiClientesController;
@@ -7,7 +6,7 @@ use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
-use App\Http\Controllers\Api\Checador\ChecadorUbicacionesController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorUbicacionesController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorAsignacionController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorChecadaPlantillaController;
@@ -15,15 +14,14 @@ use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorHorarioPlantillaCo
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorMetodoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorQrController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorValidacionController;
-
-//use App\Http\Controllers\Api\Empleado\DashboardController;
 use App\Http\Controllers\Api\Comunicacion360\PlantillasController;
+use App\Http\Controllers\Api\Empleado\AuthController;
 use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
+use App\Http\Controllers\Api\Empleado\EmpleadoChecadorController;
 use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
 use App\Http\Controllers\Api\Empleado\EmpleadoTareasController;
 use App\Http\Controllers\Api\Empleado\ProfileController;
-//use App\Http\Controllers\AvanceController;
 use App\Http\Controllers\Api\Rodi\ReporteBecasController;
 use App\Http\Controllers\Auth\PermissionController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
@@ -60,11 +58,9 @@ use App\Http\Controllers\ProyectosHistorialController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Sat\SatCatalogosController;
 use App\Http\Controllers\TestController;
-// routes/api.php
 use App\Http\Controllers\WhatsAppController;
 use App\Modules\AuthCore\Controllers\AdminRecoveryController;
 use App\Modules\AuthCore\Controllers\EmpleadoRecoveryController;
-
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -450,20 +446,17 @@ Route::middleware(['api'])->group(function () {
 Route::prefix('empleado/auth')->group(function () {
 
     // Login público
-    Route::post('/login', [
-        \App\Http\Controllers\Api\Empleado\AuthController::class,
+    Route::post('/login', [AuthController::class,
         'login',
     ]);
 
     // Logout
-    Route::middleware('auth:empleado')->post('/logout', [
-        \App\Http\Controllers\Api\Empleado\AuthController::class,
+    Route::middleware('auth:empleado')->post('/logout', [AuthController::class,
         'logout',
     ]);
 
     // Cambio de contraseña
-    Route::middleware('auth:empleado')->post('/change-password', [
-        \App\Http\Controllers\Api\Empleado\AuthController::class,
+    Route::middleware('auth:empleado')->post('/change-password', [AuthController::class,
         'changePassword',
     ]);
 
@@ -521,6 +514,19 @@ Route::middleware(['auth:empleado'])
             EmpleadoDashboardController::class,
             'dashboard',
         ]);
+        /*
+        |--------------------------------------------------------------------------
+        | CHECADOR / ASISTENCIA
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get('/checador/contexto', [
+            EmpleadoChecadorController::class,
+            'contexto',
+        ]);
+        Route::post('/checador/registrar', [
+            EmpleadoChecadorController::class,
+            'registrar']);
 
     });
 

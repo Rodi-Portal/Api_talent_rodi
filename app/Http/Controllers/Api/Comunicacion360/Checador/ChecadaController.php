@@ -1,13 +1,13 @@
 <?php
 
-namespace App\Http\Controllers\Api\Checador;
+namespace App\Http\Controllers\Api\Comunicacion360\Checador;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Services\Checador\ChecadaValidationService;
 
-class ChecadaController extends Controller
+class Chentroller extends Controller
 {
     public function store(Request $request)
     {
