@@ -173,6 +173,7 @@ class EmpleadoChecadorController extends Controller
             'accuracy'  => 'nullable|numeric',
             'qr_token'  => 'nullable|string',
             'selfie'    => 'nullable|string',
+            'selfie_mime' => 'nullable|string|in:image/jpeg,image/jpg,image/png',
             'timestamp' => 'required',
         ]);
 
@@ -396,6 +397,7 @@ class EmpleadoChecadorController extends Controller
         }
         $evidenciaFoto = $this->guardarSelfieBase64(
             $request->selfie,
+            $request->selfie_mime,
             $idPortal,
             $idCliente,
             $idEmpleado,
@@ -501,28 +503,35 @@ class EmpleadoChecadorController extends Controller
             ],
         ]);
     }
-    private function guardarSelfieBase64(?string $selfie, int $idPortal, int $idCliente, int $idEmpleado, string $fecha): ?string
-    {
+    private function guardarSelfieBase64(
+        ?string $selfie,
+        ?string $mime,
+        int $idPortal,
+        int $idCliente,
+        int $idEmpleado,
+        string $fecha
+    ): ?string {
+
         if (empty($selfie)) {
             return null;
         }
 
-        if (! preg_match('/^data:image\/(\w+);base64,/', $selfie, $matches)) {
+        $mime = strtolower((string) $mime);
+
+        $extension = match ($mime) {
+            'image/jpeg',
+            'image/jpg' => 'jpg',
+
+            'image/png' => 'png',
+
+            default     => null,
+        };
+
+        if (! $extension) {
             return null;
         }
 
-        $extension = strtolower($matches[1]);
-
-        if (! in_array($extension, ['jpg', 'jpeg', 'png'], true)) {
-            return null;
-        }
-
-        if ($extension === 'jpeg') {
-            $extension = 'jpg';
-        }
-
-        $base64    = substr($selfie, strpos($selfie, ',') + 1);
-        $imageData = base64_decode($base64);
+        $imageData = base64_decode($selfie);
 
         if ($imageData === false) {
             return null;
@@ -536,13 +545,17 @@ class EmpleadoChecadorController extends Controller
             ? config('paths.prod_images')
             : config('paths.local_images');
 
-        $fullDir = rtrim($basePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
+        $fullDir = rtrim($basePath, DIRECTORY_SEPARATOR)
+        . DIRECTORY_SEPARATOR
+        . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
 
         if (! File::exists($fullDir)) {
             File::makeDirectory($fullDir, 0755, true);
         }
 
-        $filename = 'checada_' . now()->format('Ymd_His') . '_' . Str::random(10) . '.' . $extension;
+        $filename = 'checada_' . now()->format('Ymd_His')
+        . '_' . Str::random(10)
+            . '.' . $extension;
 
         $fullPath = $fullDir . DIRECTORY_SEPARATOR . $filename;
 
