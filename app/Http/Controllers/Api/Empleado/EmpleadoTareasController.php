@@ -5,6 +5,8 @@ use App\Http\Controllers\Controller;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 
 class EmpleadoTareasController extends Controller
 {
@@ -344,4 +346,257 @@ class EmpleadoTareasController extends Controller
             ],
         ]);
     }
+
+    private function guardarEvidenciaTarea(
+        \Illuminate\Http\UploadedFile $file,
+        int $idPortal,
+        int $idCliente,
+        int $idEmpleado,
+        string $fecha
+    ): array {
+        $mes = Carbon::parse($fecha)->format('Y-m');
+
+        $relativeDir = "_evidenciasTarea/{$idPortal}/{$idCliente}/{$idEmpleado}/{$mes}";
+
+        $basePath = app()->environment('production')
+            ? config('paths.prod_images')
+            : config('paths.local_images');
+
+        $fullDir = rtrim($basePath, DIRECTORY_SEPARATOR)
+        . DIRECTORY_SEPARATOR
+        . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
+
+        if (! File::exists($fullDir)) {
+            File::makeDirectory($fullDir, 0755, true);
+        }
+
+        $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension());
+
+        $filename = 'evidencia_tarea_' . now()->format('Ymd_His')
+        . '_' . Str::random(10)
+            . '.' . $extension;
+
+        $originalName = $file->getClientOriginalName();
+        $mimeType     = $file->getClientMimeType();
+        $size         = $file->getSize();
+        $extension    = strtolower($file->getClientOriginalExtension() ?: $file->extension());
+
+        $filename = 'evidencia_tarea_' . now()->format('Ymd_His')
+        . '_' . Str::random(10)
+            . '.' . $extension;
+
+        $file->move($fullDir, $filename);
+
+        return [
+            'relative_path' => $relativeDir . '/' . $filename,
+            'filename'      => $filename,
+            'original_name' => $originalName,
+            'extension'     => $extension,
+            'mime_type'     => $mimeType,
+            'size'          => $size,
+        ];
+    }
+    public function uploadEvidencia(Request $request, $id)
+    {
+        $empleado = auth('sanctum')->user();
+
+        if (! $empleado) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'No autenticado',
+            ], 401);
+        }
+
+        $request->validate([
+            'archivo' => [
+                'required',
+                'file',
+                'max:20480', // 20MB
+                'mimes:jpg,jpeg,png,pdf,doc,docx,xls,xlsx',
+            ],
+        ]);
+
+        $conexion = DB::connection('portal_main');
+
+        $tarea = $conexion
+            ->table('comunicacion360_empleado_tareas')
+            ->where('id', $id)
+            ->where('empleado_id', $empleado->id)
+            ->where('id_portal', $empleado->id_portal)
+            ->first();
+
+        if (! $tarea) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Tarea no encontrada',
+            ], 404);
+        }
+
+        $archivo = $request->file('archivo');
+
+        $stored = $this->guardarEvidenciaTarea(
+            $archivo,
+            (int) $empleado->id_portal,
+            (int) $empleado->id_cliente,
+            (int) $empleado->id,
+            now()->toDateString()
+        );
+
+        $evidenciaId = $conexion
+            ->table('comunicacion360_empleado_tarea_evidencias')
+            ->insertGetId([
+                'id_portal'         => $empleado->id_portal,
+                'empleado_tarea_id' => $tarea->id,
+
+                'nombre_original'   => $stored['original_name'],
+                'nombre_archivo'    => $stored['filename'],
+                'ruta_archivo'      => $stored['relative_path'],
+
+                'mime_type'         => $stored['mime_type'],
+                'extension'         => $stored['extension'],
+                'peso_bytes'        => $stored['size'],
+
+                'activo'            => 1,
+
+                'created_at'        => now(),
+                'updated_at'        => now(),
+            ]);
+
+        $conexion
+            ->table('comunicacion360_empleado_tareas')
+            ->where('id', $tarea->id)
+            ->update([
+                'tiene_evidencia' => 1,
+                'updated_at'      => now(),
+            ]);
+
+        return response()->json([
+            'ok'      => true,
+            'message' => 'Evidencia subida correctamente.',
+            'data'    => [
+                'id'   => $evidenciaId,
+                'name' => $stored['original_name'],
+                'url'  => url("/api/empleado/tareas/{$tarea->id}/evidencia/{$evidenciaId}/ver"),
+                'type'      => $stored['mime_type'],
+                'size'      => $stored['size'],
+                'extension' => $stored['extension'],
+            ],
+        ]);
+    }
+    public function verEvidencia(Request $request, $id, $evidenciaId)
+    {
+        $empleado = auth('sanctum')->user();
+
+        if (! $empleado) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'No autenticado',
+            ], 401);
+        }
+
+        $conexion = DB::connection('portal_main');
+
+        $evidencia = $conexion
+            ->table('comunicacion360_empleado_tarea_evidencias as e')
+            ->join('comunicacion360_empleado_tareas as t', 't.id', '=', 'e.empleado_tarea_id')
+            ->where('e.id', $evidenciaId)
+            ->where('e.empleado_tarea_id', $id)
+            ->where('e.id_portal', $empleado->id_portal)
+            ->where('t.empleado_id', $empleado->id)
+            ->where('e.activo', 1)
+            ->whereNull('e.deleted_at')
+            ->first();
+
+        if (! $evidencia) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Evidencia no encontrada',
+            ], 404);
+        }
+
+        $basePath = app()->environment('production')
+            ? config('paths.prod_images')
+            : config('paths.local_images');
+
+        $fullPath = rtrim($basePath, DIRECTORY_SEPARATOR)
+        . DIRECTORY_SEPARATOR
+        . str_replace('/', DIRECTORY_SEPARATOR, $evidencia->ruta_archivo);
+
+        if (! File::exists($fullPath)) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Archivo no encontrado',
+            ], 404);
+        }
+
+        return response()->file($fullPath, [
+            'Content-Type'        => $evidencia->mime_type,
+            'Content-Disposition' => 'inline; filename="' . $evidencia->nombre_original . '"',
+        ]);
+    }
+
+    public function deleteEvidencia(Request $request, $id, $evidenciaId)
+    {
+        $empleado = auth('sanctum')->user();
+
+        if (! $empleado) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'No autenticado',
+            ], 401);
+        }
+
+        $conexion = DB::connection('portal_main');
+
+        $evidencia = $conexion
+            ->table('comunicacion360_empleado_tarea_evidencias as e')
+            ->join('comunicacion360_empleado_tareas as t', 't.id', '=', 'e.empleado_tarea_id')
+            ->where('e.id', $evidenciaId)
+            ->where('e.empleado_tarea_id', $id)
+            ->where('e.id_portal', $empleado->id_portal)
+            ->where('t.empleado_id', $empleado->id)
+            ->where('e.activo', 1)
+            ->whereNull('e.deleted_at')
+            ->select('e.id')
+            ->first();
+
+        if (! $evidencia) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Evidencia no encontrada',
+            ], 404);
+        }
+
+        $conexion
+            ->table('comunicacion360_empleado_tarea_evidencias')
+            ->where('id', $evidenciaId)
+            ->update([
+                'activo'     => 0,
+                'deleted_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+        $hayActivas = $conexion
+            ->table('comunicacion360_empleado_tarea_evidencias')
+            ->where('empleado_tarea_id', $id)
+            ->where('activo', 1)
+            ->whereNull('deleted_at')
+            ->exists();
+
+        $conexion
+            ->table('comunicacion360_empleado_tareas')
+            ->where('id', $id)
+            ->update([
+                'tiene_evidencia'   => $hayActivas ? 1 : 0,
+                'estatus'           => $hayActivas ? DB::raw('estatus') : 'pendiente',
+                'porcentaje_avance' => $hayActivas ? DB::raw('porcentaje_avance') : 0,
+                'fecha_fin'         => $hayActivas ? DB::raw('fecha_fin') : null,
+                'updated_at'        => now(),
+            ]);
+        return response()->json([
+            'ok'      => true,
+            'message' => 'Evidencia eliminada correctamente.',
+        ]);
+    }
+
 }
