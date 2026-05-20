@@ -6,13 +6,13 @@ use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
-use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorUbicacionesController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorAsignacionController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorChecadaPlantillaController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorHorarioPlantillaController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorMetodoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorQrController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorUbicacionesController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorValidacionController;
 use App\Http\Controllers\Api\Comunicacion360\PlantillasController;
 use App\Http\Controllers\Api\Empleado\AuthController;
@@ -480,9 +480,20 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/empleado/tareas/{id}/toggle', [EmpleadoTareasController::class, 'toggle']);
     Route::post('/empleado/tareas/{id}/comentarios', [EmpleadoTareasController::class, 'storeComentario']
     );
+    Route::post('/empleado/tareas/{id}/evidencia', [
+        EmpleadoTareasController::class,
+        'uploadEvidencia',
+    ]);
+    Route::get('/empleado/tareas/{id}/evidencia/{evidenciaId}/ver', [
+        EmpleadoTareasController::class,
+        'verEvidencia',
+    ]);
+    Route::delete('/empleado/tareas/{id}/evidencia/{evidenciaId}', [
+        EmpleadoTareasController::class,
+        'deleteEvidencia',
+    ]);
 
 });
-Route::post('/empleado/tareas/{id}/toggle', [EmpleadoTareasController::class, 'toggle']);
 Route::middleware('auth:empleado')->post('/empleado/incidencias', [EmpleadoIncidenciasController::class, 'store']);
 Route::middleware('auth:empleado')->get('empleado/incidencias', [EmpleadoIncidenciasController::class, 'index']);
 Route::middleware(['auth:empleado'])
@@ -520,13 +531,18 @@ Route::middleware(['auth:empleado'])
         |--------------------------------------------------------------------------
         */
 
-        Route::get('/checador/contexto', [
-            EmpleadoChecadorController::class,
-            'contexto',
+        Route::get('/checador/contexto', [EmpleadoChecadorController::class,'contexto']);
+        Route::get('/checador/historial-hoy', [EmpleadoChecadorController::class, 'historialHoy']);
+        Route::post('/checador/registrar', [EmpleadoChecadorController::class, 'registrar']);
+        /*
+        |--------------------------------------------------------------------------
+        | CHECADOR / ASISTENCIA
+        |--------------------------------------------------------------------------
+        */
+        Route::get('/compliance/{tipo}/{id}/ver', [
+            EmpleadoDashboardController::class,
+            'verCompliance',
         ]);
-        Route::post('/checador/registrar', [
-            EmpleadoChecadorController::class,
-            'registrar']);
 
     });
 

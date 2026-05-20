@@ -50,7 +50,7 @@ class EmpleadoDashboardController extends Controller
                     'document'        => $doc->name,
                     'expiry_reminder' => $doc->expiry_reminder,
                     'status'          => $doc->status,
-                ];
+                    'file_url'        => url("/api/empleado/compliance/documento/{$doc->id}/ver")];
             });
 
         /* =========================
@@ -74,15 +74,16 @@ class EmpleadoDashboardController extends Controller
                     'expiry_date'     => $curso->expiry_date,
                     'expiry_reminder' => $curso->expiry_reminder,
                     'status'          => $curso->status,
+                    'file_url'        => url("/api/empleado/compliance/curso/{$curso->id}/ver"),
                 ];
             });
 
         /* =========================
            EXÁMENES
         ========================= */
-
         $examenes = ExamEmpleado::with('examOption')
             ->where('employee_id', $empleado->id)
+            ->whereNull('id_candidato')
             ->get()
             ->map(function ($exam) {
 
@@ -97,6 +98,7 @@ class EmpleadoDashboardController extends Controller
                     'expiry_date'     => $exam->expiry_date,
                     'expiry_reminder' => $exam->expiry_reminder,
                     'status'          => $exam->status,
+                    'file_url'        => url("/api/empleado/compliance/examen/{$exam->id}/ver"),
                 ];
             });
 /* =========================
@@ -150,5 +152,100 @@ class EmpleadoDashboardController extends Controller
             'incidencias'        => $incidencias,
 
         ]);
+    }
+
+    public function verCompliance(Request $request, $tipo, $id)
+    {
+        $authEmpleado = $request->user();
+
+        if (! $authEmpleado) {
+            return response()->json([
+                'message' => 'Unauthorized',
+            ], 401);
+        }
+
+        $empleado = Empleado::where('id', $authEmpleado->id)->first();
+
+        if (! $empleado) {
+            return response()->json([
+                'message' => 'Empleado no encontrado',
+            ], 404);
+        }
+
+        switch ($tipo) {
+
+            case 'documento':
+                $item = DocumentEmpleado::where('id', $id)
+                    ->where('employee_id', $empleado->id)
+                    ->first();
+
+                $folder     = '_documentEmpleado';
+                $nombreTipo = 'Documento';
+                break;
+
+            case 'curso':
+                $item = CursoEmpleado::where('id', $id)
+                    ->where('employee_id', $empleado->id)
+                    ->first();
+
+                $folder     = '_cursos';
+                $nombreTipo = 'Curso';
+                break;
+
+            case 'examen':
+                $item = ExamEmpleado::where('id', $id)
+                    ->where('employee_id', $empleado->id)
+                    ->whereNull('id_candidato')
+                    ->first();
+
+                $folder     = '_examEmpleado';
+                $nombreTipo = 'Examen';
+                break;
+
+            default:
+                return response()->json([
+                    'message' => 'Tipo no soportado',
+                ], 404);
+        }
+
+        if (! $item) {
+            return response()->json([
+                'message' => $nombreTipo . ' no encontrado',
+            ], 404);
+        }
+
+        if (! $item->name) {
+            return response()->json([
+                'message' => $nombreTipo . ' no tiene archivo',
+            ], 404);
+        }
+
+        $basePath = app()->environment('production')
+            ? config('paths.prod_images')
+            : config('paths.local_images');
+
+        $fullPath = rtrim($basePath, DIRECTORY_SEPARATOR)
+        . DIRECTORY_SEPARATOR
+        . $folder
+        . DIRECTORY_SEPARATOR
+        . $item->name;
+
+        \Log::info('COMPLIANCE FILE PATH', [
+            'tipo'     => $tipo,
+            'id'       => $id,
+            'archivo'  => $item->name,
+            'folder'   => $folder,
+            'basePath' => $basePath,
+            'fullPath' => $fullPath,
+            'exists'   => file_exists($fullPath),
+        ]);
+
+        if (! file_exists($fullPath)) {
+            return response()->json([
+                'message' => 'Archivo no encontrado',
+            ], 404);
+        }
+
+        return response()->file($fullPath);
     }
 }

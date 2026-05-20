@@ -30,7 +30,7 @@ class ChecadaValidationService
             $now
         );
 
-        if (! $horario || ! $horario->labora) {
+        if (! $horario || (int) $horario->labora !== 1) {
             return [
                 'ok'                 => false,
                 'id_asignacion'      => $asignacion->id,
@@ -38,17 +38,25 @@ class ChecadaValidationService
                 'motivo'             => 'El empleado no tiene horario laboral configurado para este día.',
             ];
         }
+        $validacionSecuencia = $this->validarSecuenciaChecada($data, $now);
+
+        if (! $validacionSecuencia['ok']) {
+            return array_merge($validacionSecuencia, [
+                'id_asignacion' => $asignacion->id,
+            ]);
+        }
         $validacionHorario = $this->validarHorario(
             $horario,
             $now,
-            $data['tipo'] ?? 'in'
+            $data['tipo'] ?? 'in',
+            $data
         );
-
         if (! $validacionHorario['ok']) {
             return array_merge($validacionHorario, [
                 'id_asignacion' => $asignacion->id,
             ]);
         }
+
         $validacionMetodos = $this->validarMetodosRequeridos($asignacion, $data);
 
         if (! $validacionMetodos['ok']) {
@@ -125,7 +133,7 @@ class ChecadaValidationService
             ->first();
     }
 
-    private function validarHorario($horario, Carbon $checkTime, string $tipo): array
+    private function validarHorario($horario, Carbon $checkTime, string $tipo, array $data): array
     {
         if (! in_array($tipo, ['in', 'out'], true)) {
             return [
@@ -136,41 +144,88 @@ class ChecadaValidationService
         }
 
         if ($tipo === 'in') {
-            $horaBase   = $horario->hora_entrada;
-            $tolerancia = (int) ($horario->tolerancia_entrada_min ?? 0);
-            $label      = 'entrada';
-        } else {
-            $horaBase   = $horario->hora_salida;
-            $tolerancia = (int) ($horario->tolerancia_salida_min ?? 0);
-            $label      = 'salida';
-        }
+            $horaBase = $horario->hora_entrada;
 
-        if (! $horaBase) {
-            return [
-                'ok'                 => false,
-                'estatus_validacion' => 'rechazada',
-                'motivo'             => "No hay hora de {$label} configurada.",
-            ];
-        }
+            if (! $horaBase) {
+                return [
+                    'ok'                 => false,
+                    'estatus_validacion' => 'rechazada',
+                    'motivo'             => 'No hay hora de entrada configurada.',
+                ];
+            }
 
-        $horaProgramada      = Carbon::parse($checkTime->toDateString() . ' ' . $horaBase);
-        $limiteConTolerancia = $horaProgramada->copy()->addMinutes($tolerancia);
+            $esPrimeraEntrada = ! DB::table('checadas')
+                ->where('id_portal', $data['id_portal'])
+                ->where('id_cliente', $data['id_cliente'])
+                ->where('id_empleado', $data['id_empleado'])
+                ->whereDate('fecha', $checkTime->toDateString())
+                ->where('tipo', 'in')
+                ->exists();
 
-        if ($tipo === 'in' && $checkTime->gt($limiteConTolerancia)) {
+            // Si NO es la primera entrada, se considera movimiento intermedio.
+            if (! $esPrimeraEntrada) {
+                return [
+                    'ok'                 => true,
+                    'estatus_validacion' => 'valida',
+                    'motivo'             => 'Entrada intermedia registrada.',
+                    'minutos_diferencia' => null,
+                ];
+            }
+
+            $tolerancia          = (int) ($horario->tolerancia_entrada_min ?? 0);
+            $horaProgramada      = Carbon::parse($checkTime->toDateString() . ' ' . $horaBase);
+            $limiteConTolerancia = $horaProgramada->copy()->addMinutes($tolerancia);
+
+            if ($checkTime->gt($limiteConTolerancia)) {
+                return [
+                    'ok'                 => true,
+                    'estatus_validacion' => 'advertida',
+                    'motivo'             => 'Entrada registrada con retardo.',
+                    'minutos_diferencia' => $checkTime->diffInMinutes($horaProgramada),
+                ];
+            }
+
             return [
                 'ok'                 => true,
-                'estatus_validacion' => 'advertida',
-                'motivo'             => 'Entrada registrada fuera de tolerancia.',
-                'minutos_diferencia' => $checkTime->diffInMinutes($horaProgramada),
+                'estatus_validacion' => 'valida',
+                'motivo'             => 'Entrada dentro del horario permitido.',
+                'minutos_diferencia' => $checkTime->diffInMinutes($horaProgramada, false),
             ];
         }
 
-        return [
-            'ok'                 => true,
-            'estatus_validacion' => 'valida',
-            'motivo'             => 'Horario válido.',
-            'minutos_diferencia' => $checkTime->diffInMinutes($horaProgramada, false),
-        ];
+        if ($tipo === 'out') {
+            $horaBase = $horario->hora_salida;
+
+            if (! $horaBase) {
+                return [
+                    'ok'                 => false,
+                    'estatus_validacion' => 'rechazada',
+                    'motivo'             => 'No hay hora de salida configurada.',
+                ];
+            }
+
+            $horaSalida = Carbon::parse($checkTime->toDateString() . ' ' . $horaBase);
+
+            // Margen para considerar que ya es salida final.
+            $margenSalidaFinalMin     = 60;
+            $inicioVentanaSalidaFinal = $horaSalida->copy()->subMinutes($margenSalidaFinalMin);
+
+            if ($checkTime->gte($inicioVentanaSalidaFinal)) {
+                return [
+                    'ok'                 => true,
+                    'estatus_validacion' => 'valida',
+                    'motivo'             => 'Salida final registrada.',
+                    'minutos_diferencia' => $checkTime->diffInMinutes($horaSalida, false),
+                ];
+            }
+
+            return [
+                'ok'                 => true,
+                'estatus_validacion' => 'valida',
+                'motivo'             => 'Salida intermedia registrada.',
+                'minutos_diferencia' => null,
+            ];
+        }
     }
 
     private function validarUbicacion($asignacion, array $data): array
@@ -350,5 +405,50 @@ class ChecadaValidationService
             ->where('m.activo', 1)
             ->where('m.requiere_gps', 1)
             ->exists();
+    }
+
+    private function validarSecuenciaChecada(array $data, Carbon $checkTime): array
+    {
+        $tipoSolicitado = $data['tipo'] ?? 'in';
+
+        if (! in_array($tipoSolicitado, ['in', 'out'], true)) {
+            return [
+                'ok'                 => false,
+                'estatus_validacion' => 'rechazada',
+                'motivo'             => 'Tipo de checada no válido.',
+            ];
+        }
+
+        $ultimaChecada = DB::table('checadas')
+            ->where('id_portal', $data['id_portal'])
+            ->where('id_cliente', $data['id_cliente'])
+            ->where('id_empleado', $data['id_empleado'])
+            ->whereDate('fecha', $checkTime->toDateString())
+            ->orderByDesc('check_time')
+            ->first();
+
+        if (! $ultimaChecada && $tipoSolicitado !== 'in') {
+            return [
+                'ok'                 => false,
+                'estatus_validacion' => 'rechazada',
+                'motivo'             => 'Primero debes registrar una entrada.',
+            ];
+        }
+
+        if ($ultimaChecada && $ultimaChecada->tipo === $tipoSolicitado) {
+            return [
+                'ok'                 => false,
+                'estatus_validacion' => 'rechazada',
+                'motivo'             => $tipoSolicitado === 'in'
+                    ? 'Ya tienes una entrada registrada. Primero debes registrar una salida.'
+                    : 'Ya tienes una salida registrada. Primero debes registrar una entrada.',
+            ];
+        }
+
+        return [
+            'ok'                 => true,
+            'estatus_validacion' => 'valida',
+            'motivo'             => 'Secuencia válida.',
+        ];
     }
 }

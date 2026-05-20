@@ -276,7 +276,7 @@ class RecruitmentService
 
             $cursor->addMonth();
         }
-        \Illuminate\Support\Facades\Log::info('RECRUITMENT getChartByRange DEBUG', [
+       /* \Illuminate\Support\Facades\Log::info('RECRUITMENT getChartByRange DEBUG', [
             'start'      => $start->toDateString(),
             'end'        => $end->toDateString(),
             'months'     => $months,
@@ -284,7 +284,7 @@ class RecruitmentService
             'in_process' => $inProcess,
             'closed'     => $closed,
             'cancelled'  => $cancelled,
-        ]);
+        ]); */
         return [
             'months'     => $months,
             'waiting'    => $waiting,

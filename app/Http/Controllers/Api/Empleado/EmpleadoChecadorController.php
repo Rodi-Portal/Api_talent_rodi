@@ -132,11 +132,23 @@ class EmpleadoChecadorController extends Controller
                     return $horario;
                 });
         }
+        $hoy = Carbon::now()->toDateString();
+
+        $ultimaChecada = DB::connection('portal_main')
+            ->table('checadas')
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->whereDate('fecha', $hoy)
+            ->orderByDesc('check_time')
+            ->first();
+
+        $movimientosPermitidos = $this->resolverMovimientosPermitidos($ultimaChecada, $horarios);
         return response()->json([
             'ok'      => true,
             'message' => 'Contexto de checador obtenido correctamente.',
             'data'    => [
-                'empleado'    => [
+                'empleado'               => [
                     'id'         => $idEmpleado,
                     'nombre'     => $empleado->nombre,
                     'paterno'    => $empleado->paterno,
@@ -144,13 +156,121 @@ class EmpleadoChecadorController extends Controller
                     'id_portal'  => $idPortal,
                     'id_cliente' => $idCliente,
                 ],
-                'asignacion'  => $asignacion,
-                'plantilla'   => $plantilla,
-                'metodos'     => $metodos,
-                'ubicaciones' => $ubicaciones,
-                'horarios'    => $horarios,
+                'asignacion'             => $asignacion,
+                'plantilla'              => $plantilla,
+                'metodos'                => $metodos,
+                'ubicaciones'            => $ubicaciones,
+                'horarios'               => $horarios,
+                'ultima_checada'         => $ultimaChecada,
+                'movimientos_permitidos' => $movimientosPermitidos,
             ],
         ]);
+    }
+
+    public function historialHoy(Request $request)
+    {
+        $empleado = $request->user();
+
+        if (! $empleado) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Empleado no autenticado.',
+            ], 401);
+        }
+
+        $idEmpleado = (int) $empleado->id;
+        $idPortal   = (int) $empleado->id_portal;
+        $idCliente  = (int) $empleado->id_cliente;
+
+        $hoy = Carbon::now('America/Mexico_City')->toDateString();
+
+        $checadas = Checada::where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('fecha', $hoy)
+            ->orderBy('check_time')
+            ->get([
+                'id',
+                'fecha',
+                'check_time',
+                'tipo',
+                'clase',
+                'metodo_validacion',
+                'estatus_validacion',
+                'distancia_metros',
+                'precision_metros',
+                'observacion',
+                'id_ubicacion',
+            ]);
+        $ultima       = $checadas->last();
+        $estadoActual = $this->resolverEstadoActualEmpleado($ultima);
+        return response()->json([
+            'ok'      => true,
+            'message' => 'Historial de checadas obtenido correctamente.',
+            'data'    => [
+                'fecha'         => $hoy,
+                'checadas'      => $checadas,
+                'estado_actual' => $estadoActual,
+            ],
+        ]);
+    }
+    private function resolverEstadoActualEmpleado($ultimaChecada): array
+    {
+        if (! $ultimaChecada) {
+            return [
+                'clave'   => 'not_arrived',
+                'label'   => 'No ha llegado',
+                'variant' => 'muted',
+            ];
+        }
+
+        if ($ultimaChecada->tipo === 'in') {
+            return [
+                'clave'   => 'working',
+                'label'   => 'Trabajando',
+                'variant' => 'success',
+            ];
+        }
+
+        if ($ultimaChecada->tipo === 'out') {
+            if ($ultimaChecada->clase === 'meal') {
+                return [
+                    'clave'   => 'meal',
+                    'label'   => 'En comida',
+                    'variant' => 'warning',
+                ];
+            }
+
+            if ($ultimaChecada->clase === 'break') {
+                return [
+                    'clave'   => 'break',
+                    'label'   => 'En descanso',
+                    'variant' => 'warning',
+                ];
+            }
+
+            if ($ultimaChecada->clase === 'personal') {
+                return [
+                    'clave'   => 'personal',
+                    'label'   => 'Salida personal',
+                    'variant' => 'warning',
+                ];
+            }
+
+            if ($ultimaChecada->clase === 'work') {
+                return [
+                    'clave'   => 'finished',
+                    'label'   => 'Jornada finalizada',
+                    'variant' => 'neutral',
+                ];
+            }
+        }
+
+        return [
+            'clave'   => 'unknown',
+            'label'   => 'Estado desconocido',
+            'variant' => 'muted',
+        ];
     }
 
     public function registrar(Request $request)
@@ -165,16 +285,23 @@ class EmpleadoChecadorController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'tipo'      => 'required|string|in:in,out',
-            'clase'     => 'required|string|in:work,break',
-            'metodo'    => 'required|string',
-            'lat'       => 'nullable|numeric',
-            'lng'       => 'nullable|numeric',
-            'accuracy'  => 'nullable|numeric',
-            'qr_token'  => 'nullable|string',
-            'selfie'    => 'nullable|string',
-            'selfie_mime' => 'nullable|string|in:image/jpeg,image/jpg,image/png',
-            'timestamp' => 'required',
+            'tipo'             => 'required|string|in:in,out',
+            'clase'            => 'required|string|in:work,meal,break,personal,other',
+            'metodo'           => 'required|string',
+
+            'check_time'       => 'required|date',
+
+            'latitud'          => 'nullable|numeric',
+            'longitud'         => 'nullable|numeric',
+            'precision_metros' => 'nullable|numeric',
+
+            'qr_token'         => 'nullable|string',
+            'foto_base64'      => 'nullable|string',
+            'foto_mime'        => 'nullable|string|in:image/jpeg,image/jpg,image/png',
+
+            'timezone'         => 'nullable|string',
+            'device_info'      => 'nullable|string',
+            'metadata'         => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
@@ -244,8 +371,32 @@ class EmpleadoChecadorController extends Controller
 
         $timezone = $horario->timezone;
 
-        $fechaHora = Carbon::createFromTimestampMs((int) $request->timestamp)
+        $fechaHora = Carbon::parse($request->check_time, $request->timezone ?: $timezone)
             ->setTimezone($timezone);
+
+        $ultimaChecada = Checada::where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('fecha', $fechaHora->toDateString())
+            ->orderByDesc('check_time')
+            ->first();
+
+        if (! $ultimaChecada && $request->tipo !== 'in') {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Primero debes registrar una entrada.',
+            ], 422);
+        }
+
+        if ($ultimaChecada && $ultimaChecada->tipo === $request->tipo) {
+            return response()->json([
+                'ok'      => false,
+                'message' => $request->tipo === 'in'
+                    ? 'Ya tienes una entrada registrada. Primero debes registrar una salida.'
+                    : 'Ya tienes una salida registrada. Primero debes registrar una entrada.',
+            ], 422);
+        }
+
         $detalleHorario = DB::connection('portal_main')
             ->table('checador_horario_detalles')
             ->where('id_plantilla', (int) $horario->id)
@@ -272,9 +423,11 @@ class EmpleadoChecadorController extends Controller
             ])
             ->get();
 
-        $ubicacionDetectada = null;
-        $distanciaDetectada = null;
-        $estaDentroGeocerca = false;
+        $ubicacionDetectada  = null;
+        $distanciaDetectada  = null;
+        $estaDentroGeocerca  = false;
+        $ubicacionMasCercana = null;
+        $distanciaMenor      = null;
 
         foreach ($ubicacionesPermitidas as $ubicacion) {
 
@@ -289,13 +442,17 @@ class EmpleadoChecadorController extends Controller
             ) {
                 continue;
             }
-
             $distancia = $this->calcularDistanciaMetros(
-                (float) $request->lat,
-                (float) $request->lng,
+                (float) $request->latitud,
+                (float) $request->longitud,
                 (float) $ubicacion->latitud,
                 (float) $ubicacion->longitud
             );
+
+            if ($distanciaMenor === null || $distancia < $distanciaMenor) {
+                $distanciaMenor      = $distancia;
+                $ubicacionMasCercana = $ubicacion;
+            }
 
             if ($distancia <= (float) $ubicacion->radio_metros) {
                 $estaDentroGeocerca = true;
@@ -306,6 +463,11 @@ class EmpleadoChecadorController extends Controller
 
                 break;
             }
+        }
+
+        if (! $estaDentroGeocerca && $distanciaMenor !== null) {
+            $distanciaDetectada = round($distanciaMenor, 2);
+            $ubicacionDetectada = $ubicacionMasCercana;
         }
 
         $estatusValidacion   = 'valida';
@@ -332,10 +494,19 @@ class EmpleadoChecadorController extends Controller
 
         $minutosRetardo = 0;
 
+        $esPrimeraEntradaLaboral = ! Checada::where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('fecha', $fechaHora->toDateString())
+            ->where('tipo', 'in')
+            ->where('clase', 'work')
+            ->exists();
+
         if (
             $detalleHorario &&
             $request->tipo === 'in' &&
             $request->clase === 'work' &&
+            $esPrimeraEntradaLaboral &&
             ! empty($detalleHorario->hora_entrada)
         ) {
             $horaEntrada = Carbon::parse(
@@ -357,26 +528,7 @@ class EmpleadoChecadorController extends Controller
                 'message' => 'El horario asignado no permite registrar descansos.',
             ], 422);
         }
-        if ($request->clase === 'work' && in_array($request->tipo, ['in', 'out'], true)) {
-            $yaExisteChecadaTrabajo = Checada::where('id_portal', $idPortal)
-                ->where('id_cliente', $idCliente)
-                ->where('id_empleado', $idEmpleado)
-                ->where('fecha', $fechaHora->toDateString())
-                ->where('clase', 'work')
-                ->where('tipo', $request->tipo)
-                ->exists();
 
-            if ($yaExisteChecadaTrabajo) {
-                $mensajeTipo = $request->tipo === 'in'
-                    ? 'entrada'
-                    : 'salida';
-
-                return response()->json([
-                    'ok'      => false,
-                    'message' => 'Ya existe una checada de ' . $mensajeTipo . ' laboral para el día de hoy.',
-                ], 422);
-            }
-        }
         $requiereFoto = DB::connection('portal_main')
             ->table('checador_checada_plantilla_metodos as pm')
             ->join('checador_metodos as m', 'm.id', '=', 'pm.id_metodo')
@@ -389,15 +541,17 @@ class EmpleadoChecadorController extends Controller
             })
             ->exists();
 
-        if ($requiereFoto && empty($request->selfie)) {
+        $requiereFotoParaMovimiento = $requiereFoto && $request->clase === 'work';
+
+        if ($requiereFotoParaMovimiento && empty($request->foto_base64)) {
             return response()->json([
                 'ok'      => false,
                 'message' => 'La plantilla asignada requiere fotografía de evidencia.',
             ], 422);
         }
         $evidenciaFoto = $this->guardarSelfieBase64(
-            $request->selfie,
-            $request->selfie_mime,
+            $request->foto_base64,
+            $request->foto_mime,
             $idPortal,
             $idCliente,
             $idEmpleado,
@@ -421,9 +575,9 @@ class EmpleadoChecadorController extends Controller
             'metodo_validacion'  => $request->metodo,
             'estatus_validacion' => $estatusValidacion,
             'distancia_metros'   => $distanciaDetectada,
-            'precision_metros'   => $request->accuracy,
-            'latitud'            => $request->lat,
-            'longitud'           => $request->lng,
+            'precision_metros'   => $request->precision_metros,
+            'latitud'            => $request->latitud,
+            'longitud'           => $request->longitud,
 
             'observacion'        => $observacionGeocerca,
             'hash'               => sha1($idPortal . '|' . $idEmpleado . '|' . $fechaHora->format('Y-m-d H:i:s') . '|' . uniqid('', true)),
@@ -432,11 +586,8 @@ class EmpleadoChecadorController extends Controller
             'qr_token'           => $request->qr_token,
             'ip_address'         => $ip,
             'timezone'           => $timezone,
-            'device_info'        => $request->device,
-            'metadata'           => [
-                'screen'            => $request->screen,
-                'timestamp_cliente' => $request->timestamp,
-            ],
+            'device_info'        => $request->device_info,
+            'metadata'           => $request->metadata,
         ]);
         $eventoRetardoId = null;
 
@@ -585,5 +736,83 @@ class EmpleadoChecadorController extends Controller
         $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
 
         return $earthRadius * $c;
+    }
+
+    private function resolverMovimientosPermitidos($ultimaChecada, $horarios): array
+    {
+        $permiteDescanso = false;
+
+        foreach ($horarios as $horario) {
+            if ((int) ($horario->permite_descanso ?? 0) === 1) {
+                $permiteDescanso = true;
+                break;
+            }
+        }
+
+        if (! $ultimaChecada) {
+            return [
+                [
+                    'tipo'   => 'in',
+                    'clase'  => 'work',
+                    'label'  => 'Entrada',
+                    'accion' => 'entrada',
+                ],
+            ];
+        }
+
+        if ($ultimaChecada->tipo === 'in') {
+            $movimientos = [
+                [
+                    'tipo'   => 'out',
+                    'clase'  => 'work',
+                    'label'  => 'Salida',
+                    'accion' => 'salida',
+                ],
+            ];
+
+            if ($permiteDescanso) {
+                $movimientos[] = [
+                    'tipo'   => 'out',
+                    'clase'  => 'meal',
+                    'label'  => 'Salida a comida',
+                    'accion' => 'meal',
+                ];
+
+                $movimientos[] = [
+                    'tipo'   => 'out',
+                    'clase'  => 'break',
+                    'label'  => 'Salida a descanso',
+                    'accion' => 'break',
+                ];
+            }
+
+            $movimientos[] = [
+                'tipo'   => 'out',
+                'clase'  => 'personal',
+                'label'  => 'Salida personal',
+                'accion' => 'personal',
+            ];
+
+            return $movimientos;
+        }
+
+        if ($ultimaChecada->tipo === 'out') {
+            return [
+                [
+                    'tipo'   => 'in',
+                    'clase'  => $ultimaChecada->clase,
+                    'label'  => $ultimaChecada->clase === 'meal'
+                        ? 'Regreso de comida'
+                        : ($ultimaChecada->clase === 'break'
+                            ? 'Regreso de descanso'
+                            : ($ultimaChecada->clase === 'personal'
+                                ? 'Regreso de salida personal'
+                                : 'Entrada')),
+                    'accion' => $ultimaChecada->clase,
+                ],
+            ];
+        }
+
+        return [];
     }
 }
