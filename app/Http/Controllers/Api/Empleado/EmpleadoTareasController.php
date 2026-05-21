@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
 class EmpleadoTareasController extends Controller
@@ -597,6 +598,192 @@ class EmpleadoTareasController extends Controller
             'ok'      => true,
             'message' => 'Evidencia eliminada correctamente.',
         ]);
+    }
+    public function validarUbicacion(Request $request, int $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'latitud'   => ['required', 'numeric'],
+            'longitud'  => ['required', 'numeric'],
+            'precision' => ['nullable', 'numeric'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Datos de ubicación inválidos.',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $empleado = $request->user();
+
+        $idEmpleado = (int) $empleado->id;
+        $idPortal   = (int) $empleado->id_portal;
+        $idCliente  = (int) $empleado->id_cliente;
+
+        /*
+     * 1. Validar que la tarea exista y pertenezca al empleado
+     * Ajusta nombres de tabla/campos si en tu módulo son distintos.
+     */
+        $tarea = DB::connection('portal_main')
+            ->table('empleado_tareas')
+            ->where('id', $id)
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->first();
+
+        if (! $tarea) {
+            return response()->json([
+                'ok'      => false,
+                'dentro'  => false,
+                'message' => 'La tarea no existe o no pertenece al empleado.',
+            ], 404);
+        }
+
+        /*
+     * 2. Obtener asignación activa del empleado
+     */
+        $asignacion = DB::connection('portal_main')
+            ->table('checador_asignaciones')
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('activa', 1)
+            ->orderByDesc('prioridad')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $asignacion || ! $asignacion->id_plantilla_checada) {
+            return response()->json([
+                'ok'      => false,
+                'dentro'  => false,
+                'message' => 'El empleado no tiene una plantilla de checada activa.',
+            ], 404);
+        }
+
+        /*
+     * 3. Obtener plantilla activa
+     */
+        $plantilla = DB::connection('portal_main')
+            ->table('checador_checada_plantillas')
+            ->where('id', (int) $asignacion->id_plantilla_checada)
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('activo', 1)
+            ->first();
+
+        if (! $plantilla) {
+            return response()->json([
+                'ok'      => false,
+                'dentro'  => false,
+                'message' => 'La plantilla de checada no está activa o no existe.',
+            ], 404);
+        }
+
+        /*
+     * 4. Si la plantilla no requiere ubicación, permitir
+     */
+        if (empty($plantilla->requiere_ubicacion)) {
+            return response()->json([
+                'ok'      => true,
+                'dentro'  => true,
+                'message' => 'La plantilla no requiere validación de ubicación.',
+            ]);
+        }
+
+        /*
+     * 5. Obtener ubicaciones permitidas de la plantilla
+     */
+        $ubicaciones = DB::connection('portal_main')
+            ->table('checador_checada_plantilla_ubicaciones as pu')
+            ->join('checador_ubicaciones as u', 'u.id', '=', 'pu.id_ubicacion')
+            ->where('pu.id_plantilla', (int) $plantilla->id)
+            ->where('pu.activo', 1)
+            ->where('u.activa', 1)
+            ->select([
+                'u.id',
+                'u.nombre',
+                'u.tipo_zona',
+                'u.latitud',
+                'u.longitud',
+                'u.radio_metros',
+                'u.polygon_json',
+            ])
+            ->get();
+
+        if ($ubicaciones->isEmpty()) {
+            return response()->json([
+                'ok'      => false,
+                'dentro'  => false,
+                'message' => 'La plantilla requiere ubicación, pero no tiene ubicaciones permitidas configuradas.',
+            ], 422);
+        }
+
+        $latitudEmpleado  = (float) $request->latitud;
+        $longitudEmpleado = (float) $request->longitud;
+
+        /*
+     * 6. Validar contra ubicaciones tipo círculo
+     */
+        foreach ($ubicaciones as $ubicacion) {
+            if ($ubicacion->tipo_zona !== 'circle') {
+                continue;
+            }
+
+            $distanciaMetros = $this->calcularDistanciaMetros(
+                $latitudEmpleado,
+                $longitudEmpleado,
+                (float) $ubicacion->latitud,
+                (float) $ubicacion->longitud
+            );
+
+            $radioMetros = (float) $ubicacion->radio_metros;
+
+            if ($distanciaMetros <= $radioMetros) {
+                return response()->json([
+                    'ok'      => true,
+                    'dentro'  => true,
+                    'message' => 'Ubicación válida.',
+                    'data'    => [
+                        'ubicacion'        => [
+                            'id'     => $ubicacion->id,
+                            'nombre' => $ubicacion->nombre,
+                        ],
+                        'distancia_metros' => round($distanciaMetros, 2),
+                        'radio_metros'     => $radioMetros,
+                    ],
+                ]);
+            }
+        }
+
+        return response()->json([
+            'ok'      => true,
+            'dentro'  => false,
+            'message' => 'Estás fuera de las ubicaciones permitidas.',
+        ]);
+    }
+    private function calcularDistanciaMetros(
+        float $lat1,
+        float $lon1,
+        float $lat2,
+        float $lon2
+    ): float {
+        $radioTierra = 6371000;
+
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+
+        $a =
+        sin($dLat / 2) * sin($dLat / 2) +
+        cos(deg2rad($lat1)) *
+        cos(deg2rad($lat2)) *
+        sin($dLon / 2) *
+        sin($dLon / 2);
+
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+
+        return $radioTierra * $c;
     }
 
 }
