@@ -311,7 +311,6 @@ class EmpleadoChecadorController extends Controller
 
             'timezone'         => 'nullable|string',
             'device_info'      => 'nullable|string',
-            'metadata'         => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
