@@ -31,6 +31,7 @@ class AccesosController extends Controller
             ->table('empleados as e')
             ->select([
                 'e.id',
+                'e.id_portal',
                 'e.id_empleado',
                 'e.nombre',
                 'e.paterno',
@@ -43,7 +44,7 @@ class AccesosController extends Controller
                 'e.password',
                 'e.force_password_change',
                 'e.last_login_at',
-                'e.password_changed_at'
+                'e.password_changed_at',
             ])
             ->where('e.id_portal', $idPortal)
             ->where('e.status', 1)
@@ -68,7 +69,61 @@ class AccesosController extends Controller
 
             $tieneAcceso = ! empty($item->password) && (int) $item->status === 1;
 
+            $tareasHoy = DB::connection('portal_main')
+                ->table('comunicacion360_empleado_tareas')
+                ->where('id_portal', (int) $item->id_portal)
+                ->where('empleado_id', (int) $item->id)
+                ->whereNull('deleted_at')
+                ->whereDate('created_at', now()->toDateString());
+
+            $tareasTotal = (clone $tareasHoy)->count();
+
+            $tareasCompletadas = (clone $tareasHoy)
+                ->where('estatus', 'completada')
+                ->count();
+
+            $tareasPendientes = (clone $tareasHoy)
+                ->where('estatus', 'pendiente')
+                ->count();
+
+            $tareasConEvidencia = (clone $tareasHoy)
+                ->where('tiene_evidencia', 1)
+                ->count();
+
+            $tareasProgreso = $tareasTotal > 0
+                ? round(($tareasCompletadas / $tareasTotal) * 100)
+                : 0;
+            $ultimaChecada = DB::connection('portal_main')
+                ->table('checadas')
+                ->where('id_portal', (int) $item->id_portal)
+                ->where('id_empleado', (int) $item->id)
+                ->whereDate('fecha', now()->toDateString())
+                ->orderByDesc('check_time')
+                ->first();
+
+            $checadorEstado      = 'sin_checada';
+            $checadorEstadoLabel = 'Sin checada';
+
+            if ($ultimaChecada) {
+                if ($ultimaChecada->tipo === 'in' && $ultimaChecada->clase === 'work') {
+                    $checadorEstado      = 'trabajando';
+                    $checadorEstadoLabel = 'Trabajando';
+                } elseif ($ultimaChecada->tipo === 'out' && $ultimaChecada->clase === 'meal') {
+                    $checadorEstado      = 'en_comida';
+                    $checadorEstadoLabel = 'En comida';
+                } elseif ($ultimaChecada->tipo === 'out' && $ultimaChecada->clase === 'break') {
+                    $checadorEstado      = 'en_descanso';
+                    $checadorEstadoLabel = 'En descanso';
+                } elseif ($ultimaChecada->tipo === 'out' && $ultimaChecada->clase === 'work') {
+                    $checadorEstado      = 'salida_registrada';
+                    $checadorEstadoLabel = 'Salida registrada';
+                } else {
+                    $checadorEstado      = 'actividad_registrada';
+                    $checadorEstadoLabel = 'Actividad registrada';
+                }
+            }
             return [
+
                 'id'                        => (int) $item->id,
                 'id_empleado'               => $item->id_empleado,
                 'nombre'                    => $item->nombre,
@@ -85,6 +140,17 @@ class AccesosController extends Controller
                 'force_password_change'     => (int) ($item->force_password_change ?? 0),
                 'last_login_at'             => $item->last_login_at,
                 'ultimo_envio_credenciales' => $item->password_changed_at,
+                'tareas_total'              => $tareasTotal,
+                'tareas_completadas'        => $tareasCompletadas,
+                'tareas_pendientes'         => $tareasPendientes,
+                'tareas_con_evidencia'      => $tareasConEvidencia,
+                'tareas_progreso'           => $tareasProgreso,
+                'tiene_tareas_hoy'          => $tareasTotal > 0,
+                'checador_estado'           => $checadorEstado,
+                'checador_estado_label'     => $checadorEstadoLabel,
+                'ultima_checada'            => $ultimaChecada?->check_time,
+                'ultima_checada_tipo'       => $ultimaChecada?->tipo,
+                'ultima_checada_clase'      => $ultimaChecada?->clase,
             ];
         })->values();
 

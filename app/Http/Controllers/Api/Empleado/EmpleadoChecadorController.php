@@ -275,6 +275,16 @@ class EmpleadoChecadorController extends Controller
 
     public function registrar(Request $request)
     {
+        \Log::info('CHECADA REQUEST DEBUG', [
+            'method'             => $request->method(),
+            'content_type'       => $request->header('Content-Type'),
+            'has_foto_base64'    => $request->filled('foto_base64'),
+            'foto_base64_length' => $request->filled('foto_base64')
+                ? strlen($request->foto_base64)
+                : 0,
+            'foto_mime'          => $request->foto_mime,
+            'keys'               => array_keys($request->all()),
+        ]);
         $empleado = $request->user();
         $ip       = $request->ip();
         if (! $empleado) {
@@ -654,66 +664,121 @@ class EmpleadoChecadorController extends Controller
             ],
         ]);
     }
-    private function guardarSelfieBase64(
-        ?string $selfie,
-        ?string $mime,
-        int $idPortal,
-        int $idCliente,
-        int $idEmpleado,
-        string $fecha
-    ): ?string {
+   private function guardarSelfieBase64(
+    ?string $selfie,
+    ?string $mime,
+    int $idPortal,
+    int $idCliente,
+    int $idEmpleado,
+    string $fecha
+): ?string {
 
-        if (empty($selfie)) {
-            return null;
-        }
+    \Log::info('SELFIE DEBUG INICIO', [
+        'has_selfie' => ! empty($selfie),
+        'selfie_length' => ! empty($selfie) ? strlen($selfie) : 0,
+        'mime' => $mime,
+        'id_portal' => $idPortal,
+        'id_cliente' => $idCliente,
+        'id_empleado' => $idEmpleado,
+        'fecha' => $fecha,
+        'env' => app()->environment(),
+    ]);
 
-        $mime = strtolower((string) $mime);
+    if (empty($selfie)) {
+        \Log::warning('SELFIE DEBUG VACIA');
+        return null;
+    }
 
-        $extension = match ($mime) {
-            'image/jpeg',
-            'image/jpg' => 'jpg',
+    $mime = strtolower((string) $mime);
 
-            'image/png' => 'png',
+    $extension = match ($mime) {
+        'image/jpeg',
+        'image/jpg' => 'jpg',
+        'image/png' => 'png',
+        default => null,
+    };
 
-            default     => null,
-        };
+    if (! $extension) {
+        \Log::warning('SELFIE DEBUG MIME NO SOPORTADO', [
+            'mime' => $mime,
+        ]);
+        return null;
+    }
 
-        if (! $extension) {
-            return null;
-        }
+    $imageData = base64_decode($selfie, true);
 
-        $imageData = base64_decode($selfie);
+    if ($imageData === false) {
+        \Log::warning('SELFIE DEBUG BASE64 INVALIDO');
+        return null;
+    }
 
-        if ($imageData === false) {
-            return null;
-        }
+    \Log::info('SELFIE DEBUG BASE64 OK', [
+        'bytes' => strlen($imageData),
+        'extension' => $extension,
+    ]);
 
-        $mes = Carbon::parse($fecha)->format('Y-m');
+    $mes = Carbon::parse($fecha)->format('Y-m');
 
-        $relativeDir = "_checadasEvidencia/{$idPortal}/{$idCliente}/{$idEmpleado}/{$mes}";
+    $relativeDir = "_checadasEvidencia/{$idPortal}/{$idCliente}/{$idEmpleado}/{$mes}";
 
-        $basePath = app()->environment('production')
-            ? config('paths.prod_images')
-            : config('paths.local_images');
+    $basePath = app()->environment('production')
+        ? config('paths.prod_images')
+        : config('paths.local_images');
 
-        $fullDir = rtrim($basePath, DIRECTORY_SEPARATOR)
+    \Log::info('SELFIE DEBUG PATHS', [
+        'base_path' => $basePath,
+        'relative_dir' => $relativeDir,
+    ]);
+
+    if (empty($basePath)) {
+        \Log::error('SELFIE DEBUG BASE PATH VACIO');
+        return null;
+    }
+
+    $fullDir = rtrim($basePath, DIRECTORY_SEPARATOR)
         . DIRECTORY_SEPARATOR
         . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
 
-        if (! File::exists($fullDir)) {
-            File::makeDirectory($fullDir, 0755, true);
-        }
+    \Log::info('SELFIE DEBUG FULL DIR', [
+        'full_dir' => $fullDir,
+        'exists' => File::exists($fullDir),
+        'is_writable_base' => is_writable($basePath),
+    ]);
 
-        $filename = 'checada_' . now()->format('Ymd_His')
-        . '_' . Str::random(10)
-            . '.' . $extension;
+    if (! File::exists($fullDir)) {
+        File::makeDirectory($fullDir, 0755, true);
 
-        $fullPath = $fullDir . DIRECTORY_SEPARATOR . $filename;
-
-        File::put($fullPath, $imageData);
-
-        return $relativeDir . '/' . $filename;
+        \Log::info('SELFIE DEBUG DIRECTORIO CREADO', [
+            'full_dir' => $fullDir,
+            'exists_after' => File::exists($fullDir),
+            'is_writable_dir' => is_writable($fullDir),
+        ]);
     }
+
+    $filename = 'checada_' . now()->format('Ymd_His')
+        . '_' . Str::random(10)
+        . '.' . $extension;
+
+    $fullPath = $fullDir . DIRECTORY_SEPARATOR . $filename;
+
+    $bytesWritten = File::put($fullPath, $imageData);
+
+    \Log::info('SELFIE DEBUG FILE PUT', [
+        'full_path' => $fullPath,
+        'bytes_written' => $bytesWritten,
+        'file_exists' => File::exists($fullPath),
+        'file_size' => File::exists($fullPath) ? File::size($fullPath) : null,
+    ]);
+
+    if ($bytesWritten === false) {
+        \Log::error('SELFIE DEBUG ERROR ESCRIBIENDO ARCHIVO', [
+            'full_path' => $fullPath,
+        ]);
+        return null;
+    }
+
+    return $relativeDir . '/' . $filename;
+}
 
     private function calcularDistanciaMetros(
         float $lat1,
