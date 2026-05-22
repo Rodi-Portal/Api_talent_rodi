@@ -484,6 +484,11 @@ Route::middleware('auth:sanctum')->group(function () {
         EmpleadoTareasController::class,
         'uploadEvidencia',
     ]);
+
+    Route::post('/empleado/tareas/{id}/validar-ubicacion-evidencia', [
+        EmpleadoTareasController::class,
+        'validarUbicacion',
+    ]);
     Route::get('/empleado/tareas/{id}/evidencia/{evidenciaId}/ver', [
         EmpleadoTareasController::class,
         'verEvidencia',
@@ -531,7 +536,7 @@ Route::middleware(['auth:empleado'])
         |--------------------------------------------------------------------------
         */
 
-        Route::get('/checador/contexto', [EmpleadoChecadorController::class,'contexto']);
+        Route::get('/checador/contexto', [EmpleadoChecadorController::class, 'contexto']);
         Route::get('/checador/historial-hoy', [EmpleadoChecadorController::class, 'historialHoy']);
         Route::post('/checador/registrar', [EmpleadoChecadorController::class, 'registrar']);
         /*
