@@ -610,27 +610,36 @@ class EmpleadoTareasController extends Controller
         if ($validator->fails()) {
             return response()->json([
                 'ok'      => false,
+                'dentro'  => false,
                 'message' => 'Datos de ubicación inválidos.',
                 'errors'  => $validator->errors(),
             ], 422);
         }
 
-        $empleado = $request->user();
+        $empleado = auth('sanctum')->user();
+
+        if (! $empleado) {
+            return response()->json([
+                'ok'      => false,
+                'dentro'  => false,
+                'message' => 'No autenticado',
+            ], 401);
+        }
+
+        $conexion = DB::connection('portal_main');
 
         $idEmpleado = (int) $empleado->id;
         $idPortal   = (int) $empleado->id_portal;
         $idCliente  = (int) $empleado->id_cliente;
+        $hoy        = now()->toDateString();
 
-        /*
-     * 1. Validar que la tarea exista y pertenezca al empleado
-     * Ajusta nombres de tabla/campos si en tu módulo son distintos.
-     */
-        $tarea = DB::connection('portal_main')
-            ->table('empleado_tareas')
+        // 1. Validar tarea real del módulo actual
+        $tarea = $conexion
+            ->table('comunicacion360_empleado_tareas')
             ->where('id', $id)
+            ->where('empleado_id', $idEmpleado)
             ->where('id_portal', $idPortal)
-            ->where('id_cliente', $idCliente)
-            ->where('id_empleado', $idEmpleado)
+            ->whereNull('deleted_at')
             ->first();
 
         if (! $tarea) {
@@ -641,15 +650,18 @@ class EmpleadoTareasController extends Controller
             ], 404);
         }
 
-        /*
-     * 2. Obtener asignación activa del empleado
-     */
-        $asignacion = DB::connection('portal_main')
+        // 2. Buscar asignación activa vigente del checador
+        $asignacion = $conexion
             ->table('checador_asignaciones')
             ->where('id_portal', $idPortal)
             ->where('id_cliente', $idCliente)
             ->where('id_empleado', $idEmpleado)
             ->where('activa', 1)
+            ->whereDate('fecha_inicio', '<=', $hoy)
+            ->where(function ($q) use ($hoy) {
+                $q->whereNull('fecha_fin')
+                    ->orWhereDate('fecha_fin', '>=', $hoy);
+            })
             ->orderByDesc('prioridad')
             ->orderByDesc('id')
             ->first();
@@ -662,10 +674,8 @@ class EmpleadoTareasController extends Controller
             ], 404);
         }
 
-        /*
-     * 3. Obtener plantilla activa
-     */
-        $plantilla = DB::connection('portal_main')
+        // 3. Buscar plantilla de checada activa
+        $plantilla = $conexion
             ->table('checador_checada_plantillas')
             ->where('id', (int) $asignacion->id_plantilla_checada)
             ->where('id_portal', $idPortal)
@@ -681,25 +691,28 @@ class EmpleadoTareasController extends Controller
             ], 404);
         }
 
-        /*
-     * 4. Si la plantilla no requiere ubicación, permitir
-     */
-        if (empty($plantilla->requiere_ubicacion)) {
+        // 4. Si la plantilla no requiere ubicación, permitir
+        if ((int) $plantilla->requiere_ubicacion !== 1) {
             return response()->json([
                 'ok'      => true,
                 'dentro'  => true,
                 'message' => 'La plantilla no requiere validación de ubicación.',
+                'data'    => [
+                    'ubicacion'        => null,
+                    'distancia_metros' => null,
+                    'radio_metros'     => null,
+                ],
             ]);
         }
 
-        /*
-     * 5. Obtener ubicaciones permitidas de la plantilla
-     */
-        $ubicaciones = DB::connection('portal_main')
+        // 5. Obtener ubicaciones permitidas
+        $ubicaciones = $conexion
             ->table('checador_checada_plantilla_ubicaciones as pu')
             ->join('checador_ubicaciones as u', 'u.id', '=', 'pu.id_ubicacion')
             ->where('pu.id_plantilla', (int) $plantilla->id)
             ->where('pu.activo', 1)
+            ->where('u.id_portal', $idPortal)
+            ->where('u.id_cliente', $idCliente)
             ->where('u.activa', 1)
             ->select([
                 'u.id',
@@ -723,11 +736,13 @@ class EmpleadoTareasController extends Controller
         $latitudEmpleado  = (float) $request->latitud;
         $longitudEmpleado = (float) $request->longitud;
 
-        /*
-     * 6. Validar contra ubicaciones tipo círculo
-     */
+        // 6. Validar círculos
         foreach ($ubicaciones as $ubicacion) {
             if ($ubicacion->tipo_zona !== 'circle') {
+                continue;
+            }
+
+            if ($ubicacion->latitud === null || $ubicacion->longitud === null) {
                 continue;
             }
 
@@ -738,7 +753,7 @@ class EmpleadoTareasController extends Controller
                 (float) $ubicacion->longitud
             );
 
-            $radioMetros = (float) $ubicacion->radio_metros;
+            $radioMetros = (float) ($ubicacion->radio_metros ?: 100);
 
             if ($distanciaMetros <= $radioMetros) {
                 return response()->json([
@@ -747,7 +762,7 @@ class EmpleadoTareasController extends Controller
                     'message' => 'Ubicación válida.',
                     'data'    => [
                         'ubicacion'        => [
-                            'id'     => $ubicacion->id,
+                            'id'     => (int) $ubicacion->id,
                             'nombre' => $ubicacion->nombre,
                         ],
                         'distancia_metros' => round($distanciaMetros, 2),
