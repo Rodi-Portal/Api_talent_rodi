@@ -33,7 +33,10 @@ class DocumentOptionController extends Controller
         }
 
         // Buscar documentos del empleado junto con las opciones
-        $exam = ExamEmpleado::with('examOption')->where('employee_id', $employeeId)->get();
+        $exam = ExamEmpleado::with('examOption')
+            ->where('employee_id', $employeeId)
+            ->where('status', '!=', 999)
+            ->get();
 
         // Verificar si se encontraron documentos
         if ($exam->isEmpty()) {
@@ -1353,9 +1356,22 @@ class DocumentOptionController extends Controller
         $fileName = $document->nameDocument ?? null;
 
         if ($fileName) {
+
             $filePath = $basePath . $carpeta . $fileName;
+
+            $deletedPath = $basePath . $carpeta . '_borrados/';
+
+            // Crear carpeta si no existe
+            if (! file_exists($deletedPath)) {
+                mkdir($deletedPath, 0777, true);
+            }
+
+            // Evitar sobrescribir archivos
+            $newFilePath = $deletedPath . time() . '_' . $fileName;
+
+            // Mover archivo
             if (file_exists($filePath)) {
-                unlink($filePath);
+                rename($filePath, $newFilePath);
             }
         }
 

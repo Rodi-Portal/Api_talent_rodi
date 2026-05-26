@@ -578,6 +578,7 @@ Route::prefix('comunicacion360')->group(function () {
     Route::post('/accesos/actualizar', [AccesosController::class, 'actualizar']);
     Route::post('/accesos/generar-individual', [AccesosController::class, 'generarIndividual']);
     Route::post('/accesos/actualizar-individual', [AccesosController::class, 'actualizarIndividual']);
+    Route::post('/accesos/{id}/cerrar-sesion', [AccesosController::class, 'cerrarSesion']);
 });
 Route::prefix('comunicacion360/tasks')->group(function () {
 
@@ -586,7 +587,11 @@ Route::prefix('comunicacion360/tasks')->group(function () {
 
     // Crear tarea
     Route::post('/', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'store']);
-
+    //ver tarea  de empleado
+    Route::get('/empleado/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'empleado']);
+    Route::post('/empleado-tarea/{id}/comentarios', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'storeComentarioEmpleado']);
+    Route::post('/empleado-tarea/{id}/reabrir', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'reabrirTareaEmpleado']);
+    Route::delete('/comentarios/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'deleteComentarioEmpleado']);
     // Obtener una tarea por ID
     Route::get('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'show']);
 
@@ -595,6 +600,7 @@ Route::prefix('comunicacion360/tasks')->group(function () {
 
     // Eliminar (opcional)
     Route::delete('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'destroy']);
+
 });
 
 use Illuminate\Http\Request;
@@ -650,7 +656,7 @@ Route::prefix('checador')->group(function () {
     // Metodos
     Route::get('/metodos', [ChecadorMetodoController::class, 'index']);
 
-// Asignaciones de plantillas a empleados
+    // Asignaciones de plantillas a empleados
     Route::get('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'index']);
     Route::post('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'store']);
     Route::get('/empleados-acceso', [ChecadorAsignacionController::class, 'empleadosConAcceso']);

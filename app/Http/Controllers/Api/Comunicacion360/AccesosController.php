@@ -45,6 +45,7 @@ class AccesosController extends Controller
                 'e.force_password_change',
                 'e.last_login_at',
                 'e.password_changed_at',
+                'e.foto',
             ])
             ->where('e.id_portal', $idPortal)
             ->where('e.status', 1)
@@ -122,14 +123,47 @@ class AccesosController extends Controller
                     $checadorEstadoLabel = 'Actividad registrada';
                 }
             }
+            $basePath = app()->environment('production')
+                ? config('paths.prod_images')
+                : config('paths.local_images');
+
+            $fotoBase64 = null;
+
+            if (! empty($item->foto)) {
+                $fotoPath = $basePath . '/_perfilEmpleado/' . $item->foto;
+
+                if (file_exists($fotoPath)) {
+                    $mime       = mime_content_type($fotoPath);
+                    $fotoBase64 = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($fotoPath));
+                }
+            }
+            $tokenActivo = DB::connection('portal_main')
+                ->table('personal_access_tokens')
+                ->where('tokenable_type', 'App\\Models\\Auth\\EmpleadoAuth')
+                ->where('tokenable_id', (int) $item->id)
+                ->where(function ($q) {
+                    $q->whereNull('expires_at')
+                        ->orWhere('expires_at', '>', now());
+                })
+                ->orderByDesc('last_used_at')
+                ->first();
+
+            $sesionActiva = false;
+
+            if ($tokenActivo && $tokenActivo->last_used_at) {
+                $sesionActiva =
+                now()->diffInMinutes($tokenActivo->last_used_at) <= 15;
+            }
             return [
 
                 'id'                        => (int) $item->id,
+                'id_portal'                 => (int) $item->id_portal,
                 'id_empleado'               => $item->id_empleado,
                 'nombre'                    => $item->nombre,
                 'paterno'                   => $item->paterno,
                 'materno'                   => $item->materno,
                 'nombre_completo'           => $nombreCompleto,
+                'foto_base64'               => $fotoBase64,
                 'correo'                    => $item->correo,
                 'puesto'                    => $item->puesto,
                 'departamento'              => $item->departamento,
@@ -151,6 +185,8 @@ class AccesosController extends Controller
                 'ultima_checada'            => $ultimaChecada?->check_time,
                 'ultima_checada_tipo'       => $ultimaChecada?->tipo,
                 'ultima_checada_clase'      => $ultimaChecada?->clase,
+                'sesion_activa'             => $sesionActiva,
+                'ultimo_acceso_token'       => $tokenActivo?->last_used_at,
             ];
         })->values();
 
@@ -715,6 +751,35 @@ class AccesosController extends Controller
         $status = $resultado['ok'] ? 200 : 422;
 
         return response()->json($resultado, $status);
+    }
+    public function cerrarSesion($id, Request $request)
+    {
+        $empleado = \App\Models\Auth\EmpleadoAuth::find($id);
+
+        if (! $empleado) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Empleado no encontrado',
+            ], 404);
+        }
+
+        $tokensEliminados = $empleado->tokens()->count();
+
+        $empleado->tokens()->delete();
+
+        \Log::info('Sesión cerrada por administrador', [
+            'empleado_id'       => $empleado->id,
+            'empleado_nombre'   => trim($empleado->nombre . ' ' . $empleado->paterno),
+            'tokens_eliminados' => $tokensEliminados,
+            'admin_ip'          => $request->ip(),
+            'user_agent'        => $request->userAgent(),
+        ]);
+
+        return response()->json([
+            'ok'                => true,
+            'message'           => 'Sesión cerrada correctamente',
+            'tokens_eliminados' => $tokensEliminados,
+        ]);
     }
 
     private function procesarAccesoIndividual(

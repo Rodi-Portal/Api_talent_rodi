@@ -202,7 +202,8 @@ class CursosController extends Controller
 
         // Construir la consulta con relaciones
         $query = CursoEmpleado::with('documentOption')
-            ->where('employee_id', $employeeId);
+            ->where('employee_id', $employeeId)
+            ->where('status', '!=', 999);
 
         // Aplicar filtro por origen, excepto si es 3 (todos)
         if ($origen != 3) {
