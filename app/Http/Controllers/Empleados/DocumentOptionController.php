@@ -1355,21 +1355,18 @@ class DocumentOptionController extends Controller
 
         $fileName = $document->nameDocument ?? null;
 
+        $folderPath  = rtrim($basePath, '/\\') . '/' . trim($carpeta, '/\\') . '/';
+        $deletedPath = $folderPath . '_borrados/';
+
+// Crear carpeta _borrados aunque todavía no se haya movido nada
+        if (! file_exists($deletedPath)) {
+            mkdir($deletedPath, 0755, true);
+        }
+
         if ($fileName) {
-
-            $filePath = $basePath . $carpeta . $fileName;
-
-            $deletedPath = $basePath . $carpeta . '_borrados/';
-
-            // Crear carpeta si no existe
-            if (! file_exists($deletedPath)) {
-                mkdir($deletedPath, 0777, true);
-            }
-
-            // Evitar sobrescribir archivos
+            $filePath    = $folderPath . $fileName;
             $newFilePath = $deletedPath . time() . '_' . $fileName;
 
-            // Mover archivo
             if (file_exists($filePath)) {
                 rename($filePath, $newFilePath);
             }
