@@ -1322,62 +1322,131 @@ class DocumentOptionController extends Controller
 
         $request->validate($rules);
 
-        $tabla       = $request->tabla;
-        $id          = $request->id;
-        $id_usuario  = $request->input('id_usuario', null);
+        $tabla      = $request->tabla;
+        $id         = $request->id;
+        $id_usuario = $request->input('id_usuario', null);
+
         $tablaModelo = [
             'examenes'   => [ExamEmpleado::class, '_examEmpleado/'],
             'documentos' => [DocumentEmpleado::class, '_documentEmpleado/'],
             'cursos'     => [CursoEmpleado::class, '_cursos/'],
         ];
 
+        // Validar tabla
         if (! isset($tablaModelo[$tabla])) {
-            return response()->json(['message' => 'Invalid table specified'], 400);
+            return response()->json([
+                'message' => 'Invalid table specified',
+            ], 400);
         }
 
         [$modelClass, $carpeta] = $tablaModelo[$tabla];
 
+        // Buscar documento
         $document = $modelClass::find($id);
 
         if (! $document) {
-            return response()->json(['message' => 'Record not found'], 404);
+            return response()->json([
+                'message' => 'Record not found',
+            ], 404);
         }
 
-        // 🚫 Evitar eliminar dos veces
+        // Evitar eliminar dos veces
         if ($document->status == 999) {
-            return response()->json(['message' => 'Already deleted'], 200);
+            return response()->json([
+                'message' => 'Already deleted',
+            ], 200);
         }
 
-        // ⚠️ OPCIONAL: eliminar archivo físico
+        // Definir ruta base
         $basePath = env('APP_ENV') === 'local'
             ? env('LOCAL_IMAGE_PATH')
             : env('PROD_IMAGE_PATH');
 
-        $fileName = $document->nameDocument ?? null;
+        // Obtener nombre del archivo
+        // Puede venir desde catálogo o desde línea directa
+        $fileName = ! empty($document->nameDocument)
+            ? $document->nameDocument
+            : (! empty($document->name) ? $document->name : null);
 
-        $folderPath  = rtrim($basePath, '/\\') . '/' . trim($carpeta, '/\\') . '/';
-        $deletedPath = $folderPath . '_borrados/';
+        // Construcción segura de rutas
+        $folderPath = rtrim($basePath, DIRECTORY_SEPARATOR)
+        . DIRECTORY_SEPARATOR
+        . trim($carpeta, DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR;
 
-// Crear carpeta _borrados aunque todavía no se haya movido nada
+        $deletedPath = $folderPath
+            . '_borrados'
+            . DIRECTORY_SEPARATOR;
+
+        // Crear carpeta _borrados si no existe
         if (! file_exists($deletedPath)) {
-            mkdir($deletedPath, 0755, true);
-        }
 
-        if ($fileName) {
-            $filePath    = $folderPath . $fileName;
-            $newFilePath = $deletedPath . time() . '_' . $fileName;
+            if (! mkdir($deletedPath, 0755, true) && ! is_dir($deletedPath)) {
 
-            if (file_exists($filePath)) {
-                rename($filePath, $newFilePath);
+                Log::error('❌ No se pudo crear carpeta _borrados', [
+                    'ruta' => $deletedPath,
+                ]);
+
+                return response()->json([
+                    'message' => 'No se pudo crear carpeta de borrados',
+                ], 500);
             }
         }
 
-        // ✅ Soft delete manual
+        // Mover archivo físico
+        if ($fileName) {
+
+            $filePath = $folderPath . $fileName;
+
+            Log::info('📂 Intentando mover archivo', [
+                'archivo'      => $fileName,
+                'ruta_origen'  => $filePath,
+                'ruta_destino' => $deletedPath,
+            ]);
+
+            if (file_exists($filePath)) {
+
+                // Evitar sobrescribir nombres
+                $newFilePath = $deletedPath
+                . time()
+                    . '_'
+                    . $fileName;
+
+                if (rename($filePath, $newFilePath)) {
+
+                    Log::info('✅ Archivo movido correctamente', [
+                        'nuevo_archivo' => $newFilePath,
+                    ]);
+
+                } else {
+
+                    Log::error('❌ Error al mover archivo', [
+                        'origen'  => $filePath,
+                        'destino' => $newFilePath,
+                    ]);
+                }
+
+            } else {
+
+                Log::warning('⚠️ Archivo no encontrado', [
+                    'archivo' => $filePath,
+                ]);
+            }
+        } else {
+
+            Log::warning('⚠️ Documento sin nombre de archivo', [
+                'document_id' => $id,
+            ]);
+        }
+
+        // Soft delete manual
         $document->update([
             'status' => 999,
         ]);
 
-        return response()->json(['message' => 'Soft deleted successfully'], 200);
+        return response()->json([
+            'message' => 'Soft deleted successfully',
+        ], 200);
     }
     public function generateRandomString($length = 10)
     {
