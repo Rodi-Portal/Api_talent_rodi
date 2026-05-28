@@ -2,6 +2,9 @@
 namespace App\Http\Controllers\Api\Comunicacion360;
 
 use App\Http\Controllers\Controller;
+use App\Models\Comunicacion360\Checador\Checada;
+use App\Models\Comunicacion360\Checador\ChecadorAsignacion;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -752,6 +755,7 @@ class AccesosController extends Controller
 
         return response()->json($resultado, $status);
     }
+
     public function cerrarSesion($id, Request $request)
     {
         $empleado = \App\Models\Auth\EmpleadoAuth::find($id);
@@ -1036,4 +1040,373 @@ class AccesosController extends Controller
 
         return implode('', $password);
     }
+    public function checadasDia(Request $request, $id)
+    {
+        $idPortal = $request->input('id_portal');
+        $fecha    = $request->input('fecha', now()->toDateString());
+
+        if (! $idPortal) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'id_portal es requerido',
+            ], 422);
+        }
+
+        $checadas = Checada::query()
+            ->where('id_portal', $idPortal)
+            ->where('id_empleado', $id)
+            ->whereDate('fecha', $fecha)
+            ->orderBy('check_time')
+            ->get();
+
+        $primeraEntrada = $checadas
+            ->where('tipo', 'in')
+            ->first();
+
+        $ultimaChecada = $checadas->last();
+
+        return response()->json([
+            'ok'   => true,
+            'data' => [
+                'fecha'           => $fecha,
+                'total'           => $checadas->count(),
+                'estado_actual'   => $ultimaChecada
+                    ? $ultimaChecada->tipo . '/' . $ultimaChecada->clase
+                    : 'sin_checada',
+                'primera_entrada' => $primeraEntrada?->check_time?->format('Y-m-d H:i:s'),
+                'ultima_checada'  => $ultimaChecada?->check_time?->format('Y-m-d H:i:s'),
+                'items'           => $checadas->map(function ($item) {
+                    return [
+                        'id'                 => $item->id,
+                        'fecha'              => $item->fecha?->format('Y-m-d'),
+                        'check_time'         => $item->check_time?->format('Y-m-d H:i:s'),
+                        'hora'               => $item->check_time?->format('H:i'),
+                        'tipo'               => $item->tipo,
+                        'clase'              => $item->clase,
+                        'origen'             => $item->origen,
+                        'metodo_validacion'  => $item->metodo_validacion,
+                        'estatus_validacion' => $item->estatus_validacion,
+                        'id_ubicacion'       => $item->id_ubicacion,
+                        'distancia_metros'   => $item->distancia_metros,
+                        'precision_metros'   => $item->precision_metros,
+                        'observacion'        => $item->observacion,
+                        'tiene_evidencia'    => ! empty($item->evidencia_foto),
+                    ];
+                })->values(),
+            ],
+        ]);
+    }
+
+    public function metricasDia(Request $request, $id)
+    {
+        $idPortal = $request->input('id_portal');
+        $fecha    = $request->input('fecha', now()->toDateString());
+
+        if (! $idPortal) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'id_portal es requerido',
+            ], 422);
+        }
+
+        $fechaCarbon = Carbon::parse($fecha);
+        $diaSemana   = (int) $fechaCarbon->dayOfWeek; // 0 domingo, 1 lunes...
+
+        $asignacion = ChecadorAsignacion::query()
+            ->with([
+                'horarioPlantilla.detalles' => function ($query) use ($diaSemana) {
+                    $query->where('dia_semana', $diaSemana)
+                        ->orderBy('orden');
+                },
+            ])
+            ->where('id_portal', $idPortal)
+            ->where('id_empleado', $id)
+            ->where('activa', 1)
+            ->whereDate('fecha_inicio', '<=', $fecha)
+            ->where(function ($query) use ($fecha) {
+                $query->whereNull('fecha_fin')
+                    ->orWhereDate('fecha_fin', '>=', $fecha);
+            })
+            ->orderByDesc('prioridad')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $asignacion || ! $asignacion->horarioPlantilla) {
+            return response()->json([
+                'ok'   => true,
+                'data' => [
+                    'fecha'            => $fecha,
+                    'tiene_horario'    => false,
+                    'estado_operativo' => 'sin_horario',
+                    'metricas'         => null,
+                    'alertas'          => [
+                        [
+                            'tipo'    => 'sin_horario',
+                            'nivel'   => 'warning',
+                            'mensaje' => 'El colaborador no tiene un horario activo asignado para esta fecha.',
+                        ],
+                    ],
+                ],
+            ]);
+        }
+
+        $plantillaHorario = $asignacion->horarioPlantilla;
+        $detalleHorario   = $plantillaHorario->detalles->first();
+
+        $checadas = Checada::query()
+            ->where('id_portal', $idPortal)
+            ->where('id_empleado', $id)
+            ->whereDate('fecha', $fecha)
+            ->orderBy('check_time')
+            ->get();
+
+        $alertas = [];
+        if ($detalleHorario && $detalleHorario->labora && $checadas->count() === 0) {
+            $inicioProgramado = Carbon::parse($fecha . ' ' . $detalleHorario->hora_entrada, $plantillaHorario->timezone);
+            $finProgramado    = Carbon::parse($fecha . ' ' . $detalleHorario->hora_salida, $plantillaHorario->timezone);
+
+            if ($finProgramado->lessThanOrEqualTo($inicioProgramado)) {
+                $finProgramado->addDay();
+            }
+
+            $minutosProgramados = $inicioProgramado->diffInMinutes($finProgramado);
+
+            return response()->json([
+                'ok'   => true,
+                'data' => [
+                    'fecha'            => $fecha,
+                    'tiene_horario'    => true,
+                    'estado_operativo' => 'ausencia',
+                    'horario'          => [
+                        'id_asignacion'          => $asignacion->id,
+                        'id_plantilla'           => $plantillaHorario->id,
+                        'nombre'                 => $plantillaHorario->nombre,
+                        'timezone'               => $plantillaHorario->timezone,
+                        'dia_semana'             => $diaSemana,
+                        'labora'                 => true,
+                        'hora_entrada'           => $detalleHorario->hora_entrada,
+                        'hora_salida'            => $detalleHorario->hora_salida,
+                        'tolerancia_entrada_min' => $plantillaHorario->tolerancia_entrada_min,
+                        'tolerancia_salida_min'  => $plantillaHorario->tolerancia_salida_min,
+                        'permite_descanso'       => $plantillaHorario->permite_descanso,
+                    ],
+                    'metricas'         => [
+                        'minutos_programados'       => $minutosProgramados,
+                        'minutos_trabajados'        => 0,
+                        'minutos_retardo'           => 0,
+                        'minutos_salida_anticipada' => 0,
+                        'minutos_comida'            => 0,
+                        'minutos_break'             => 0,
+                        'puntualidad_pct'           => 0,
+                        'productividad_pct'         => 0,
+                    ],
+                    'alertas'          => [
+                        [
+                            'tipo'    => 'ausencia',
+                            'nivel'   => 'danger',
+                            'mensaje' => 'Día laborable sin checadas registradas.',
+                        ],
+                    ],
+                ],
+            ]);
+        }
+
+        if (! $detalleHorario || ! $detalleHorario->labora) {
+            if ($checadas->count() > 0) {
+                $alertas[] = [
+                    'tipo'    => 'dia_no_laborable_con_checadas',
+                    'nivel'   => 'warning',
+                    'mensaje' => 'El colaborador registró checadas en un día no laborable.',
+                ];
+            }
+
+            return response()->json([
+                'ok'   => true,
+                'data' => [
+                    'fecha'            => $fecha,
+                    'tiene_horario'    => true,
+                    'estado_operativo' => $checadas->count() > 0
+                        ? 'dia_no_laborable_con_checadas'
+                        : 'dia_no_laborable',
+                    'horario'          => [
+                        'id_plantilla'           => $plantillaHorario->id,
+                        'nombre'                 => $plantillaHorario->nombre,
+                        'timezone'               => $plantillaHorario->timezone,
+                        'dia_semana'             => $diaSemana,
+                        'labora'                 => false,
+                        'hora_entrada'           => null,
+                        'hora_salida'            => null,
+                        'tolerancia_entrada_min' => $plantillaHorario->tolerancia_entrada_min,
+                        'tolerancia_salida_min'  => $plantillaHorario->tolerancia_salida_min,
+                        'permite_descanso'       => $plantillaHorario->permite_descanso,
+                    ],
+                    'metricas'         => [
+                        'minutos_programados'       => 0,
+                        'minutos_trabajados'        => 0,
+                        'minutos_retardo'           => 0,
+                        'minutos_salida_anticipada' => 0,
+                        'minutos_comida'            => 0,
+                        'minutos_break'             => 0,
+                        'puntualidad_pct'           => null,
+                        'productividad_pct'         => null,
+                    ],
+                    'alertas'          => $alertas,
+                ],
+            ]);
+        }
+
+        $inicioProgramado = Carbon::parse($fecha . ' ' . $detalleHorario->hora_entrada, $plantillaHorario->timezone);
+        $finProgramado    = Carbon::parse($fecha . ' ' . $detalleHorario->hora_salida, $plantillaHorario->timezone);
+
+        if ($finProgramado->lessThanOrEqualTo($inicioProgramado)) {
+            $finProgramado->addDay();
+        }
+
+        $entradaLimite = $inicioProgramado->copy()->addMinutes((int) $plantillaHorario->tolerancia_entrada_min);
+        $salidaLimite  = $finProgramado->copy()->subMinutes((int) $plantillaHorario->tolerancia_salida_min);
+
+        $primeraEntradaTrabajo = $checadas
+            ->where('tipo', 'in')
+            ->where('clase', 'work')
+            ->first();
+
+        $ultimaSalidaTrabajo = $checadas
+            ->where('tipo', 'out')
+            ->where('clase', 'work')
+            ->last();
+
+        $minutosProgramados      = $inicioProgramado->diffInMinutes($finProgramado);
+        $minutosRetardo          = 0;
+        $minutosSalidaAnticipada = 0;
+
+        if (! $primeraEntradaTrabajo) {
+            $alertas[] = [
+                'tipo'    => 'sin_entrada',
+                'nivel'   => 'danger',
+                'mensaje' => 'No existe entrada laboral registrada.',
+            ];
+        } else {
+            $entradaReal = Carbon::parse($primeraEntradaTrabajo->check_time, $plantillaHorario->timezone);
+
+            if ($entradaReal->greaterThan($entradaLimite)) {
+                $minutosRetardo = $entradaLimite->diffInMinutes($entradaReal);
+
+                $alertas[] = [
+                    'tipo'    => 'retardo',
+                    'nivel'   => $minutosRetardo >= 30 ? 'danger' : 'warning',
+                    'mensaje' => "Entrada posterior a la tolerancia por {$minutosRetardo} minutos.",
+                ];
+            }
+        }
+
+        if (! $ultimaSalidaTrabajo) {
+            $alertas[] = [
+                'tipo'    => 'sin_salida',
+                'nivel'   => 'danger',
+                'mensaje' => 'No existe salida laboral registrada.',
+            ];
+        } else {
+            $salidaReal = Carbon::parse($ultimaSalidaTrabajo->check_time, $plantillaHorario->timezone);
+
+            if ($salidaReal->lessThan($salidaLimite)) {
+                $minutosSalidaAnticipada = $salidaReal->diffInMinutes($salidaLimite);
+
+                $alertas[] = [
+                    'tipo'    => 'salida_anticipada',
+                    'nivel'   => $minutosSalidaAnticipada >= 30 ? 'danger' : 'warning',
+                    'mensaje' => "Salida antes de la tolerancia por {$minutosSalidaAnticipada} minutos.",
+                ];
+            }
+        }
+
+        $minutosComida  = $this->calcularMinutosPorClase($checadas, 'meal', $plantillaHorario->timezone);
+        $minutosBreak   = $this->calcularMinutosPorClase($checadas, 'break', $plantillaHorario->timezone);
+        $minutosTrabajo = $this->calcularMinutosPorClase($checadas, 'work', $plantillaHorario->timezone);
+
+        if ($minutosTrabajo === 0 && $checadas->count() > 0) {
+            $alertas[] = [
+                'tipo'    => 'jornada_incompleta',
+                'nivel'   => 'warning',
+                'mensaje' => 'Hay checadas registradas, pero no existe un par completo entrada/salida laboral.',
+            ];
+        }
+
+        $puntualidadPct = $minutosProgramados > 0
+            ? max(0, round((($minutosProgramados - $minutosRetardo) / $minutosProgramados) * 100, 2))
+            : null;
+
+        $productividadPct = $minutosProgramados > 0
+            ? min(100, round(($minutosTrabajo / $minutosProgramados) * 100, 2))
+            : null;
+
+        $estadoOperativo = 'normal';
+
+        if (collect($alertas)->where('nivel', 'danger')->count() > 0) {
+            $estadoOperativo = 'critico';
+        } elseif (count($alertas) > 0) {
+            $estadoOperativo = 'observado';
+        }
+
+        return response()->json([
+            'ok'   => true,
+            'data' => [
+                'fecha'            => $fecha,
+                'tiene_horario'    => true,
+                'estado_operativo' => $estadoOperativo,
+                'horario'          => [
+                    'id_asignacion'          => $asignacion->id,
+                    'id_plantilla'           => $plantillaHorario->id,
+                    'nombre'                 => $plantillaHorario->nombre,
+                    'timezone'               => $plantillaHorario->timezone,
+                    'dia_semana'             => $diaSemana,
+                    'labora'                 => true,
+                    'hora_entrada'           => $detalleHorario->hora_entrada,
+                    'hora_salida'            => $detalleHorario->hora_salida,
+                    'tolerancia_entrada_min' => $plantillaHorario->tolerancia_entrada_min,
+                    'tolerancia_salida_min'  => $plantillaHorario->tolerancia_salida_min,
+                    'permite_descanso'       => $plantillaHorario->permite_descanso,
+                ],
+                'metricas'         => [
+                    'minutos_programados'       => $minutosProgramados,
+                    'minutos_trabajados'        => $minutosTrabajo,
+                    'minutos_retardo'           => $minutosRetardo,
+                    'minutos_salida_anticipada' => $minutosSalidaAnticipada,
+                    'minutos_comida'            => $minutosComida,
+                    'minutos_break'             => $minutosBreak,
+                    'puntualidad_pct'           => $puntualidadPct,
+                    'productividad_pct'         => $productividadPct,
+                ],
+                'alertas'          => $alertas,
+            ],
+        ]);
+    }
+    private function calcularMinutosPorClase($checadas, string $clase, string $timezone): int
+    {
+        $eventos = $checadas
+            ->where('clase', $clase)
+            ->values();
+
+        $inicio = null;
+        $total  = 0;
+
+        foreach ($eventos as $evento) {
+            if ($evento->tipo === 'in') {
+                $inicio = Carbon::parse($evento->check_time, $timezone);
+                continue;
+            }
+
+            if ($evento->tipo === 'out' && $inicio) {
+                $fin = Carbon::parse($evento->check_time, $timezone);
+
+                if ($fin->greaterThan($inicio)) {
+                    $total += $inicio->diffInMinutes($fin);
+                }
+
+                $inicio = null;
+            }
+        }
+
+        return $total;
+    }
+
 }

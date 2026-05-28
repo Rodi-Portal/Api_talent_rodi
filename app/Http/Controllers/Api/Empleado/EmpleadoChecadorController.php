@@ -132,6 +132,13 @@ class EmpleadoChecadorController extends Controller
                     return $horario;
                 });
         }
+        $this->cerrarJornadaPendienteSiAplica(
+            $idPortal,
+            $idCliente,
+            $idEmpleado,
+            Carbon::now('America/Mexico_City')
+        );
+
         $hoy = Carbon::now()->toDateString();
 
         $ultimaChecada = DB::connection('portal_main')
@@ -275,16 +282,7 @@ class EmpleadoChecadorController extends Controller
 
     public function registrar(Request $request)
     {
-        \Log::info('CHECADA REQUEST DEBUG', [
-            'method'             => $request->method(),
-            'content_type'       => $request->header('Content-Type'),
-            'has_foto_base64'    => $request->filled('foto_base64'),
-            'foto_base64_length' => $request->filled('foto_base64')
-                ? strlen($request->foto_base64)
-                : 0,
-            'foto_mime'          => $request->foto_mime,
-            'keys'               => array_keys($request->all()),
-        ]);
+       
         $empleado = $request->user();
         $ip       = $request->ip();
         if (! $empleado) {
@@ -306,12 +304,11 @@ class EmpleadoChecadorController extends Controller
             'precision_metros' => 'nullable|numeric',
 
             'qr_token'         => 'nullable|string',
-            'foto_base64'      => 'nullable|string',
-            'foto_mime'        => 'nullable|string|in:image/jpeg,image/jpg,image/png',
+            'foto'             => 'nullable|image|mimes:jpg,jpeg,png|max:4096',
+            'metadata'         => 'nullable|string',
 
             'timezone'         => 'nullable|string',
             'device_info'      => 'nullable|string',
-            'metadata'         => 'nullable|array',
         ]);
 
         if ($validator->fails()) {
@@ -381,8 +378,21 @@ class EmpleadoChecadorController extends Controller
 
         $timezone = $horario->timezone;
 
-        $fechaHora = Carbon::parse($request->check_time, $request->timezone ?: $timezone)
+        $fechaHora = Carbon::parse($request->check_time)
             ->setTimezone($timezone);
+
+        $this->cerrarJornadaPendienteSiAplica(
+            $idPortal,
+            $idCliente,
+            $idEmpleado,
+            $fechaHora
+        );
+        $this->registrarFaltaSiAplica(
+            $idPortal,
+            $idCliente,
+            $idEmpleado,
+            $fechaHora->copy()->subDay()
+        );
 
         $ultimaChecada = Checada::where('id_portal', $idPortal)
             ->where('id_cliente', $idCliente)
@@ -410,7 +420,7 @@ class EmpleadoChecadorController extends Controller
         $detalleHorario = DB::connection('portal_main')
             ->table('checador_horario_detalles')
             ->where('id_plantilla', (int) $horario->id)
-            ->where('dia_semana', (int) $fechaHora->dayOfWeekIso)
+            ->where('dia_semana', (int) $fechaHora->dayOfWeek)
             ->where('labora', 1)
             ->orderBy('orden')
             ->first();
@@ -553,21 +563,39 @@ class EmpleadoChecadorController extends Controller
 
         $requiereFotoParaMovimiento = $requiereFoto && $request->clase === 'work';
 
-        if ($requiereFotoParaMovimiento && empty($request->foto_base64)) {
+        if ($requiereFotoParaMovimiento && ! $request->hasFile('foto')) {
             return response()->json([
                 'ok'      => false,
                 'message' => 'La plantilla asignada requiere fotografía de evidencia.',
             ], 422);
         }
-        $evidenciaFoto = $this->guardarSelfieBase64(
-            $request->foto_base64,
-            $request->foto_mime,
+        $evidenciaFoto = $this->guardarSelfieFile(
+            $request,
             $idPortal,
             $idCliente,
             $idEmpleado,
             $fechaHora->toDateString()
         );
-        $checada = Checada::create([
+
+        $metadata = null;
+
+        if (! empty($request->metadata)) {
+            $metadata = json_decode($request->metadata, true);
+
+            if (json_last_error() !== JSON_ERROR_NONE || ! is_array($metadata)) {
+                $metadata = [];
+            }
+        } else {
+            $metadata = [];
+        }
+
+        $metadata['timezone_operativo']       = $timezone;
+        $metadata['utc_offset_operativo']     = $fechaHora->format('P');
+        $metadata['check_time_iso_operativo'] = $fechaHora->toIso8601String();
+        $metadata['check_time_utc_recibido']  = $request->check_time;
+        $metadata['timezone_dispositivo']     = $request->timezone;
+
+        $checada                              = Checada::create([
             'id_portal'          => $idPortal,
             'id_cliente'         => $idCliente,
             'id_empleado'        => $idEmpleado,
@@ -597,8 +625,7 @@ class EmpleadoChecadorController extends Controller
             'ip_address'         => $ip,
             'timezone'           => $timezone,
             'device_info'        => $request->device_info,
-            'metadata'           => $request->metadata,
-        ]);
+            'metadata'           => $metadata]);
         $eventoRetardoId = null;
 
         if ($minutosRetardo > 0) {
@@ -664,121 +691,121 @@ class EmpleadoChecadorController extends Controller
             ],
         ]);
     }
-   private function guardarSelfieBase64(
-    ?string $selfie,
-    ?string $mime,
-    int $idPortal,
-    int $idCliente,
-    int $idEmpleado,
-    string $fecha
-): ?string {
+    private function guardarSelfieBase64(
+        ?string $selfie,
+        ?string $mime,
+        int $idPortal,
+        int $idCliente,
+        int $idEmpleado,
+        string $fecha
+    ): ?string {
 
-    \Log::info('SELFIE DEBUG INICIO', [
-        'has_selfie' => ! empty($selfie),
-        'selfie_length' => ! empty($selfie) ? strlen($selfie) : 0,
-        'mime' => $mime,
-        'id_portal' => $idPortal,
-        'id_cliente' => $idCliente,
-        'id_empleado' => $idEmpleado,
-        'fecha' => $fecha,
-        'env' => app()->environment(),
-    ]);
-
-    if (empty($selfie)) {
-        \Log::warning('SELFIE DEBUG VACIA');
-        return null;
-    }
-
-    $mime = strtolower((string) $mime);
-
-    $extension = match ($mime) {
-        'image/jpeg',
-        'image/jpg' => 'jpg',
-        'image/png' => 'png',
-        default => null,
-    };
-
-    if (! $extension) {
-        \Log::warning('SELFIE DEBUG MIME NO SOPORTADO', [
-            'mime' => $mime,
+        \Log::info('SELFIE DEBUG INICIO', [
+            'has_selfie'    => ! empty($selfie),
+            'selfie_length' => ! empty($selfie) ? strlen($selfie) : 0,
+            'mime'          => $mime,
+            'id_portal'     => $idPortal,
+            'id_cliente'    => $idCliente,
+            'id_empleado'   => $idEmpleado,
+            'fecha'         => $fecha,
+            'env'           => app()->environment(),
         ]);
-        return null;
-    }
 
-    $imageData = base64_decode($selfie, true);
+        if (empty($selfie)) {
+            \Log::warning('SELFIE DEBUG VACIA');
+            return null;
+        }
 
-    if ($imageData === false) {
-        \Log::warning('SELFIE DEBUG BASE64 INVALIDO');
-        return null;
-    }
+        $mime = strtolower((string) $mime);
 
-    \Log::info('SELFIE DEBUG BASE64 OK', [
-        'bytes' => strlen($imageData),
-        'extension' => $extension,
-    ]);
+        $extension = match ($mime) {
+            'image/jpeg',
+            'image/jpg' => 'jpg',
+            'image/png' => 'png',
+            default     => null,
+        };
 
-    $mes = Carbon::parse($fecha)->format('Y-m');
+        if (! $extension) {
+            \Log::warning('SELFIE DEBUG MIME NO SOPORTADO', [
+                'mime' => $mime,
+            ]);
+            return null;
+        }
 
-    $relativeDir = "_checadasEvidencia/{$idPortal}/{$idCliente}/{$idEmpleado}/{$mes}";
+        $imageData = base64_decode($selfie, true);
 
-    $basePath = app()->environment('production')
-        ? config('paths.prod_images')
-        : config('paths.local_images');
+        if ($imageData === false) {
+            \Log::warning('SELFIE DEBUG BASE64 INVALIDO');
+            return null;
+        }
 
-    \Log::info('SELFIE DEBUG PATHS', [
-        'base_path' => $basePath,
-        'relative_dir' => $relativeDir,
-    ]);
+        \Log::info('SELFIE DEBUG BASE64 OK', [
+            'bytes'     => strlen($imageData),
+            'extension' => $extension,
+        ]);
 
-    if (empty($basePath)) {
-        \Log::error('SELFIE DEBUG BASE PATH VACIO');
-        return null;
-    }
+        $mes = Carbon::parse($fecha)->format('Y-m');
 
-    $fullDir = rtrim($basePath, DIRECTORY_SEPARATOR)
+        $relativeDir = "_checadasEvidencia/{$idPortal}/{$idCliente}/{$idEmpleado}/{$mes}";
+
+        $basePath = app()->environment('production')
+            ? config('paths.prod_images')
+            : config('paths.local_images');
+
+        \Log::info('SELFIE DEBUG PATHS', [
+            'base_path'    => $basePath,
+            'relative_dir' => $relativeDir,
+        ]);
+
+        if (empty($basePath)) {
+            \Log::error('SELFIE DEBUG BASE PATH VACIO');
+            return null;
+        }
+
+        $fullDir = rtrim($basePath, DIRECTORY_SEPARATOR)
         . DIRECTORY_SEPARATOR
         . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
 
-    \Log::info('SELFIE DEBUG FULL DIR', [
-        'full_dir' => $fullDir,
-        'exists' => File::exists($fullDir),
-        'is_writable_base' => is_writable($basePath),
-    ]);
-
-    if (! File::exists($fullDir)) {
-        File::makeDirectory($fullDir, 0755, true);
-
-        \Log::info('SELFIE DEBUG DIRECTORIO CREADO', [
-            'full_dir' => $fullDir,
-            'exists_after' => File::exists($fullDir),
-            'is_writable_dir' => is_writable($fullDir),
+        \Log::info('SELFIE DEBUG FULL DIR', [
+            'full_dir'         => $fullDir,
+            'exists'           => File::exists($fullDir),
+            'is_writable_base' => is_writable($basePath),
         ]);
-    }
 
-    $filename = 'checada_' . now()->format('Ymd_His')
+        if (! File::exists($fullDir)) {
+            File::makeDirectory($fullDir, 0755, true);
+
+            \Log::info('SELFIE DEBUG DIRECTORIO CREADO', [
+                'full_dir'        => $fullDir,
+                'exists_after'    => File::exists($fullDir),
+                'is_writable_dir' => is_writable($fullDir),
+            ]);
+        }
+
+        $filename = 'checada_' . now()->format('Ymd_His')
         . '_' . Str::random(10)
-        . '.' . $extension;
+            . '.' . $extension;
 
-    $fullPath = $fullDir . DIRECTORY_SEPARATOR . $filename;
+        $fullPath = $fullDir . DIRECTORY_SEPARATOR . $filename;
 
-    $bytesWritten = File::put($fullPath, $imageData);
+        $bytesWritten = File::put($fullPath, $imageData);
 
-    \Log::info('SELFIE DEBUG FILE PUT', [
-        'full_path' => $fullPath,
-        'bytes_written' => $bytesWritten,
-        'file_exists' => File::exists($fullPath),
-        'file_size' => File::exists($fullPath) ? File::size($fullPath) : null,
-    ]);
-
-    if ($bytesWritten === false) {
-        \Log::error('SELFIE DEBUG ERROR ESCRIBIENDO ARCHIVO', [
-            'full_path' => $fullPath,
+        \Log::info('SELFIE DEBUG FILE PUT', [
+            'full_path'     => $fullPath,
+            'bytes_written' => $bytesWritten,
+            'file_exists'   => File::exists($fullPath),
+            'file_size'     => File::exists($fullPath) ? File::size($fullPath) : null,
         ]);
-        return null;
-    }
 
-    return $relativeDir . '/' . $filename;
-}
+        if ($bytesWritten === false) {
+            \Log::error('SELFIE DEBUG ERROR ESCRIBIENDO ARCHIVO', [
+                'full_path' => $fullPath,
+            ]);
+            return null;
+        }
+
+        return $relativeDir . '/' . $filename;
+    }
 
     private function calcularDistanciaMetros(
         float $lat1,
@@ -879,5 +906,321 @@ class EmpleadoChecadorController extends Controller
         }
 
         return [];
+    }
+    private function guardarSelfieFile(
+        Request $request,
+        int $idPortal,
+        int $idCliente,
+        int $idEmpleado,
+        string $fecha
+    ): ?string {
+        if (! $request->hasFile('foto')) {
+            return null;
+        }
+
+        $file = $request->file('foto');
+
+        if (! $file || ! $file->isValid()) {
+            return null;
+        }
+
+        $extension = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+
+        if (! in_array($extension, ['jpg', 'jpeg', 'png'], true)) {
+            return null;
+        }
+
+        if ($extension === 'jpeg') {
+            $extension = 'jpg';
+        }
+
+        $mes = Carbon::parse($fecha)->format('Y-m');
+
+        $relativeDir = "_checadasEvidencia/{$idPortal}/{$idCliente}/{$idEmpleado}/{$mes}";
+
+        $basePath = app()->environment('production')
+            ? config('paths.prod_images')
+            : config('paths.local_images');
+
+        if (empty($basePath)) {
+            \Log::error('SELFIE FILE ERROR BASE PATH VACIO', [
+                'env' => app()->environment(),
+            ]);
+
+            return null;
+        }
+
+        $fullDir = rtrim($basePath, DIRECTORY_SEPARATOR)
+        . DIRECTORY_SEPARATOR
+        . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
+
+        if (! File::exists($fullDir)) {
+            File::makeDirectory($fullDir, 0755, true);
+        }
+
+        $filename = 'checada_' . now()->format('Ymd_His')
+        . '_' . Str::random(10)
+            . '.' . $extension;
+
+        $file->move($fullDir, $filename);
+
+        return $relativeDir . '/' . $filename;
+    }
+
+    private function cerrarJornadaPendienteSiAplica(
+        int $idPortal,
+        int $idCliente,
+        int $idEmpleado,
+        Carbon $referencia
+    ): void {
+        $asignacion = DB::connection('portal_main')
+            ->table('checador_asignaciones')
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('activa', 1)
+            ->whereDate('fecha_inicio', '<=', $referencia->toDateString())
+            ->where(function ($query) use ($referencia) {
+                $query->whereNull('fecha_fin')
+                    ->orWhereDate('fecha_fin', '>=', $referencia->toDateString());
+            })
+            ->orderByDesc('prioridad')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $asignacion) {
+            return;
+        }
+
+        $horario = DB::connection('portal_main')
+            ->table('checador_horario_plantillas')
+            ->where('id', (int) $asignacion->id_plantilla_horario)
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('activo', 1)
+            ->first();
+
+        if (! $horario || empty($horario->timezone)) {
+            return;
+        }
+
+        $timezone = $horario->timezone;
+        $fechaRef = $referencia->copy()->setTimezone($timezone);
+
+        $detalle = DB::connection('portal_main')
+            ->table('checador_horario_detalles')
+            ->where('id_plantilla', (int) $horario->id)
+            ->where('dia_semana', (int) $fechaRef->dayOfWeek)
+            ->where('labora', 1)
+            ->orderBy('orden')
+            ->first();
+
+        if (! $detalle || empty($detalle->hora_salida)) {
+            return;
+        }
+
+        $fecha = $fechaRef->toDateString();
+
+        $salidaProgramada = Carbon::parse(
+            $fecha . ' ' . $detalle->hora_salida,
+            $timezone
+        );
+
+        $limiteCierre = $salidaProgramada->copy()->addMinutes(
+            (int) ($horario->tolerancia_salida_min ?? 0)
+        );
+
+        if ($fechaRef->lessThanOrEqualTo($limiteCierre)) {
+            return;
+        }
+
+        $ultimaChecada = Checada::where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('fecha', $fecha)
+            ->orderByDesc('check_time')
+            ->first();
+
+        if (! $ultimaChecada) {
+            return;
+        }
+
+        if ($ultimaChecada->tipo !== 'in' || $ultimaChecada->clase !== 'work') {
+            return;
+        }
+
+        $yaExisteSalidaWork = Checada::where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('fecha', $fecha)
+            ->where('tipo', 'out')
+            ->where('clase', 'work')
+            ->exists();
+
+        if ($yaExisteSalidaWork) {
+            return;
+        }
+
+        Checada::create([
+            'id_portal'          => $idPortal,
+            'id_cliente'         => $idCliente,
+            'id_empleado'        => $idEmpleado,
+            'id_asignacion'      => (int) $asignacion->id,
+            'id_ubicacion'       => null,
+
+            'fecha'              => $fecha,
+            'check_time'         => $salidaProgramada->format('Y-m-d H:i:s'),
+
+            'tipo'               => 'out',
+            'clase'              => 'work',
+
+            'dispositivo'        => 'sistema',
+            'origen'             => 'sistema',
+            'metodo_validacion'  => 'auto_cierre',
+            'estatus_validacion' => 'valida',
+
+            'distancia_metros'   => null,
+            'precision_metros'   => null,
+            'latitud'            => null,
+            'longitud'           => null,
+
+            'observacion'        => 'Salida generada automáticamente por cierre de jornada.',
+            'hash'               => sha1($idPortal . '|' . $idEmpleado . '|' . $salidaProgramada->format('Y-m-d H:i:s') . '|auto_cierre'),
+
+            'evidencia_foto'     => null,
+            'qr_token'           => null,
+            'ip_address'         => null,
+            'timezone'           => $timezone,
+            'device_info'        => 'Sistema',
+            'metadata'           => [
+                'tipo'        => 'auto_cierre_jornada',
+                'generado_en' => now()->toDateTimeString(),
+            ],
+        ]);
+    }
+    private function registrarFaltaSiAplica(
+        int $idPortal,
+        int $idCliente,
+        int $idEmpleado,
+        Carbon $fechaRef
+    ): void {
+        $fecha = $fechaRef->toDateString();
+
+        $asignacion = DB::connection('portal_main')
+            ->table('checador_asignaciones')
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('activa', 1)
+            ->whereDate('fecha_inicio', '<=', $fecha)
+            ->where(function ($query) use ($fecha) {
+                $query->whereNull('fecha_fin')
+                    ->orWhereDate('fecha_fin', '>=', $fecha);
+            })
+            ->orderByDesc('prioridad')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $asignacion) {
+            return;
+        }
+
+        $horario = DB::connection('portal_main')
+            ->table('checador_horario_plantillas')
+            ->where('id', (int) $asignacion->id_plantilla_horario)
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('activo', 1)
+            ->first();
+
+        if (! $horario || empty($horario->timezone)) {
+            return;
+        }
+
+        $fechaHorario = $fechaRef->copy()->setTimezone($horario->timezone);
+
+        $detalle = DB::connection('portal_main')
+            ->table('checador_horario_detalles')
+            ->where('id_plantilla', (int) $horario->id)
+            ->where('dia_semana', (int) $fechaHorario->dayOfWeek)
+            ->where('labora', 1)
+            ->first();
+
+        if (! $detalle) {
+            return;
+        }
+
+        $salidaProgramada = Carbon::parse(
+            $fechaHorario->toDateString() . ' ' . $detalle->hora_salida,
+            $horario->timezone
+        );
+
+        $limiteRevision = $salidaProgramada->copy()->addMinutes(
+            (int) ($horario->tolerancia_salida_min ?? 0)
+        );
+
+        if ($fechaHorario->lessThanOrEqualTo($limiteRevision)) {
+            return;
+        }
+
+        $hayChecadas = Checada::where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('fecha', $fechaHorario->toDateString())
+            ->exists();
+
+        if ($hayChecadas) {
+            return;
+        }
+
+        $hayJustificacion = DB::connection('portal_main')
+            ->table('calendario_eventos')
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('eliminado', 0)
+            ->whereIn('id_tipo', [1, 2, 3, 10])
+            ->whereDate('inicio', '<=', $fechaHorario->toDateString())
+            ->whereDate('fin', '>=', $fechaHorario->toDateString())
+            ->exists();
+
+        if ($hayJustificacion) {
+            return;
+        }
+
+        $yaExisteFalta = DB::connection('portal_main')
+            ->table('calendario_eventos')
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('eliminado', 0)
+            ->where('id_tipo', 4)
+            ->whereDate('inicio', '<=', $fechaHorario->toDateString())
+            ->whereDate('fin', '>=', $fechaHorario->toDateString())
+            ->exists();
+
+        if ($yaExisteFalta) {
+            return;
+        }
+
+        DB::connection('portal_main')
+            ->table('calendario_eventos')
+            ->insert([
+                'id_usuario'           => null,
+                'id_empleado'          => $idEmpleado,
+                'id_portal'            => $idPortal,
+                'id_cliente'           => $idCliente,
+                'inicio'               => $fechaHorario->toDateString(),
+                'fin'                  => $fechaHorario->toDateString(),
+                'dias_evento'          => 1,
+                'descripcion'          => 'Falta por ausencia de checadas en día laborable.',
+                'archivo'              => null,
+                'id_tipo'              => 4,
+                'tipo_incapacidad_sat' => null,
+                'eliminado'            => 0,
+                'estado'               => 2,
+                'created_at'           => now(),
+                'updated_at'           => now(),
+            ]);
     }
 }

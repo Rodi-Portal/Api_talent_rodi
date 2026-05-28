@@ -891,30 +891,34 @@ class EmpleadoController extends Controller
 
     public function deleteEmpleado($id)
     {
-        // Intentar encontrar el empleado por su ID
+        // Buscar empleado
         $empleado = Empleado::find($id);
 
-        // Si no se encuentra el empleado, retornar error
+        // Validar existencia
         if (! $empleado) {
             return response()->json([
                 'message' => 'Empleado no encontrado.',
-            ], 404); // Error 404 si no existe el empleado
+            ], 404);
         }
 
         try {
-            // Intentar eliminar al empleado
-            $empleado->delete();
 
-            // Responder con éxito
+            // Cambiar status a 0
+            $empleado->status = 0;
+
+            // Guardar cambios
+            $empleado->save();
+
             return response()->json([
-                'message' => 'Empleado eliminado correctamente.',
-            ], 200); // Éxito 200
+                'message' => 'Empleado desactivado correctamente.',
+            ], 200);
+
         } catch (\Exception $e) {
-            // Si ocurre un error, capturarlo y responder
+
             return response()->json([
-                'message' => 'Hubo un error al eliminar al empleado.',
+                'message' => 'Hubo un error al desactivar al empleado.',
                 'error'   => $e->getMessage(),
-            ], 500); // Error 500 si no se puede eliminar
+            ], 500);
         }
     }
 

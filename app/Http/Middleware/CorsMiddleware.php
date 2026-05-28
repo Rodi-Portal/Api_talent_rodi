@@ -12,9 +12,9 @@ class CorsMiddleware
         $origin = $request->headers->get('Origin');
 
         $allowedOrigins = [
-            'https://portal.talentsafecontrol.com',
-            'https://rodicontrol.rodi.com.mx',
-            'https://miportal.talentsafecontrol.com',
+            'https://sandbox.talentsafecontrol.com',
+            'https://dev.rodi.com.mx',
+            //'https://miportal.talentsafecontrol.com',
             //'http://localhost',
             //'http://localhost:8000',
             //'http://localhost:5173',
