@@ -523,4 +523,81 @@ class OrganigramaController extends Controller
         return $chain;
     }
 
+    public function storeBulkChildren(Request $request)
+    {
+        $request->validate([
+            'id_portal'      => 'required|integer',
+            'id_cliente'     => 'required|integer',
+            'parent_id'      => 'required|integer',
+            'empleados'      => 'required|array|min:1',
+            'empleados.*.id' => 'required|integer',
+            'line_style'     => 'nullable|in:solid,dashed',
+            'layout'         => 'nullable|in:horizontal,vertical',
+        ]);
+
+        try {
+            $connection = DB::connection('portal_main');
+
+            $createdNodes = $connection->transaction(function () use ($connection, $request) {
+                $now        = now();
+                $createdIds = [];
+
+                foreach ($request->empleados as $emp) {
+                    $id = $connection->table('organigrama_nodes')->insertGetId([
+                        'id_portal'     => $request->id_portal,
+                        'id_cliente'    => $request->id_cliente,
+                        'parent_id'     => $request->parent_id,
+                        'empleado_id'   => $emp['id'],
+                        'titulo_puesto' => $emp['nombre'] ?? 'Nuevo puesto',
+                        'layout'        => $request->layout ?? 'horizontal',
+                        'line_style'    => $request->line_style ?? 'solid',
+                        'orden'         => 0,
+                        'activo'        => 1,
+                        'creacion'      => $now,
+                        'edicion'       => $now,
+                    ]);
+
+                    $createdIds[] = $id;
+                }
+
+                return $connection
+                    ->table('organigrama_nodes as o')
+                    ->leftJoin('empleados as e', 'e.id', '=', 'o.empleado_id')
+                    ->whereIn('o.id', $createdIds)
+                    ->select(
+                        'o.id',
+                        'o.parent_id',
+                        'o.titulo_puesto',
+                        'o.layout',
+                        'o.line_style',
+                        'o.empleado_id',
+                        'e.nombre',
+                        'e.paterno',
+                        'e.materno',
+                        'e.foto',
+                        'e.puesto as puesto_actual',
+                        DB::raw('0 as has_children')
+                    )
+                    ->orderBy('o.id')
+                    ->get();
+            });
+
+            return response()->json([
+                'status' => true,
+                'data'   => $createdNodes,
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Error creando hijos bulk organigrama', [
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'status'  => false,
+                'message' => 'Error creando hijos del organigrama',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
 }

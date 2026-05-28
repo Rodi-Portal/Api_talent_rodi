@@ -113,7 +113,11 @@ Route::middleware(['api'])->group(function () {
 
         Route::get('/root', [OrganigramaController::class, 'getRoot']);
         Route::get('/children', [OrganigramaController::class, 'getChildren']);
+        Route::post('/bulk-children', [OrganigramaController::class, 'storeBulkChildren']);
+
         Route::get('/', [OrganigramaController::class, 'index']);
+
+
         Route::post('/', [OrganigramaController::class, 'store']);
         Route::put('/{id}', [OrganigramaController::class, 'update']);
         Route::delete('/{id}', [OrganigramaController::class, 'destroy']);
