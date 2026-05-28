@@ -579,6 +579,9 @@ Route::prefix('comunicacion360')->group(function () {
     Route::post('/accesos/generar-individual', [AccesosController::class, 'generarIndividual']);
     Route::post('/accesos/actualizar-individual', [AccesosController::class, 'actualizarIndividual']);
     Route::post('/accesos/{id}/cerrar-sesion', [AccesosController::class, 'cerrarSesion']);
+    Route::get('/accesos/empleados/{id}/checadas-dia', [AccesosController::class, 'checadasDia']);
+    Route::get('/accesos/empleados/{id}/metricas-dia',[AccesosController::class, 'metricasDia']);
+
 });
 Route::prefix('comunicacion360/tasks')->group(function () {
 

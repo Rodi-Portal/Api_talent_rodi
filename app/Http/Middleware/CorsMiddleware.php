@@ -15,10 +15,10 @@ class CorsMiddleware
             'https://portal.talentsafecontrol.com',
             'https://rodicontrol.rodi.com.mx',
             'https://miportal.talentsafecontrol.com',
-            //'http://localhost',
-            //'http://localhost:8000',
-            //'http://localhost:5173',
-            //'http://localhost:5174',
+            'http://localhost',
+            'http://localhost:8000',
+            'http://localhost:5173',
+            'http://localhost:5174',
         ];
 
         /*
