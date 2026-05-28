@@ -162,8 +162,10 @@ Route::middleware(['api'])->group(function () {
     // Emdpoints Empleados
     Route::get('empleados', [ApiEmpleadoController::class, 'index']);
     Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
-    Route::get('/empleados/{id}/foto', [ApiEmpleadoController::class, 'getProfilePicture']);
-    Route::get('/documentos/{carpeta}/{archivo}', [ApiEmpleadoController::class, 'verDocumento']);
+    Route::get('/empleados/{id}/foto', [ApiEmpleadoController::class, 'getProfilePicture'])
+        ->withoutMiddleware('throttle:api');
+    
+        Route::get('/documentos/{carpeta}/{archivo}', [ApiEmpleadoController::class, 'verDocumento']);
     // ----- opciones  documentos, examenes y cursos ----- //
     Route::get('/document-options', [DocumentOptionController::class, 'index']);
     Route::post('/document-options/save', [DocumentOptionController::class, 'guardarOpcion']);
@@ -580,7 +582,7 @@ Route::prefix('comunicacion360')->group(function () {
     Route::post('/accesos/actualizar-individual', [AccesosController::class, 'actualizarIndividual']);
     Route::post('/accesos/{id}/cerrar-sesion', [AccesosController::class, 'cerrarSesion']);
     Route::get('/accesos/empleados/{id}/checadas-dia', [AccesosController::class, 'checadasDia']);
-    Route::get('/accesos/empleados/{id}/metricas-dia',[AccesosController::class, 'metricasDia']);
+    Route::get('/accesos/empleados/{id}/metricas-dia', [AccesosController::class, 'metricasDia']);
 
 });
 Route::prefix('comunicacion360/tasks')->group(function () {
