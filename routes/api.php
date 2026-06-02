@@ -6,7 +6,9 @@ use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
+use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
+use App\Http\Controllers\Api\Comunicacion360\AccesosTareasController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorAsignacionController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorChecadaPlantillaController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorHorarioPlantillaController;
@@ -117,7 +119,6 @@ Route::middleware(['api'])->group(function () {
 
         Route::get('/', [OrganigramaController::class, 'index']);
 
-
         Route::post('/', [OrganigramaController::class, 'store']);
         Route::put('/{id}', [OrganigramaController::class, 'update']);
         Route::delete('/{id}', [OrganigramaController::class, 'destroy']);
@@ -168,8 +169,8 @@ Route::middleware(['api'])->group(function () {
     Route::post('empleados/{id}/foto', [ApiEmpleadoController::class, 'updateProfilePicture']);
     Route::get('/empleados/{id}/foto', [ApiEmpleadoController::class, 'getProfilePicture'])
         ->withoutMiddleware('throttle:api');
-    
-        Route::get('/documentos/{carpeta}/{archivo}', [ApiEmpleadoController::class, 'verDocumento']);
+
+    Route::get('/documentos/{carpeta}/{archivo}', [ApiEmpleadoController::class, 'verDocumento']);
     // ----- opciones  documentos, examenes y cursos ----- //
     Route::get('/document-options', [DocumentOptionController::class, 'index']);
     Route::post('/document-options/save', [DocumentOptionController::class, 'guardarOpcion']);
@@ -584,9 +585,35 @@ Route::prefix('comunicacion360')->group(function () {
     Route::post('/accesos/actualizar', [AccesosController::class, 'actualizar']);
     Route::post('/accesos/generar-individual', [AccesosController::class, 'generarIndividual']);
     Route::post('/accesos/actualizar-individual', [AccesosController::class, 'actualizarIndividual']);
-    Route::post('/accesos/{id}/cerrar-sesion', [AccesosController::class, 'cerrarSesion']);
-    Route::get('/accesos/empleados/{id}/checadas-dia', [AccesosController::class, 'checadasDia']);
-    Route::get('/accesos/empleados/{id}/metricas-dia', [AccesosController::class, 'metricasDia']);
+    Route::post('/accesos/{id}/cerrar-sesion', [AccesosChecadorController::class, 'cerrarSesion']);
+    Route::get('/accesos/empleados/{id}/checadas-dia', [AccesosChecadorController::class, 'checadasDia']);
+    Route::get('/accesos/empleados/{id}/metricas-dia', [AccesosChecadorController::class, 'metricasDia']);
+    Route::get(
+        '/accesos/empleados/{id}/metricas-operativas',
+        [AccesosChecadorController::class, 'metricasOperativas']
+    );
+    Route::get(
+        '/accesos/empleados/{id}/checadas-historial',
+        [AccesosChecadorController::class, 'historialChecadas']
+    );
+    Route::get(
+        '/accesos/empleados/{id}/checadas/{idChecada}/evidencia',
+        [AccesosChecadorController::class, 'evidenciaChecada']
+    );
+
+    Route::get(
+        '/accesos/empleados/{id}/tareas-historial',
+        [AccesosTareasController::class, 'historialTareas']
+    );
+
+    Route::get(
+        '/accesos/empleados/{id}/tareas-dia',
+        [AccesosTareasController::class, 'tareasDia']
+    );
+    Route::get(
+        '/accesos/empleados/{id}/tareas/{idTarea}/evidencias/{idEvidencia}',
+        [AccesosTareasController::class, 'evidenciaTarea']
+    );
 
 });
 Route::prefix('comunicacion360/tasks')->group(function () {
