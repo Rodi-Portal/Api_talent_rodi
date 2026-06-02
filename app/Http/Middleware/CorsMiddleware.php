@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Middleware;
 
 use Closure;
@@ -18,7 +17,7 @@ class CorsMiddleware
             'http://localhost',
             'http://localhost:8000',
             'http://localhost:5173',
-            'http://localhost:5174',
+       
         ];
 
         /*
