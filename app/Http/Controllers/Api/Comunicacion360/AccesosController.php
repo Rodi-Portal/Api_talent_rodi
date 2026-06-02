@@ -106,21 +106,21 @@ class AccesosController extends Controller
             $checadorEstadoLabel = 'Sin checada';
 
             if ($ultimaChecada) {
-                if ($ultimaChecada->tipo === 'in' && $ultimaChecada->clase === 'work') {
+                $tipo  = strtolower(trim((string) $ultimaChecada->tipo));
+                $clase = strtolower(trim((string) $ultimaChecada->clase));
+
+                if ($tipo === 'in' && in_array($clase, ['work', 'meal', 'break'], true)) {
                     $checadorEstado      = 'trabajando';
                     $checadorEstadoLabel = 'Trabajando';
-                } elseif ($ultimaChecada->tipo === 'out' && $ultimaChecada->clase === 'meal') {
+                } elseif ($tipo === 'out' && $clase === 'meal') {
                     $checadorEstado      = 'en_comida';
                     $checadorEstadoLabel = 'En comida';
-                } elseif ($ultimaChecada->tipo === 'out' && $ultimaChecada->clase === 'break') {
+                } elseif ($tipo === 'out' && $clase === 'break') {
                     $checadorEstado      = 'en_descanso';
                     $checadorEstadoLabel = 'En descanso';
-                } elseif ($ultimaChecada->tipo === 'out' && $ultimaChecada->clase === 'work') {
+                } elseif ($tipo === 'out' && $clase === 'work') {
                     $checadorEstado      = 'salida_registrada';
                     $checadorEstadoLabel = 'Salida registrada';
-                } else {
-                    $checadorEstado      = 'actividad_registrada';
-                    $checadorEstadoLabel = 'Actividad registrada';
                 }
             }
             $basePath = app()->environment('production')
@@ -1037,7 +1037,5 @@ class AccesosController extends Controller
 
         return implode('', $password);
     }
-  
-    
 
 }
