@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorMetodoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorQrController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorUbicacionesController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorValidacionController;
+use App\Http\Controllers\Api\Comunicacion360\EmployeeProfileAnalysisController;
 use App\Http\Controllers\Api\Comunicacion360\PlantillasController;
 use App\Http\Controllers\Api\Empleado\AuthController;
 use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
@@ -614,7 +615,10 @@ Route::prefix('comunicacion360')->group(function () {
         '/accesos/empleados/{id}/tareas/{idTarea}/evidencias/{idEvidencia}',
         [AccesosTareasController::class, 'evidenciaTarea']
     );
-
+    Route::get(
+        '/accesos/empleados/{id}/analisis-operativo',
+        [EmployeeProfileAnalysisController::class, 'show']
+    );
 });
 Route::prefix('comunicacion360/tasks')->group(function () {
 

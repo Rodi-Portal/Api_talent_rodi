@@ -505,9 +505,11 @@ class AccesosChecadorController extends Controller
                 }
             } else {
                 $alertas[] = [
-                    'tipo'    => 'sin_entrada',
-                    'nivel'   => 'danger',
-                    'mensaje' => "Sin entrada laboral registrada el {$fecha}.",
+                    'tipo'   => 'sin_entrada',
+                    'nivel'  => 'danger',
+                    'params' => [
+                        'date' => $fecha,
+                    ],
                 ];
             }
 
@@ -522,9 +524,11 @@ class AccesosChecadorController extends Controller
                 }
             } else {
                 $alertas[] = [
-                    'tipo'    => 'sin_salida',
-                    'nivel'   => 'warning',
-                    'mensaje' => "Sin salida laboral registrada el {$fecha}.",
+                    'tipo'   => 'sin_salida',
+                    'nivel'  => 'warning',
+                    'params' => [
+                        'date' => $fecha,
+                    ],
                 ];
             }
 
@@ -551,25 +555,31 @@ class AccesosChecadorController extends Controller
 
         if ($diasSinChecadas > 0) {
             $alertas[] = [
-                'tipo'    => 'ausencias_periodo',
-                'nivel'   => $diasSinChecadas >= 3 ? 'danger' : 'warning',
-                'mensaje' => "Hay {$diasSinChecadas} día(s) laborable(s) sin checadas.",
+                'tipo'   => 'ausencias_periodo',
+                'nivel'  => $diasSinChecadas >= 3 ? 'danger' : 'warning',
+                'params' => [
+                    'count' => $diasSinChecadas,
+                ],
             ];
         }
 
         if ($diasNoLaborablesConChecadas > 0) {
             $alertas[] = [
-                'tipo'    => 'dias_no_laborables_con_checadas',
-                'nivel'   => 'warning',
-                'mensaje' => "Hay {$diasNoLaborablesConChecadas} día(s) no laborable(s) con checadas.",
+                'tipo'   => 'dias_no_laborables_con_checadas',
+                'nivel'  => 'warning',
+                'params' => [
+                    'count' => $diasNoLaborablesConChecadas,
+                ],
             ];
         }
 
         if ($diasSinHorario > 0) {
             $alertas[] = [
-                'tipo'    => 'dias_sin_horario',
-                'nivel'   => 'warning',
-                'mensaje' => "Hay {$diasSinHorario} día(s) sin horario asignado.",
+                'tipo'   => 'dias_sin_horario',
+                'nivel'  => 'warning',
+                'params' => [
+                    'count' => $diasSinHorario,
+                ],
             ];
         }
 
