@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\Comunicacion360;
 use App\Http\Controllers\Controller;
 use App\Models\Comunicacion360\Checador\Checada;
 use App\Models\Comunicacion360\Checador\ChecadorAsignacion;
+use App\Services\Checador\JornadaCalculoService;
+use App\Services\Checador\VentanaOperativaService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -21,12 +23,32 @@ class AccesosChecadorController extends Controller
             ], 422);
         }
 
-        $checadas = Checada::query()
-            ->where('id_portal', $idPortal)
-            ->where('id_empleado', $id)
-            ->whereDate('fecha', $fecha)
-            ->orderBy('check_time')
-            ->get();
+        $ventanaOperativa = null;
+
+        if ($detalleHorario && $detalleHorario->labora) {
+            $ventanaOperativa = app(VentanaOperativaService::class)->resolver(
+                $fecha,
+                $detalleHorario,
+                $plantillaHorario
+            );
+
+            $checadas = Checada::query()
+                ->where('id_portal', $idPortal)
+                ->where('id_empleado', $id)
+                ->whereBetween('check_time', [
+                    $ventanaOperativa['ventana']['inicio'],
+                    $ventanaOperativa['ventana']['fin'],
+                ])
+                ->orderBy('check_time')
+                ->get();
+        } else {
+            $checadas = Checada::query()
+                ->where('id_portal', $idPortal)
+                ->where('id_empleado', $id)
+                ->whereDate('fecha', $fecha)
+                ->orderBy('check_time')
+                ->get();
+        }
 
         $primeraEntrada = $checadas
             ->where('tipo', 'in')
@@ -55,6 +77,11 @@ class AccesosChecadorController extends Controller
                         'origen'             => $item->origen,
                         'metodo_validacion'  => $item->metodo_validacion,
                         'estatus_validacion' => $item->estatus_validacion,
+
+                        'dispositivo'        => $item->dispositivo,
+                        'device_info'        => $item->device_info,
+                        'metadata'           => $item->metadata,
+
                         'id_ubicacion'       => $item->id_ubicacion,
                         'distancia_metros'   => $item->distancia_metros,
                         'precision_metros'   => $item->precision_metros,
@@ -68,6 +95,7 @@ class AccesosChecadorController extends Controller
 
     public function metricasDia(Request $request, $id)
     {
+        $alertas  = [];
         $idPortal = $request->input('id_portal');
         $fecha    = $request->input('fecha', now()->toDateString());
 
@@ -79,7 +107,7 @@ class AccesosChecadorController extends Controller
         }
 
         $fechaCarbon = Carbon::parse($fecha);
-        $diaSemana   = (int) $fechaCarbon->dayOfWeek; // 0 domingo, 1 lunes...
+        $diaSemana   = (int) $fechaCarbon->dayOfWeek;
 
         $asignacion = ChecadorAsignacion::query()
             ->with([
@@ -122,62 +150,34 @@ class AccesosChecadorController extends Controller
         $plantillaHorario = $asignacion->horarioPlantilla;
         $detalleHorario   = $plantillaHorario->detalles->first();
 
-        $checadas = Checada::query()
-            ->where('id_portal', $idPortal)
-            ->where('id_empleado', $id)
-            ->whereDate('fecha', $fecha)
-            ->orderBy('check_time')
-            ->get();
+        $ventanaOperativa = null;
 
-        $alertas = [];
-        if ($detalleHorario && $detalleHorario->labora && $checadas->count() === 0) {
-            $inicioProgramado = Carbon::parse($fecha . ' ' . $detalleHorario->hora_entrada, $plantillaHorario->timezone);
-            $finProgramado    = Carbon::parse($fecha . ' ' . $detalleHorario->hora_salida, $plantillaHorario->timezone);
+        if ($detalleHorario && (int) $detalleHorario->labora === 1) {
 
-            if ($finProgramado->lessThanOrEqualTo($inicioProgramado)) {
-                $finProgramado->addDay();
-            }
+            $ventanaOperativa = app(VentanaOperativaService::class)->resolver(
+                $fecha,
+                $detalleHorario,
+                $plantillaHorario
+            );
 
-            $minutosProgramados = $inicioProgramado->diffInMinutes($finProgramado);
+            $checadas = Checada::query()
+                ->where('id_portal', $idPortal)
+                ->where('id_empleado', $id)
+                ->whereBetween('check_time', [
+                    $ventanaOperativa['ventana']['inicio'],
+                    $ventanaOperativa['ventana']['fin'],
+                ])
+                ->orderBy('check_time')
+                ->get();
 
-            return response()->json([
-                'ok'   => true,
-                'data' => [
-                    'fecha'            => $fecha,
-                    'tiene_horario'    => true,
-                    'estado_operativo' => 'ausencia',
-                    'horario'          => [
-                        'id_asignacion'          => $asignacion->id,
-                        'id_plantilla'           => $plantillaHorario->id,
-                        'nombre'                 => $plantillaHorario->nombre,
-                        'timezone'               => $plantillaHorario->timezone,
-                        'dia_semana'             => $diaSemana,
-                        'labora'                 => true,
-                        'hora_entrada'           => $detalleHorario->hora_entrada,
-                        'hora_salida'            => $detalleHorario->hora_salida,
-                        'tolerancia_entrada_min' => $plantillaHorario->tolerancia_entrada_min,
-                        'tolerancia_salida_min'  => $plantillaHorario->tolerancia_salida_min,
-                        'permite_descanso'       => $plantillaHorario->permite_descanso,
-                    ],
-                    'metricas'         => [
-                        'minutos_programados'       => $minutosProgramados,
-                        'minutos_trabajados'        => 0,
-                        'minutos_retardo'           => 0,
-                        'minutos_salida_anticipada' => 0,
-                        'minutos_comida'            => 0,
-                        'minutos_break'             => 0,
-                        'puntualidad_pct'           => 0,
-                        'productividad_pct'         => 0,
-                    ],
-                    'alertas'          => [
-                        [
-                            'tipo'    => 'ausencia',
-                            'nivel'   => 'danger',
-                            'mensaje' => 'Día laborable sin checadas registradas.',
-                        ],
-                    ],
-                ],
-            ]);
+        } else {
+
+            $checadas = Checada::query()
+                ->where('id_portal', $idPortal)
+                ->where('id_empleado', $id)
+                ->whereDate('fecha', $fecha)
+                ->orderBy('check_time')
+                ->get();
         }
 
         if (! $detalleHorario || ! $detalleHorario->labora) {
@@ -192,12 +192,14 @@ class AccesosChecadorController extends Controller
             return response()->json([
                 'ok'   => true,
                 'data' => [
-                    'fecha'            => $fecha,
-                    'tiene_horario'    => true,
-                    'estado_operativo' => $checadas->count() > 0
+                    'fecha'             => $fecha,
+                    'tiene_horario'     => true,
+                    'estado_operativo'  => $checadas->count() > 0
                         ? 'dia_no_laborable_con_checadas'
                         : 'dia_no_laborable',
-                    'horario'          => [
+                    'ventana_operativa' => $ventanaOperativa,
+                    'horario'           => [
+                        'id_asignacion'          => $asignacion->id,
                         'id_plantilla'           => $plantillaHorario->id,
                         'nombre'                 => $plantillaHorario->nombre,
                         'timezone'               => $plantillaHorario->timezone,
@@ -209,7 +211,7 @@ class AccesosChecadorController extends Controller
                         'tolerancia_salida_min'  => $plantillaHorario->tolerancia_salida_min,
                         'permite_descanso'       => $plantillaHorario->permite_descanso,
                     ],
-                    'metricas'         => [
+                    'metricas'          => [
                         'minutos_programados'       => 0,
                         'minutos_trabajados'        => 0,
                         'minutos_retardo'           => 0,
@@ -219,89 +221,95 @@ class AccesosChecadorController extends Controller
                         'puntualidad_pct'           => null,
                         'productividad_pct'         => null,
                     ],
-                    'alertas'          => $alertas,
+                    'alertas'           => $alertas,
                 ],
             ]);
         }
 
-        $inicioProgramado = Carbon::parse($fecha . ' ' . $detalleHorario->hora_entrada, $plantillaHorario->timezone);
-        $finProgramado    = Carbon::parse($fecha . ' ' . $detalleHorario->hora_salida, $plantillaHorario->timezone);
+        $calculoJornada = app(JornadaCalculoService::class)->calcularDia(
+            $checadas,
+            $detalleHorario,
+            $plantillaHorario,
+            $fecha
+        );
 
-        if ($finProgramado->lessThanOrEqualTo($inicioProgramado)) {
-            $finProgramado->addDay();
+        $minutosProgramados = $calculoJornada['programado']['minutos'] ?? 0;
+        $minutosTrabajo     = $calculoJornada['normal']['minutos_detectados'] ?? 0;
+
+        $minutosRetardoDetectado       = $calculoJornada['incidencias']['retardo']['detectado_minutos'] ?? 0;
+        $minutosRetardoFueraTolerancia = $calculoJornada['incidencias']['retardo']['fuera_tolerancia_minutos'] ?? 0;
+
+        $minutosSalidaAnticipadaDetectada       = $calculoJornada['incidencias']['salida_anticipada']['detectado_minutos'] ?? 0;
+        $minutosSalidaAnticipadaFueraTolerancia = $calculoJornada['incidencias']['salida_anticipada']['fuera_tolerancia_minutos'] ?? 0;
+
+        $minutosExtraDetectados = $calculoJornada['extra']['resumen']['minutos_detectados'] ?? 0;
+
+        $minutosComida = $this->calcularMinutosPorClase(
+            $checadas,
+            'meal',
+            $plantillaHorario->timezone
+        );
+
+        $minutosBreak = $this->calcularMinutosPorClase(
+            $checadas,
+            'break',
+            $plantillaHorario->timezone
+        );
+
+        if ($calculoJornada['estado_jornada'] === 'sin_checadas') {
+            $alertas[] = [
+                'tipo'    => 'ausencia',
+                'nivel'   => 'danger',
+                'mensaje' => 'Día laborable sin checadas registradas.',
+            ];
         }
 
-        $entradaLimite = $inicioProgramado->copy()->addMinutes((int) $plantillaHorario->tolerancia_entrada_min);
-        $salidaLimite  = $finProgramado->copy()->subMinutes((int) $plantillaHorario->tolerancia_salida_min);
-
-        $primeraEntradaTrabajo = $checadas
-            ->where('tipo', 'in')
-            ->where('clase', 'work')
-            ->first();
-
-        $ultimaSalidaTrabajo = $checadas
-            ->where('tipo', 'out')
-            ->where('clase', 'work')
-            ->last();
-
-        $minutosProgramados      = $inicioProgramado->diffInMinutes($finProgramado);
-        $minutosRetardo          = 0;
-        $minutosSalidaAnticipada = 0;
-
-        if (! $primeraEntradaTrabajo) {
+        if ($calculoJornada['estado_jornada'] === 'sin_entrada') {
             $alertas[] = [
                 'tipo'    => 'sin_entrada',
                 'nivel'   => 'danger',
                 'mensaje' => 'No existe entrada laboral registrada.',
             ];
-        } else {
-            $entradaReal = Carbon::parse($primeraEntradaTrabajo->check_time, $plantillaHorario->timezone);
-
-            if ($entradaReal->greaterThan($entradaLimite)) {
-                $minutosRetardo = $entradaLimite->diffInMinutes($entradaReal);
-
-                $alertas[] = [
-                    'tipo'    => 'retardo',
-                    'nivel'   => $minutosRetardo >= 30 ? 'danger' : 'warning',
-                    'mensaje' => "Entrada posterior a la tolerancia por {$minutosRetardo} minutos.",
-                ];
-            }
         }
 
-        if (! $ultimaSalidaTrabajo) {
+        if ($calculoJornada['estado_jornada'] === 'sin_salida') {
             $alertas[] = [
                 'tipo'    => 'sin_salida',
                 'nivel'   => 'danger',
                 'mensaje' => 'No existe salida laboral registrada.',
             ];
-        } else {
-            $salidaReal = Carbon::parse($ultimaSalidaTrabajo->check_time, $plantillaHorario->timezone);
-
-            if ($salidaReal->lessThan($salidaLimite)) {
-                $minutosSalidaAnticipada = $salidaReal->diffInMinutes($salidaLimite);
-
-                $alertas[] = [
-                    'tipo'    => 'salida_anticipada',
-                    'nivel'   => $minutosSalidaAnticipada >= 30 ? 'danger' : 'warning',
-                    'mensaje' => "Salida antes de la tolerancia por {$minutosSalidaAnticipada} minutos.",
-                ];
-            }
         }
 
-        $minutosComida  = $this->calcularMinutosPorClase($checadas, 'meal', $plantillaHorario->timezone);
-        $minutosBreak   = $this->calcularMinutosPorClase($checadas, 'break', $plantillaHorario->timezone);
-        $minutosTrabajo = $this->calcularMinutosPorClase($checadas, 'work', $plantillaHorario->timezone);
-
-        if ($minutosTrabajo === 0 && $checadas->count() > 0) {
+        if ($minutosRetardoDetectado > 0) {
             $alertas[] = [
-                'tipo'    => 'jornada_incompleta',
+                'tipo'    => 'retardo',
+                'nivel'   => $minutosRetardoFueraTolerancia > 0 ? 'warning' : 'info',
+                'mensaje' => $minutosRetardoFueraTolerancia > 0
+                    ? "Retardo detectado de {$minutosRetardoDetectado} minutos; {$minutosRetardoFueraTolerancia} fuera de tolerancia."
+                    : "Retardo detectado de {$minutosRetardoDetectado} minutos dentro de tolerancia.",
+            ];
+        }
+
+        if ($minutosSalidaAnticipadaDetectada > 0) {
+            $alertas[] = [
+                'tipo'    => 'salida_anticipada',
+                'nivel'   => $minutosSalidaAnticipadaFueraTolerancia > 0 ? 'warning' : 'info',
+                'mensaje' => $minutosSalidaAnticipadaFueraTolerancia > 0
+                    ? "Salida anticipada detectada de {$minutosSalidaAnticipadaDetectada} minutos; {$minutosSalidaAnticipadaFueraTolerancia} fuera de tolerancia."
+                    : "Salida anticipada detectada de {$minutosSalidaAnticipadaDetectada} minutos dentro de tolerancia.",
+            ];
+        }
+
+        if ($minutosExtraDetectados > 0) {
+            $alertas[] = [
+                'tipo'    => 'tiempo_extra_detectado',
                 'nivel'   => 'warning',
-                'mensaje' => 'Hay checadas registradas, pero no existe un par completo entrada/salida laboral.',
+                'mensaje' => "Tiempo extra detectado de {$minutosExtraDetectados} minutos pendiente de aprobación.",
             ];
         }
 
         $puntualidadPct = $minutosProgramados > 0
-            ? max(0, round((($minutosProgramados - $minutosRetardo) / $minutosProgramados) * 100, 2))
+            ? max(0, round((($minutosProgramados - $minutosRetardoFueraTolerancia) / $minutosProgramados) * 100, 2))
             : null;
 
         $productividadPct = $minutosProgramados > 0
@@ -319,10 +327,11 @@ class AccesosChecadorController extends Controller
         return response()->json([
             'ok'   => true,
             'data' => [
-                'fecha'            => $fecha,
-                'tiene_horario'    => true,
-                'estado_operativo' => $estadoOperativo,
-                'horario'          => [
+                'fecha'             => $fecha,
+                'tiene_horario'     => true,
+                'estado_operativo'  => $estadoOperativo,
+                'ventana_operativa' => $ventanaOperativa,
+                'horario'           => [
                     'id_asignacion'          => $asignacion->id,
                     'id_plantilla'           => $plantillaHorario->id,
                     'nombre'                 => $plantillaHorario->nombre,
@@ -335,17 +344,28 @@ class AccesosChecadorController extends Controller
                     'tolerancia_salida_min'  => $plantillaHorario->tolerancia_salida_min,
                     'permite_descanso'       => $plantillaHorario->permite_descanso,
                 ],
-                'metricas'         => [
-                    'minutos_programados'       => $minutosProgramados,
-                    'minutos_trabajados'        => $minutosTrabajo,
-                    'minutos_retardo'           => $minutosRetardo,
-                    'minutos_salida_anticipada' => $minutosSalidaAnticipada,
-                    'minutos_comida'            => $minutosComida,
-                    'minutos_break'             => $minutosBreak,
-                    'puntualidad_pct'           => $puntualidadPct,
-                    'productividad_pct'         => $productividadPct,
+                'metricas'          => [
+                    'minutos_programados'                        => $minutosProgramados,
+                    'minutos_trabajados'                         => $minutosTrabajo,
+
+                    'minutos_retardo'                            => $minutosRetardoDetectado,
+                    'minutos_retardo_fuera_tolerancia'           => $minutosRetardoFueraTolerancia,
+
+                    'minutos_salida_anticipada'                  => $minutosSalidaAnticipadaDetectada,
+                    'minutos_salida_anticipada_fuera_tolerancia' => $minutosSalidaAnticipadaFueraTolerancia,
+
+                    'minutos_extra_detectados'                   => $minutosExtraDetectados,
+
+                    'minutos_comida'                             => $minutosComida,
+                    'minutos_break'                              => $minutosBreak,
+
+                    'puntualidad_pct'                            => $puntualidadPct,
+                    'productividad_pct'                          => $productividadPct,
+
+                    'jornada_calculo'                            => $calculoJornada,
+
                 ],
-                'alertas'          => $alertas,
+                'alertas'           => $alertas,
             ],
         ]);
     }
@@ -353,8 +373,15 @@ class AccesosChecadorController extends Controller
     {
         $idPortal = $request->input('id_portal');
 
-        $fechaInicio = $request->input('fecha_inicio', now()->toDateString());
-        $fechaFin    = $request->input('fecha_fin', now()->toDateString());
+        $fechaInicio = $request->input(
+            'fecha_inicio',
+            now()->toDateString()
+        );
+
+        $fechaFin = $request->input(
+            'fecha_fin',
+            now()->toDateString()
+        );
 
         if (! $idPortal) {
             return response()->json([
@@ -373,23 +400,30 @@ class AccesosChecadorController extends Controller
             ], 422);
         }
 
-        $checadasPorFecha = Checada::query()
+        $todasChecadas = Checada::query()
             ->where('id_portal', $idPortal)
             ->where('id_empleado', $id)
-            ->whereBetween('fecha', [$inicio->toDateString(), $fin->toDateString()])
+            ->whereBetween('check_time', [
+                $inicio->copy()->subDay()->startOfDay(),
+                $fin->copy()->addDay()->endOfDay(),
+            ])
             ->orderBy('check_time')
-            ->get()
-            ->groupBy(function ($item) {
-                return $item->fecha?->format('Y-m-d');
-            });
+            ->get();
 
-        $minutosProgramados      = 0;
-        $minutosTrabajados       = 0;
-        $minutosRetardo          = 0;
-        $minutosSalidaAnticipada = 0;
-        $minutosComida           = 0;
-        $minutosBreak            = 0;
+        $minutosProgramados = 0;
+        $minutosTrabajados  = 0;
 
+        $minutosRetardoDetectado       = 0;
+        $minutosRetardoFueraTolerancia = 0;
+
+        $minutosSalidaAnticipadaDetectada       = 0;
+        $minutosSalidaAnticipadaFueraTolerancia = 0;
+
+        $minutosExtraDetectados = 0;
+
+        $minutosComida               = 0;
+        $minutosBreak                = 0;
+        $minutosPersonal             = 0;
         $diasCalendario              = 0;
         $diasLaborables              = 0;
         $diasTrabajados              = 0;
@@ -399,11 +433,14 @@ class AccesosChecadorController extends Controller
 
         $alertas = [];
 
-        $cursor = $inicio->copy();
+        $checadasProcesadas = [];
+        $cursor             = $inicio->copy();
 
         while ($cursor->lessThanOrEqualTo($fin)) {
+
             $fecha     = $cursor->toDateString();
             $diaSemana = (int) $cursor->dayOfWeek;
+
             $diasCalendario++;
 
             $asignacion = ChecadorAsignacion::query()
@@ -425,9 +462,9 @@ class AccesosChecadorController extends Controller
                 ->orderByDesc('id')
                 ->first();
 
-            $checadasDia = $checadasPorFecha->get($fecha, collect());
-
+            $checadasDia = collect();
             if (! $asignacion || ! $asignacion->horarioPlantilla) {
+
                 $diasSinHorario++;
 
                 if ($checadasDia->count() > 0) {
@@ -435,6 +472,7 @@ class AccesosChecadorController extends Controller
                 }
 
                 $cursor->addDay();
+
                 continue;
             }
 
@@ -442,68 +480,105 @@ class AccesosChecadorController extends Controller
             $detalleHorario   = $plantillaHorario->detalles->first();
 
             if (! $detalleHorario || ! $detalleHorario->labora) {
+
                 if ($checadasDia->count() > 0) {
+
                     $diasNoLaborablesConChecadas++;
                     $diasTrabajados++;
                 }
 
                 $cursor->addDay();
+
                 continue;
             }
 
             $diasLaborables++;
 
-            $inicioProgramado = Carbon::parse(
-                $fecha . ' ' . $detalleHorario->hora_entrada,
-                $plantillaHorario->timezone
+            $ventanaOperativa = app(VentanaOperativaService::class)->resolver(
+                $fecha,
+                $detalleHorario,
+                $plantillaHorario
             );
 
-            $finProgramado = Carbon::parse(
-                $fecha . ' ' . $detalleHorario->hora_salida,
-                $plantillaHorario->timezone
-            );
+            $checadasDia = $todasChecadas
+                ->filter(function ($item) use (
+                    $ventanaOperativa,
+                    &$checadasProcesadas
+                ) {
 
-            if ($finProgramado->lessThanOrEqualTo($inicioProgramado)) {
-                $finProgramado->addDay();
+                    if (in_array($item->id, $checadasProcesadas, true)) {
+                        return false;
+                    }
+
+                    $checkTime = $item->check_time?->format('Y-m-d H:i:s');
+
+                    return $checkTime >= $ventanaOperativa['ventana']['inicio']
+                        && $checkTime <= $ventanaOperativa['ventana']['fin'];
+                })
+                ->values();
+
+            foreach ($checadasDia as $checadaProcesada) {
+                $checadasProcesadas[] = $checadaProcesada->id;
             }
 
-            $minutosProgramadosDia = $inicioProgramado->diffInMinutes($finProgramado);
-            $minutosProgramados    += $minutosProgramadosDia;
+            $calculoJornada = app(JornadaCalculoService::class)->calcularDia(
+                $checadasDia,
+                $detalleHorario,
+                $plantillaHorario,
+                $fecha
+            );
 
-            if ($checadasDia->count() === 0) {
+            $minutosProgramados +=
+            $calculoJornada['programado']['minutos'] ?? 0;
+
+            if ($calculoJornada['estado_jornada'] === 'sin_checadas') {
+
                 $diasSinChecadas++;
+
+                $alertas[] = [
+                    'tipo'   => 'ausencia',
+                    'nivel'  => 'danger',
+                    'params' => [
+                        'date' => $fecha,
+                    ],
+                ];
+
                 $cursor->addDay();
+
                 continue;
             }
 
             $diasTrabajados++;
 
-            $entradaLimite = $inicioProgramado->copy()
-                ->addMinutes((int) $plantillaHorario->tolerancia_entrada_min);
+            $minutosTrabajados +=
+            $calculoJornada['normal']['minutos_detectados'] ?? 0;
 
-            $salidaLimite = $finProgramado->copy()
-                ->subMinutes((int) $plantillaHorario->tolerancia_salida_min);
+            $minutosRetardoDetectado +=
+            $calculoJornada['incidencias']['retardo']['detectado_minutos'] ?? 0;
 
-            $primeraEntradaTrabajo = $checadasDia
-                ->where('tipo', 'in')
-                ->where('clase', 'work')
-                ->first();
+            $minutosRetardoFueraTolerancia +=
+            $calculoJornada['incidencias']['retardo']['fuera_tolerancia_minutos'] ?? 0;
 
-            $ultimaSalidaTrabajo  = $checadasDia
-                ->where('tipo', 'out')
-                ->where('clase', 'work')
-                ->last();
+            $minutosSalidaAnticipadaDetectada +=
+            $calculoJornada['incidencias']['salida_anticipada']['detectado_minutos'] ?? 0;
 
-            if ($primeraEntradaTrabajo) {
-                $entradaReal = Carbon::parse(
-                    $primeraEntradaTrabajo->check_time,
-                    $plantillaHorario->timezone
-                );
+            $minutosSalidaAnticipadaFueraTolerancia +=
+            $calculoJornada['incidencias']['salida_anticipada']['fuera_tolerancia_minutos'] ?? 0;
 
-                if ($entradaReal->greaterThan($entradaLimite)) {
-                    $minutosRetardo += $entradaLimite->diffInMinutes($entradaReal);
-                }
-            } else {
+            $minutosExtraDetectados +=
+            $calculoJornada['extra']['resumen']['minutos_detectados'] ?? 0;
+
+            $minutosComida += collect($calculoJornada['segmentos']['meal'] ?? [])
+                ->sum('minutos');
+
+            $minutosBreak += collect($calculoJornada['segmentos']['break'] ?? [])
+                ->sum('minutos');
+
+            $minutosPersonal += collect($calculoJornada['segmentos']['personal'] ?? [])
+                ->sum('minutos');
+
+            if ($calculoJornada['estado_jornada'] === 'sin_entrada') {
+
                 $alertas[] = [
                     'tipo'   => 'sin_entrada',
                     'nivel'  => 'danger',
@@ -513,16 +588,8 @@ class AccesosChecadorController extends Controller
                 ];
             }
 
-            if ($ultimaSalidaTrabajo) {
-                $salidaReal = Carbon::parse(
-                    $ultimaSalidaTrabajo->check_time,
-                    $plantillaHorario->timezone
-                );
+            if ($calculoJornada['estado_jornada'] === 'sin_salida') {
 
-                if ($salidaReal->lessThan($salidaLimite)) {
-                    $minutosSalidaAnticipada += $salidaReal->diffInMinutes($salidaLimite);
-                }
-            } else {
                 $alertas[] = [
                     'tipo'   => 'sin_salida',
                     'nivel'  => 'warning',
@@ -532,38 +599,11 @@ class AccesosChecadorController extends Controller
                 ];
             }
 
-            $minutosTrabajados += $this->calcularMinutosPorClase(
-                $checadasDia,
-                'work',
-                $plantillaHorario->timezone
-            );
-
-            $minutosComida += $this->calcularMinutosPorClase(
-                $checadasDia,
-                'meal',
-                $plantillaHorario->timezone
-            );
-
-            $minutosBreak += $this->calcularMinutosPorClase(
-                $checadasDia,
-                'break',
-                $plantillaHorario->timezone
-            );
-
             $cursor->addDay();
         }
 
-        if ($diasSinChecadas > 0) {
-            $alertas[] = [
-                'tipo'   => 'ausencias_periodo',
-                'nivel'  => $diasSinChecadas >= 3 ? 'danger' : 'warning',
-                'params' => [
-                    'count' => $diasSinChecadas,
-                ],
-            ];
-        }
-
         if ($diasNoLaborablesConChecadas > 0) {
+
             $alertas[] = [
                 'tipo'   => 'dias_no_laborables_con_checadas',
                 'nivel'  => 'warning',
@@ -574,6 +614,7 @@ class AccesosChecadorController extends Controller
         }
 
         if ($diasSinHorario > 0) {
+
             $alertas[] = [
                 'tipo'   => 'dias_sin_horario',
                 'nivel'  => 'warning',
@@ -583,19 +624,48 @@ class AccesosChecadorController extends Controller
             ];
         }
 
+        if ($minutosExtraDetectados > 0) {
+
+            $alertas[] = [
+                'tipo'   => 'tiempo_extra_detectado',
+                'nivel'  => 'warning',
+                'params' => [
+                    'minutos' => $minutosExtraDetectados,
+                ],
+            ];
+        }
+
         $puntualidadPct = $minutosProgramados > 0
-            ? max(0, round((($minutosProgramados - $minutosRetardo) / $minutosProgramados) * 100, 2))
+            ? max(
+            0,
+            round(
+                (
+                    ($minutosProgramados - $minutosRetardoFueraTolerancia)
+                    / $minutosProgramados
+                ) * 100,
+                2
+            )
+        )
             : null;
 
         $productividadPct = $minutosProgramados > 0
-            ? min(100, round(($minutosTrabajados / $minutosProgramados) * 100, 2))
+            ? min(
+            100,
+            round(
+                ($minutosTrabajados / $minutosProgramados) * 100,
+                2
+            )
+        )
             : null;
 
         $estadoOperativo = 'normal';
 
         if (collect($alertas)->where('nivel', 'danger')->count() > 0) {
+
             $estadoOperativo = 'critico';
+
         } elseif (count($alertas) > 0) {
+
             $estadoOperativo = 'observado';
         }
 
@@ -607,23 +677,37 @@ class AccesosChecadorController extends Controller
                     'fecha_fin'    => $fin->toDateString(),
                     'es_un_dia'    => $inicio->isSameDay($fin),
                 ],
+
                 'estado_operativo' => $estadoOperativo,
+
                 'metricas'         => [
-                    'dias_calendario'             => $diasCalendario,
-                    'dias_laborables'             => $diasLaborables,
-                    'dias_trabajados'             => $diasTrabajados,
-                    'dias_sin_checadas'           => $diasSinChecadas,
-                    'dias_sin_horario'            => $diasSinHorario,
-                    'dias_no_laborables_checadas' => $diasNoLaborablesConChecadas,
-                    'minutos_programados'         => $minutosProgramados,
-                    'minutos_trabajados'          => $minutosTrabajados,
-                    'minutos_retardo'             => $minutosRetardo,
-                    'minutos_salida_anticipada'   => $minutosSalidaAnticipada,
-                    'minutos_comida'              => $minutosComida,
-                    'minutos_break'               => $minutosBreak,
-                    'puntualidad_pct'             => $puntualidadPct,
-                    'productividad_pct'           => $productividadPct,
+
+                    'dias_calendario'                            => $diasCalendario,
+                    'dias_laborables'                            => $diasLaborables,
+                    'dias_trabajados'                            => $diasTrabajados,
+                    'dias_sin_checadas'                          => $diasSinChecadas,
+                    'dias_sin_horario'                           => $diasSinHorario,
+                    'dias_no_laborables_checadas'                => $diasNoLaborablesConChecadas,
+
+                    'minutos_programados'                        => $minutosProgramados,
+                    'minutos_trabajados'                         => $minutosTrabajados,
+
+                    'minutos_retardo'                            => $minutosRetardoDetectado,
+                    'minutos_retardo_fuera_tolerancia'           => $minutosRetardoFueraTolerancia,
+
+                    'minutos_salida_anticipada'                  => $minutosSalidaAnticipadaDetectada,
+
+                    'minutos_salida_anticipada_fuera_tolerancia' => $minutosSalidaAnticipadaFueraTolerancia,
+
+                    'minutos_extra_detectados'                   => $minutosExtraDetectados,
+
+                    'minutos_comida'                             => $minutosComida,
+                    'minutos_break'                              => $minutosBreak,
+                    'minutos_personal'                           => $minutosPersonal,
+                    'puntualidad_pct'                            => $puntualidadPct,
+                    'productividad_pct'                          => $productividadPct,
                 ],
+
                 'alertas'          => $alertas,
             ],
         ]);
@@ -677,6 +761,11 @@ class AccesosChecadorController extends Controller
                     'ultima_checada'   => $ultimaChecada?->check_time?->format('Y-m-d H:i:s'),
                     'tiene_evidencias' => $items->contains(function ($item) {
                         return ! empty($item->evidencia_foto);
+                    }),
+
+                    'tiene_biometrico' => $items->contains(function ($item) {
+                        return in_array($item->origen, ['biometrico', 'reloj', 'api'], true)
+                        || $item->metodo_validacion === 'biometrico';
                     }),
                 ];
             })

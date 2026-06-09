@@ -1,6 +1,7 @@
 <?php
 namespace App\Models\Comunicacion360\Checador;
 
+use App\Models\Comunicacion360\Checador\ChecadorChecadaPlantillaAprobador;
 use App\Models\Comunicacion360\Checador\ChecadorHorarioPlantilla;
 use App\Models\Comunicacion360\Checador\ChecadorMetodo;
 use App\Models\Comunicacion360\Checador\ChecadorUbicacion;
@@ -78,5 +79,12 @@ class ChecadorChecadaPlantilla extends Model
             ])
             ->wherePivot('activo', 1)
             ->withTimestamps();
+    }
+    public function aprobadores()
+    {
+        return $this->hasMany(
+            ChecadorChecadaPlantillaAprobador::class,
+            'id_plantilla'
+        );
     }
 }

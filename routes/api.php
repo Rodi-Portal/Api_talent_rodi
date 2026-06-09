@@ -9,6 +9,7 @@ use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosTareasController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadaDispositivoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorAsignacionController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorChecadaPlantillaController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorHorarioPlantillaController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\Api\Comunicacion360\EmployeeProfileAnalysisController;
 use App\Http\Controllers\Api\Comunicacion360\PlantillasController;
 use App\Http\Controllers\Api\Empleado\AuthController;
 use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
+use App\Http\Controllers\Api\Empleado\EmpleadoAprobacionesController;
 use App\Http\Controllers\Api\Empleado\EmpleadoChecadorController;
 use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
@@ -509,6 +511,16 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 Route::middleware('auth:empleado')->post('/empleado/incidencias', [EmpleadoIncidenciasController::class, 'store']);
 Route::middleware('auth:empleado')->get('empleado/incidencias', [EmpleadoIncidenciasController::class, 'index']);
+Route::middleware('auth:empleado')->get('/empleado/incidencias/contexto', [EmpleadoIncidenciasController::class, 'contexto']);
+Route::middleware('auth:empleado')->get('/empleado/aprobaciones/pendientes', [EmpleadoAprobacionesController::class, 'pendientes']);
+Route::middleware('auth:empleado')->post('/empleado/aprobaciones/{id}/aprobar', [EmpleadoAprobacionesController::class, 'aprobar']);
+Route::middleware('auth:empleado')->post('/empleado/aprobaciones/{id}/rechazar', [EmpleadoAprobacionesController::class, 'rechazar']);
+Route::middleware('auth:empleado')->get('/empleado/aprobaciones/historial', [EmpleadoAprobacionesController::class, 'historial']);
+Route::middleware('auth:empleado')->get('/empleado/aprobaciones/resumen', [EmpleadoAprobacionesController::class, 'resumen']);
+Route::middleware('auth:empleado')->get(
+    '/empleado/aprobaciones/mis-solicitudes',
+    [EmpleadoAprobacionesController::class, 'misSolicitudes']
+);
 Route::middleware(['auth:empleado'])
     ->prefix('empleado')
     ->group(function () {
@@ -578,7 +590,7 @@ Route::middleware(['auth:empleado', 'force.password.change'])
 
 //********************** Fin Rutas MiPortal Empleados ****************************//
 
-//********************** Fin Rutas Comunicacion 360  ****************************//
+//********************** INICIO Rutas Comunicacion 360  ****************************//
 
 Route::prefix('comunicacion360')->group(function () {
     Route::get('/accesos', [AccesosController::class, 'index']);
@@ -620,6 +632,7 @@ Route::prefix('comunicacion360')->group(function () {
         [EmployeeProfileAnalysisController::class, 'show']
     );
 });
+
 Route::prefix('comunicacion360/tasks')->group(function () {
 
     // Obtener todas las tareas
@@ -695,13 +708,17 @@ Route::prefix('checador')->group(function () {
     Route::post('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'guardarPlantillaEmpleado']);
     // Metodos
     Route::get('/metodos', [ChecadorMetodoController::class, 'index']);
-
+    // aprovadores
+    Route::get('/aprobadores-disponibles', [ChecadorAsignacionController::class, 'aprobadoresDisponibles']);
     // Asignaciones de plantillas a empleados
     Route::get('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'index']);
     Route::post('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'store']);
     Route::get('/empleados-acceso', [ChecadorAsignacionController::class, 'empleadosConAcceso']);
 });
-
+Route::post(
+    '/checador/dispositivo/registrar',
+    [ChecadaDispositivoController::class, 'store']
+);
 //********************** Fin Rutas Comunicacion 360 ****************************//
 
 /*notificaciones  via  whatsapp modulo empleados*/

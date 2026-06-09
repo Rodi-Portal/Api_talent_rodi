@@ -16,7 +16,8 @@ class ChecadorChecadaPlantillaController extends Controller
         $query = ChecadorChecadaPlantilla::with([
             'metodos',
             'ubicaciones',
-            'horarios.detalles',
+            'horarios',
+            'aprobadores',
         ]);
         if ($idPortal) {
             $query->where('id_portal', $idPortal);
@@ -45,25 +46,31 @@ class ChecadorChecadaPlantillaController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'id_portal'                       => ['required', 'integer'],
-            'id_cliente'                      => ['required', 'integer'],
-            'nombre'                          => ['required', 'string', 'max:150'],
-            'descripcion'                     => ['nullable', 'string'],
-            'regla_fuera_ubicacion'           => ['required', 'in:permitir,advertir,bloquear'],
-            'requiere_ubicacion'              => ['required', 'boolean'],
-            'requiere_dispositivo'            => ['required', 'boolean'],
-            'permite_offline'                 => ['required', 'boolean'],
-            'permite_manual_admin'            => ['required', 'boolean'],
-            'metodos'                         => ['nullable', 'array'],
-            'metodos.*.id_metodo'             => ['required_with:metodos', 'integer'],
-            'metodos.*.obligatorio'           => ['nullable', 'boolean'],
+            'id_portal'                           => ['required', 'integer'],
+            'id_cliente'                          => ['required', 'integer'],
+            'nombre'                              => ['required', 'string', 'max:150'],
+            'descripcion'                         => ['nullable', 'string'],
+            'regla_fuera_ubicacion'               => ['required', 'in:permitir,advertir,bloquear'],
+            'requiere_ubicacion'                  => ['required', 'boolean'],
+            'requiere_dispositivo'                => ['required', 'boolean'],
+            'permite_offline'                     => ['required', 'boolean'],
+            'permite_manual_admin'                => ['required', 'boolean'],
+            'metodos'                             => ['nullable', 'array'],
+            'metodos.*.id_metodo'                 => ['required_with:metodos', 'integer'],
+            'metodos.*.obligatorio'               => ['nullable', 'boolean'],
 
-            'ubicaciones'                     => ['nullable', 'array'],
-            'ubicaciones.*.id_ubicacion'      => ['required_with:ubicaciones', 'integer'],
-            'ubicaciones.*.obligatorio'       => ['nullable', 'boolean'],
-            'horarios'                        => ['nullable', 'array'],
-            'horarios.*.id_horario_plantilla' => ['required_with:horarios', 'integer'],
-            'horarios.*.obligatorio'          => ['nullable', 'boolean'],
+            'ubicaciones'                         => ['nullable', 'array'],
+            'ubicaciones.*.id_ubicacion'          => ['required_with:ubicaciones', 'integer'],
+            'ubicaciones.*.obligatorio'           => ['nullable', 'boolean'],
+            'horarios'                            => ['nullable', 'array'],
+            'horarios.*.id_horario_plantilla'     => ['required_with:horarios', 'integer'],
+            'horarios.*.obligatorio'              => ['nullable', 'boolean'],
+            'aprobadores'                         => ['nullable', 'array'],
+            'aprobadores.*.tipo_evento_id'        => ['required_with:aprobadores', 'integer'],
+            'aprobadores.*.id_empleado_aprobador' => ['required_with:aprobadores', 'integer'],
+            'aprobadores.*.nivel'                 => ['required_with:aprobadores', 'integer', 'min:1'],
+            'aprobadores.*.obligatorio'           => ['nullable', 'boolean'],
+            'aprobadores.*.activo'                => ['nullable', 'boolean'],
         ]);
 
         $plantilla = DB::connection('portal_main')->transaction(function () use ($data) {
@@ -119,6 +126,20 @@ class ChecadorChecadaPlantillaController extends Controller
                         'updated_at'           => now(),
                     ]);
             }
+            foreach ($data['aprobadores'] ?? [] as $aprobador) {
+                DB::connection('portal_main')
+                    ->table('checador_checada_plantilla_aprobadores')
+                    ->insert([
+                        'id_plantilla'          => $plantilla->id,
+                        'tipo_evento_id'        => $aprobador['tipo_evento_id'],
+                        'id_empleado_aprobador' => $aprobador['id_empleado_aprobador'],
+                        'nivel'                 => $aprobador['nivel'],
+                        'obligatorio'           => $aprobador['obligatorio'] ?? 1,
+                        'activo'                => $aprobador['activo'] ?? 1,
+                        'created_at'            => now(),
+                        'updated_at'            => now(),
+                    ]);
+            }
 
             return $plantilla;
         });
@@ -126,7 +147,8 @@ class ChecadorChecadaPlantillaController extends Controller
         $plantilla->load([
             'metodos',
             'ubicaciones',
-            'horarios.detalles',
+            'horarios',
+            'aprobadores',
         ]);
 
         return response()->json([
@@ -185,27 +207,34 @@ class ChecadorChecadaPlantillaController extends Controller
     public function update(Request $request, $id)
     {
         $data = $request->validate([
-            'id_portal'                       => ['required', 'integer'],
-            'id_cliente'                      => ['required', 'integer'],
+            'id_portal'                           => ['required', 'integer'],
+            'id_cliente'                          => ['required', 'integer'],
 
-            'nombre'                          => ['required', 'string', 'max:150'],
-            'descripcion'                     => ['nullable', 'string'],
+            'nombre'                              => ['required', 'string', 'max:150'],
+            'descripcion'                         => ['nullable', 'string'],
 
-            'regla_fuera_ubicacion'           => ['required', 'in:permitir,advertir,bloquear'],
-            'requiere_ubicacion'              => ['required', 'boolean'],
-            'requiere_dispositivo'            => ['required', 'boolean'],
-            'permite_offline'                 => ['required', 'boolean'],
-            'permite_manual_admin'            => ['required', 'boolean'],
+            'regla_fuera_ubicacion'               => ['required', 'in:permitir,advertir,bloquear'],
+            'requiere_ubicacion'                  => ['required', 'boolean'],
+            'requiere_dispositivo'                => ['required', 'boolean'],
+            'permite_offline'                     => ['required', 'boolean'],
+            'permite_manual_admin'                => ['required', 'boolean'],
 
-            'metodos'                         => ['nullable', 'array'],
-            'metodos.*.id_metodo'             => ['required_with:metodos', 'integer'],
-            'metodos.*.obligatorio'           => ['nullable', 'boolean'],
-            'ubicaciones'                     => ['nullable', 'array'],
-            'ubicaciones.*.id_ubicacion'      => ['required_with:ubicaciones', 'integer'],
-            'ubicaciones.*.obligatorio'       => ['nullable', 'boolean'],
-            'horarios'                        => ['nullable', 'array'],
-            'horarios.*.id_horario_plantilla' => ['required_with:horarios', 'integer'],
-            'horarios.*.obligatorio'          => ['nullable', 'boolean'],
+            'metodos'                             => ['nullable', 'array'],
+            'metodos.*.id_metodo'                 => ['required_with:metodos', 'integer'],
+            'metodos.*.obligatorio'               => ['nullable', 'boolean'],
+            'ubicaciones'                         => ['nullable', 'array'],
+            'ubicaciones.*.id_ubicacion'          => ['required_with:ubicaciones', 'integer'],
+            'ubicaciones.*.obligatorio'           => ['nullable', 'boolean'],
+            'horarios'                            => ['nullable', 'array'],
+            'horarios.*.id_horario_plantilla'     => ['required_with:horarios', 'integer'],
+            'horarios.*.obligatorio'              => ['nullable', 'boolean'],
+            'aprobadores'                         => ['nullable', 'array'],
+            'aprobadores.*.tipo_evento_id'        => ['required_with:aprobadores', 'integer'],
+            'aprobadores.*.id_empleado_aprobador' => ['required_with:aprobadores', 'integer'],
+            'aprobadores.*.nivel'                 => ['required_with:aprobadores', 'integer', 'min:1'],
+            'aprobadores.*.obligatorio'           => ['nullable', 'boolean'],
+            'aprobadores.*.activo'                => ['nullable', 'boolean'],
+
         ]);
 
         $plantilla = ChecadorChecadaPlantilla::where('id', $id)->first();
@@ -290,12 +319,35 @@ class ChecadorChecadaPlantillaController extends Controller
                         ]);
                 }
             }
+
+            if (array_key_exists('aprobadores', $data)) {
+                DB::connection('portal_main')
+                    ->table('checador_checada_plantilla_aprobadores')
+                    ->where('id_plantilla', $plantilla->id)
+                    ->delete();
+
+                foreach ($data['aprobadores'] as $aprobador) {
+                    DB::connection('portal_main')
+                        ->table('checador_checada_plantilla_aprobadores')
+                        ->insert([
+                            'id_plantilla'          => $plantilla->id,
+                            'tipo_evento_id'        => $aprobador['tipo_evento_id'],
+                            'id_empleado_aprobador' => $aprobador['id_empleado_aprobador'],
+                            'nivel'                 => $aprobador['nivel'],
+                            'obligatorio'           => $aprobador['obligatorio'] ?? 1,
+                            'activo'                => $aprobador['activo'] ?? 1,
+                            'created_at'            => now(),
+                            'updated_at'            => now(),
+                        ]);
+                }
+            }
         });
 
         $plantilla->load([
             'metodos',
             'ubicaciones',
-            'horarios.detalles',
+            'horarios',
+            'aprobadores',
         ]);
         return response()->json([
             'ok'      => true,
@@ -326,7 +378,8 @@ class ChecadorChecadaPlantillaController extends Controller
         $plantilla->load([
             'metodos',
             'ubicaciones',
-            'horarios.detalles',
+            'horarios',
+            'aprobadores',
         ]);
         return response()->json([
             'ok'      => true,

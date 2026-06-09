@@ -3,6 +3,8 @@ namespace App\Http\Controllers\Api\Empleado;
 
 use App\Http\Controllers\Controller;
 use App\Models\Comunicacion360\Checador\Checada;
+use App\Services\Checador\ChecadaRegistroService;
+use App\Services\Checador\ChecadaValidationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -139,8 +141,24 @@ class EmpleadoChecadorController extends Controller
             Carbon::now('America/Mexico_City')
         );
 
-        $hoy = Carbon::now()->toDateString();
+        $horarioAsignado   = null;
+        $timezoneOperativo = config('app.timezone', 'UTC');
 
+        if ($asignacion && ! empty($asignacion->id_plantilla_horario)) {
+            $horarioAsignado = DB::connection('portal_main')
+                ->table('checador_horario_plantillas')
+                ->where('id', (int) $asignacion->id_plantilla_horario)
+                ->where('id_portal', $idPortal)
+                ->where('id_cliente', $idCliente)
+                ->where('activo', 1)
+                ->first();
+
+            if ($horarioAsignado && ! empty($horarioAsignado->timezone)) {
+                $timezoneOperativo = $horarioAsignado->timezone;
+            }
+        }
+
+        $hoy           = Carbon::now($timezoneOperativo)->toDateString();
         $ultimaChecada = DB::connection('portal_main')
             ->table('checadas')
             ->where('id_portal', $idPortal)
@@ -189,8 +207,33 @@ class EmpleadoChecadorController extends Controller
         $idPortal   = (int) $empleado->id_portal;
         $idCliente  = (int) $empleado->id_cliente;
 
-        $hoy = Carbon::now('America/Mexico_City')->toDateString();
+        $asignacion = DB::connection('portal_main')
+            ->table('checador_asignaciones')
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('activa', 1)
+            ->orderByDesc('prioridad')
+            ->orderByDesc('id')
+            ->first();
 
+        $timezoneOperativo = config('app.timezone', 'UTC');
+
+        if ($asignacion && ! empty($asignacion->id_plantilla_horario)) {
+            $horarioAsignado = DB::connection('portal_main')
+                ->table('checador_horario_plantillas')
+                ->where('id', (int) $asignacion->id_plantilla_horario)
+                ->where('id_portal', $idPortal)
+                ->where('id_cliente', $idCliente)
+                ->where('activo', 1)
+                ->first();
+
+            if ($horarioAsignado && ! empty($horarioAsignado->timezone)) {
+                $timezoneOperativo = $horarioAsignado->timezone;
+            }
+        }
+
+        $hoy      = Carbon::now($timezoneOperativo)->toDateString();
         $checadas = Checada::where('id_portal', $idPortal)
             ->where('id_cliente', $idCliente)
             ->where('id_empleado', $idEmpleado)
@@ -282,7 +325,7 @@ class EmpleadoChecadorController extends Controller
 
     public function registrar(Request $request)
     {
-       
+
         $empleado = $request->user();
         $ip       = $request->ip();
         if (! $empleado) {
@@ -294,7 +337,7 @@ class EmpleadoChecadorController extends Controller
 
         $validator = Validator::make($request->all(), [
             'tipo'             => 'required|string|in:in,out',
-            'clase'            => 'required|string|in:work,meal,break,personal,other',
+            'clase'            => 'required|string|in:work,meal,break,personal,transfer,other',
             'metodo'           => 'required|string',
 
             'check_time'       => 'required|date',
@@ -310,6 +353,8 @@ class EmpleadoChecadorController extends Controller
             'timezone'         => 'nullable|string',
             'device_info'      => 'nullable|string',
         ]);
+        $validationService = app(ChecadaValidationService::class);
+        $registroService   = app(ChecadaRegistroService::class);
 
         if ($validator->fails()) {
             return response()->json([
@@ -355,17 +400,17 @@ class EmpleadoChecadorController extends Controller
         }
 
         $horario = DB::connection('portal_main')
-            ->table('checador_checada_plantilla_horarios as ph')
-            ->join('checador_horario_plantillas as h', 'h.id', '=', 'ph.id_horario_plantilla')
-            ->where('ph.id_plantilla', (int) $plantilla->id)
-            ->where('ph.activo', 1)
-            ->where('h.activo', 1)
+            ->table('checador_horario_plantillas')
+            ->where('id', (int) $asignacion->id_plantilla_horario)
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('activo', 1)
             ->select([
-                'h.id',
-                'h.timezone',
-                'h.tolerancia_entrada_min',
-                'h.tolerancia_salida_min',
-                'h.permite_descanso',
+                'id',
+                'timezone',
+                'tolerancia_entrada_min',
+                'tolerancia_salida_min',
+                'permite_descanso',
             ])
             ->first();
 
@@ -511,6 +556,37 @@ class EmpleadoChecadorController extends Controller
                 $observacionGeocerca = 'Checada registrada fuera de ubicación permitida, permitida por regla de plantilla.';
             }
         }
+        $payloadValidacion = [
+            'id_portal'        => $idPortal,
+            'id_cliente'       => $idCliente,
+            'id_empleado'      => $idEmpleado,
+
+            'tipo'             => $request->tipo,
+            'clase'            => $request->clase,
+
+            'check_time'       => $fechaHora->format('Y-m-d H:i:s'),
+
+            'latitud'          => $request->latitud,
+            'longitud'         => $request->longitud,
+            'precision_metros' => $request->precision_metros,
+
+            'qr_token'         => $request->qr_token,
+            'foto_base64'      => $request->hasFile('foto') ? 'archivo_recibido' : null,
+            'timezone'         => $timezone,
+
+            'origen'           => 'geoloc',
+
+            'metodo'           => $request->metodo,
+        ];
+        $resultadoValidacion = $validationService->validar($payloadValidacion);
+
+        if (! $resultadoValidacion['ok']) {
+            return response()->json([
+                'ok'                 => false,
+                'message'            => $resultadoValidacion['motivo'],
+                'estatus_validacion' => $resultadoValidacion['estatus_validacion'] ?? 'rechazada',
+            ], 422);
+        }
 
         $minutosRetardo = 0;
 
@@ -595,37 +671,20 @@ class EmpleadoChecadorController extends Controller
         $metadata['check_time_utc_recibido']  = $request->check_time;
         $metadata['timezone_dispositivo']     = $request->timezone;
 
-        $checada                              = Checada::create([
-            'id_portal'          => $idPortal,
-            'id_cliente'         => $idCliente,
-            'id_empleado'        => $idEmpleado,
-            'id_asignacion'      => (int) $asignacion->id,
-            'id_ubicacion'       => $ubicacionDetectada ? (int) $ubicacionDetectada->id : null,
+        $payloadValidacion['dispositivo']       = 'web';
+        $payloadValidacion['origen']            = 'geoloc';
+        $payloadValidacion['metodo_validacion'] = $request->metodo;
+        $payloadValidacion['foto_path']         = $evidenciaFoto;
+        $payloadValidacion['qr_token']          = $request->qr_token;
+        $payloadValidacion['device_info']       = $request->device_info;
 
-            'fecha'              => $fechaHora->toDateString(),
-            'check_time'         => $fechaHora->format('Y-m-d H:i:s'),
+        $idChecada = $registroService->insertar(
+            $payloadValidacion,
+            $resultadoValidacion,
+            $metadata
+        );
 
-            'tipo'               => $request->tipo,
-            'clase'              => $request->clase,
-
-            'dispositivo'        => 'web',
-            'origen'             => 'geoloc',
-            'metodo_validacion'  => $request->metodo,
-            'estatus_validacion' => $estatusValidacion,
-            'distancia_metros'   => $distanciaDetectada,
-            'precision_metros'   => $request->precision_metros,
-            'latitud'            => $request->latitud,
-            'longitud'           => $request->longitud,
-
-            'observacion'        => $observacionGeocerca,
-            'hash'               => sha1($idPortal . '|' . $idEmpleado . '|' . $fechaHora->format('Y-m-d H:i:s') . '|' . uniqid('', true)),
-
-            'evidencia_foto'     => $evidenciaFoto,
-            'qr_token'           => $request->qr_token,
-            'ip_address'         => $ip,
-            'timezone'           => $timezone,
-            'device_info'        => $request->device_info,
-            'metadata'           => $metadata]);
+        $checada         = Checada::find($idChecada);
         $eventoRetardoId = null;
 
         if ($minutosRetardo > 0) {
@@ -832,14 +891,7 @@ class EmpleadoChecadorController extends Controller
 
     private function resolverMovimientosPermitidos($ultimaChecada, $horarios): array
     {
-        $permiteDescanso = false;
-
-        foreach ($horarios as $horario) {
-            if ((int) ($horario->permite_descanso ?? 0) === 1) {
-                $permiteDescanso = true;
-                break;
-            }
-        }
+        $permiteDescanso = true;
 
         if (! $ultimaChecada) {
             return [
@@ -853,39 +905,38 @@ class EmpleadoChecadorController extends Controller
         }
 
         if ($ultimaChecada->tipo === 'in') {
-            $movimientos = [
+            return [
                 [
                     'tipo'   => 'out',
                     'clase'  => 'work',
                     'label'  => 'Salida',
                     'accion' => 'salida',
                 ],
-            ];
-
-            if ($permiteDescanso) {
-                $movimientos[] = [
+                [
                     'tipo'   => 'out',
                     'clase'  => 'meal',
                     'label'  => 'Salida a comida',
                     'accion' => 'meal',
-                ];
-
-                $movimientos[] = [
+                ],
+                [
                     'tipo'   => 'out',
                     'clase'  => 'break',
                     'label'  => 'Salida a descanso',
                     'accion' => 'break',
-                ];
-            }
-
-            $movimientos[] = [
-                'tipo'   => 'out',
-                'clase'  => 'personal',
-                'label'  => 'Salida personal',
-                'accion' => 'personal',
+                ],
+                [
+                    'tipo'   => 'out',
+                    'clase'  => 'personal',
+                    'label'  => 'Salida personal',
+                    'accion' => 'personal',
+                ],
+                [
+                    'tipo'   => 'out',
+                    'clase'  => 'transfer',
+                    'label'  => 'Salida a traslado',
+                    'accion' => 'transfer',
+                ],
             ];
-
-            return $movimientos;
         }
 
         if ($ultimaChecada->tipo === 'out') {
@@ -893,13 +944,13 @@ class EmpleadoChecadorController extends Controller
                 [
                     'tipo'   => 'in',
                     'clase'  => $ultimaChecada->clase,
-                    'label'  => $ultimaChecada->clase === 'meal'
-                        ? 'Regreso de comida'
-                        : ($ultimaChecada->clase === 'break'
-                            ? 'Regreso de descanso'
-                            : ($ultimaChecada->clase === 'personal'
-                                ? 'Regreso de salida personal'
-                                : 'Entrada')),
+                    'label'  => match ($ultimaChecada->clase) {
+                        'meal'     => 'Regreso de comida',
+                        'break'    => 'Regreso de descanso',
+                        'personal' => 'Regreso de salida personal',
+                        'transfer' => 'Regreso de traslado',
+                        default    => 'Entrada',
+                    },
                     'accion' => $ultimaChecada->clase,
                 ],
             ];
@@ -1075,7 +1126,7 @@ class EmpleadoChecadorController extends Controller
             'clase'              => 'work',
 
             'dispositivo'        => 'sistema',
-            'origen'             => 'sistema',
+            'origen'             => 'api',
             'metodo_validacion'  => 'auto_cierre',
             'estatus_validacion' => 'valida',
 

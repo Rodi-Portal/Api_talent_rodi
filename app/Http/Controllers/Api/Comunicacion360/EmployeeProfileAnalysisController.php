@@ -129,7 +129,7 @@ class EmployeeProfileAnalysisController extends Controller
             ->where('clase', 'work')
             ->filter(function ($check) use ($employeeAssignments) {
                 $checkDate = Carbon::parse($check->fecha)->toDateString();
-                $weekday   = (int) Carbon::parse($check->fecha)->format('N') - 1;
+                $weekday   = (int) Carbon::parse($check->fecha)->dayOfWeek;
 
                 $assignment = $employeeAssignments
                     ->where('dia_semana', $weekday)
@@ -183,7 +183,7 @@ class EmployeeProfileAnalysisController extends Controller
 
         foreach (CarbonPeriod::create($fechaInicio, $fechaFin) as $date) {
             $currentDate = $date->toDateString();
-            $weekday     = (int) $date->format('N') - 1; // 0 = lunes, 6 = domingo
+            $weekday     = (int) $date->dayOfWeek; // 0 = domingo, 6 = sábado
 
             $isScheduledWorkDay = $employeeAssignments
                 ->where('dia_semana', $weekday)
@@ -222,7 +222,7 @@ class EmployeeProfileAnalysisController extends Controller
 
         foreach (CarbonPeriod::create($fechaInicio, $fechaFin) as $date) {
             $currentDate = $date->toDateString();
-            $weekday     = (int) $date->format('N') - 1;
+            $weekday     = (int) $date->dayOfWeek;
 
             $isScheduled = $employeeAssignments
                 ->where('dia_semana', $weekday)
@@ -350,8 +350,7 @@ class EmployeeProfileAnalysisController extends Controller
                     $params   = new \stdClass();
 
                     $checkDate = Carbon::parse($item->fecha)->toDateString();
-                    $weekday   = (int) Carbon::parse($item->fecha)->format('N') - 1;
-
+                    $weekday   = (int) Carbon::parse($item->fecha)->dayOfWeek;
                     if ($item->tipo === 'in' && $item->clase === 'work') {
                         $assignment = $employeeAssignments
                             ->where('dia_semana', $weekday)
