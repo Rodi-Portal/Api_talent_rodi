@@ -1,11 +1,12 @@
 <?php
 namespace App\Http\Controllers\Api\Empleado;
+
 use App\Http\Controllers\Controller;
 use App\Models\CalendarioEvento;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Carbon\Carbon;
 
 class EmpleadoIncidenciasController extends Controller
 {
@@ -31,20 +32,18 @@ class EmpleadoIncidenciasController extends Controller
             ], 401);
         }
 
-        $employee->load('laborales');
-
         /* =========================
            VALIDACIÓN
         ========================= */
 
         $data = $request->validate([
-            'tipo'          => 'required|string',
-            'fechaInicio'   => 'required|date',
-            'fechaFin'      => 'required|date|after_or_equal:fechaInicio',
-            'comentario'    => 'nullable|string',
-            'aprobadores'   => 'required|array',
-            'aprobadores.*' => 'integer|exists:portal_main.empleados,id',
-            'evidencia'     => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'tipo_evento_id' => 'required|integer|exists:portal_main.eventos_option,id',
+            'fechaInicio'    => 'required|date',
+            'fechaFin'       => 'required|date|after_or_equal:fechaInicio',
+            'comentario'     => 'nullable|string',
+            'aprobadores'    => 'required|array',
+            'aprobadores.*'  => 'integer|exists:portal_main.empleados,id',
+            'evidencia'      => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ]);
 
         DB::beginTransaction();
@@ -86,11 +85,10 @@ class EmpleadoIncidenciasController extends Controller
             }
 
             /* =========================
-   DIAS DE DESCANSO EMPLEADO
-========================= */
+        DIAS DE DESCANSO EMPLEADO
+        ========================= */
 
-            $diasDescanso = $this->getDiasDescansoEmpleado($employee);
-
+            $diasDescanso = [];
             /* =========================
             FESTIVOS
             ========================= */
@@ -123,18 +121,23 @@ class EmpleadoIncidenciasController extends Controller
 
                 $eventoId = DB::connection($conn)->table('calendario_eventos')->insertGetId([
 
-                    'id_empleado' => $employee->id,
-                    'id_usuario'  => $employee->id,
-                    'inicio'      => $bloque['inicio'],
-                    'fin'         => $bloque['fin'],
-                    'dias_evento' => $dias,
-                    'descripcion' => $data['comentario'],
-                    'archivo'     => $archivo,
-                    'id_tipo'     => 1,
-                    'estado'      => 1,
-                    'eliminado'   => 0,
-                    'created_at'  => now(),
-                    'updated_at'  => now(),
+                    'id_empleado'         => $employee->id,
+                    'id_usuario'          => $employee->id,
+                    'id_portal'           => (int) $employee->id_portal,
+                    'id_cliente'          => (int) $employee->id_cliente,
+                    'inicio'              => $bloque['inicio'],
+                    'fin'                 => $bloque['fin'],
+                    'dias_evento'         => $dias,
+                    'descripcion'         => $data['comentario'],
+                    'archivo'             => $archivo,
+                    'id_tipo'             => (int) $data['tipo_evento_id'],
+                    'estado_aprobacion'   => 'pendiente',
+                    'requiere_aprobacion' => 1,
+                    'origen_evento'       => 'checador',
+                    'estado'              => 1,
+                    'eliminado'           => 0,
+                    'created_at'          => now(),
+                    'updated_at'          => now(),
 
                 ]);
 
@@ -145,25 +148,44 @@ class EmpleadoIncidenciasController extends Controller
                REGISTRAR APROBADORES
             ========================= */
 
-            $nivel       = 1;
-            $aprobadores = array_unique($data['aprobadores']);
-            foreach ($eventos as $eventoId) {
+            $nivel      = 1;
+            $asignacion = DB::connection($conn)
+                ->table('checador_asignaciones')
+                ->where('id_portal', (int) $employee->id_portal)
+                ->where('id_cliente', (int) $employee->id_cliente)
+                ->where('id_empleado', (int) $employee->id)
+                ->where('activa', 1)
+                ->orderByDesc('prioridad')
+                ->orderByDesc('id')
+                ->first();
+
+            $aprobadoresPlantilla = DB::connection($conn)
+                ->table('checador_checada_plantilla_aprobadores')
+                ->where('id_plantilla', (int) $asignacion->id_plantilla_checada)
+                ->where('tipo_evento_id', (int) $data['tipo_evento_id'])
+                ->where('activo', 1)
+                ->orderBy('nivel')
+                ->get();
+
+            if ($aprobadoresPlantilla->isEmpty()) {
+                throw new \Exception('No hay aprobadores configurados para este tipo de evento.');
+            }foreach ($eventos as $eventoId) {
 
                 $nivel = 1;
 
-                foreach ($aprobadores as $aprobadorId) {
-
-                    DB::connection($conn)->table('evento_aprobaciones')->insert([
-
-                        'evento_id'    => $eventoId,
-                        'id_aprobador' => $aprobadorId,
-                        'nivel'        => $nivel,
-                        'estado'       => 1,
-                        'created_at'   => now(),
-
+                foreach ($aprobadoresPlantilla as $aprobador) {
+                    DB::connection($conn)->table('checador_evento_aprobaciones')->insert([
+                        'id_portal'               => (int) $employee->id_portal,
+                        'id_cliente'              => (int) $employee->id_cliente,
+                        'id_evento'               => $eventoId,
+                        'tipo_evento_id'          => (int) $data['tipo_evento_id'],
+                        'id_empleado_solicitante' => (int) $employee->id,
+                        'id_empleado_aprobador'   => (int) $aprobador->id_empleado_aprobador,
+                        'nivel'                   => (int) $aprobador->nivel,
+                        'estatus'                 => 'pendiente',
+                        'created_at'              => now(),
+                        'updated_at'              => now(),
                     ]);
-
-                    $nivel++;
                 }
             }
 
@@ -193,8 +215,7 @@ class EmpleadoIncidenciasController extends Controller
         if (! $employee) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
-        $employee->load('laborales');
-        $eventos = CalendarioEvento::with('tipo:id,name')
+        $eventos = CalendarioEvento::with('tipo:id,name,color')
             ->where('id_empleado', $employee->id)
             ->where('eliminado', 0)
             ->orderBy('inicio', 'desc')
@@ -203,12 +224,20 @@ class EmpleadoIncidenciasController extends Controller
         $data = $eventos->map(function ($evento) {
 
             return [
-                'id'         => $evento->id,
-                'tipo'       => $evento->tipo?->name,
-                'fecha'      => $evento->inicio,
-                'fechaFin'   => $evento->fin,
-                'estado'     => $this->mapEstado($evento->estado),
-                'comentario' => $evento->descripcion,
+                'id'                  => $evento->id,
+                'tipo_evento_id'      => $evento->id_tipo,
+                'tipo'                => $evento->tipo?->name,
+                'color'               => $evento->tipo?->color,
+                'fecha'               => $evento->inicio,
+                'fechaFin'            => $evento->fin,
+                'estado'              => $evento->estado_aprobacion ?: $this->mapEstado($evento->estado),
+                'estado_operativo'    => $this->mapEstado($evento->estado),
+                'estado_aprobacion'   => $evento->estado_aprobacion,
+                'requiere_aprobacion' => (bool) $evento->requiere_aprobacion,
+                'origen_evento'       => $evento->origen_evento,
+                'comentario'          => $evento->descripcion,
+                'archivo'             => $evento->archivo,
+                'created_at'          => $evento->created_at,
             ];
 
         });
@@ -306,5 +335,94 @@ class EmpleadoIncidenciasController extends Controller
         }
 
         return array_values(array_unique($numeros));
+    }
+
+    public function contexto(Request $request)
+    {
+        $conn = 'portal_main';
+
+        $employee = $request->user();
+
+        if (! $employee) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Unauthorized',
+            ], 401);
+        }
+
+        $idEmpleado = (int) $employee->id;
+        $idPortal   = (int) $employee->id_portal;
+        $idCliente  = (int) $employee->id_cliente;
+
+        $asignacion = DB::connection($conn)
+            ->table('checador_asignaciones')
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
+            ->where('id_empleado', $idEmpleado)
+            ->where('activa', 1)
+            ->orderByDesc('prioridad')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $asignacion) {
+            return response()->json([
+                'ok'   => true,
+                'data' => [
+                    'eventos'     => [],
+                    'aprobadores' => [],
+                ],
+            ]);
+        }
+
+        $tipoEventoIds = DB::connection($conn)
+            ->table('checador_checada_plantilla_aprobadores')
+            ->where('id_plantilla', (int) $asignacion->id_plantilla_checada)
+            ->where('activo', 1)
+            ->pluck('tipo_evento_id')
+            ->unique()
+            ->values();
+
+        $eventos = DB::connection($conn)
+            ->table('eventos_option')
+            ->whereIn('id', $tipoEventoIds)
+            ->where(function ($query) use ($idPortal) {
+                $query->whereNull('id_portal')
+                    ->orWhere('id_portal', $idPortal);
+            })
+            ->select([
+                'id',
+                'name',
+                'color',
+                'id_crol',
+            ])
+            ->orderBy('name')
+            ->get();
+
+        $aprobadores = DB::connection($conn)
+            ->table('checador_checada_plantilla_aprobadores as pa')
+            ->join('empleados as e', 'e.id', '=', 'pa.id_empleado_aprobador')
+            ->where('pa.id_plantilla', (int) $asignacion->id_plantilla_checada)
+            ->where('pa.activo', 1)
+            ->select([
+                'pa.id',
+                'pa.tipo_evento_id',
+                'pa.id_empleado_aprobador',
+                'pa.nivel',
+                'pa.obligatorio',
+                'e.nombre',
+                'e.paterno',
+                'e.materno',
+            ])
+            ->orderBy('pa.tipo_evento_id')
+            ->orderBy('pa.nivel')
+            ->get();
+
+        return response()->json([
+            'ok'   => true,
+            'data' => [
+                'eventos'     => $eventos,
+                'aprobadores' => $aprobadores,
+            ],
+        ]);
     }
 }

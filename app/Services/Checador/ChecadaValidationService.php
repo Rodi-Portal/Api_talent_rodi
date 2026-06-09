@@ -25,11 +25,13 @@ class ChecadaValidationService
             ];
         }
 
-        $horario = $this->obtenerHorarioDelDia(
+        $horarioAplicable = $this->resolverHorarioAplicable(
             $asignacion->id_plantilla_horario,
             $now
         );
 
+        $horario      = $horarioAplicable['horario'];
+        $fechaJornada = $horarioAplicable['fecha_jornada'];
         if (! $horario || (int) $horario->labora !== 1) {
             return [
                 'ok'                 => false,
@@ -38,8 +40,11 @@ class ChecadaValidationService
                 'motivo'             => 'El empleado no tiene horario laboral configurado para este día.',
             ];
         }
-        $validacionSecuencia = $this->validarSecuenciaChecada($data, $now);
-
+        $validacionSecuencia = $this->validarSecuenciaChecada(
+            $data,
+            $now,
+            $fechaJornada
+        );
         if (! $validacionSecuencia['ok']) {
             return array_merge($validacionSecuencia, [
                 'id_asignacion' => $asignacion->id,
@@ -70,7 +75,10 @@ class ChecadaValidationService
             'distancia_metros' => null,
         ];
 
-        if ($this->plantillaRequiereGps($asignacion)) {
+        if (
+            ($data['origen'] ?? 'geoloc') === 'geoloc'
+            && $this->plantillaRequiereGps($asignacion)
+        ) {
             $validacionUbicacion = $this->validarUbicacion($asignacion, $data);
 
             if (! $validacionUbicacion['ok']) {
@@ -102,7 +110,7 @@ class ChecadaValidationService
         int $idEmpleado,
         Carbon $fecha
     ) {
-        return DB::table('checador_asignaciones')
+        return DB::connection('portal_main')->table('checador_asignaciones')
             ->where('id_portal', $idPortal)
             ->where('id_cliente', $idCliente)
             ->where('id_empleado', $idEmpleado)
@@ -118,9 +126,9 @@ class ChecadaValidationService
 
     private function obtenerHorarioDelDia(int $idPlantillaHorario, Carbon $fecha)
     {
-        $diaSemana = (int) $fecha->isoWeekday();
+        $diaSemana = (int) $fecha->dayOfWeek;
 
-        return DB::table('checador_horario_detalles as d')
+        return DB::connection('portal_main')->table('checador_horario_detalles as d')
             ->join('checador_horario_plantillas as p', 'p.id', '=', 'd.id_plantilla')
             ->where('d.id_plantilla', $idPlantillaHorario)
             ->where('d.dia_semana', $diaSemana)
@@ -132,7 +140,46 @@ class ChecadaValidationService
             )
             ->first();
     }
+    private function resolverFechaJornada(
+        int $idPlantillaHorario,
+        Carbon $checkTime
+    ): Carbon {
+        $fechaActual   = $checkTime->copy();
+        $fechaAnterior = $checkTime->copy()->subDay();
 
+        $horarioAnterior = $this->obtenerHorarioDelDia(
+            $idPlantillaHorario,
+            $fechaAnterior
+        );
+
+        if (
+            $horarioAnterior
+            && (int) $horarioAnterior->labora === 1
+            && $horarioAnterior->hora_entrada
+            && $horarioAnterior->hora_salida
+        ) {
+            $entradaAnterior = Carbon::parse(
+                $fechaAnterior->toDateString() . ' ' . $horarioAnterior->hora_entrada
+            );
+
+            $salidaAnterior = Carbon::parse(
+                $fechaAnterior->toDateString() . ' ' . $horarioAnterior->hora_salida
+            );
+
+            if ($salidaAnterior->lessThanOrEqualTo($entradaAnterior)) {
+                $salidaAnterior->addDay();
+
+                if (
+                    $checkTime->greaterThanOrEqualTo($entradaAnterior)
+                    && $checkTime->lessThanOrEqualTo($salidaAnterior->copy()->addHours(4))
+                ) {
+                    return $fechaAnterior;
+                }
+            }
+        }
+
+        return $fechaActual;
+    }
     private function validarHorario($horario, Carbon $checkTime, string $tipo, array $data): array
     {
         if (! in_array($tipo, ['in', 'out'], true)) {
@@ -154,7 +201,7 @@ class ChecadaValidationService
                 ];
             }
 
-            $esPrimeraEntrada = ! DB::table('checadas')
+            $esPrimeraEntrada = ! DB::connection('portal_main')->table('checadas')
                 ->where('id_portal', $data['id_portal'])
                 ->where('id_cliente', $data['id_cliente'])
                 ->where('id_empleado', $data['id_empleado'])
@@ -241,7 +288,7 @@ class ChecadaValidationService
         $latEmpleado = (float) $data['latitud'];
         $lngEmpleado = (float) $data['longitud'];
 
-        $ubicaciones = DB::table('checador_checada_plantilla_ubicaciones as pu')
+        $ubicaciones = DB::connection('portal_main')->table('checador_checada_plantilla_ubicaciones as pu')
             ->join('checador_ubicaciones as u', 'u.id', '=', 'pu.id_ubicacion')
             ->where('pu.id_plantilla', $asignacion->id_plantilla_checada)
             ->where('pu.activo', 1)
@@ -327,11 +374,10 @@ class ChecadaValidationService
 
     private function validarMetodosRequeridos($asignacion, array $data): array
     {
-        $metodos = DB::table('checador_checada_plantilla_metodos as pm')
+        $metodos = DB::connection('portal_main')->table('checador_checada_plantilla_metodos as pm')
             ->join('checador_metodos as m', 'm.id', '=', 'pm.id_metodo')
             ->where('pm.id_plantilla', $asignacion->id_plantilla_checada)
             ->where('pm.activo', 1)
-            ->where('pm.obligatorio', 1)
             ->where('m.activo', 1)
             ->select(
                 'm.id',
@@ -347,57 +393,111 @@ class ChecadaValidationService
             return [
                 'ok'                 => false,
                 'estatus_validacion' => 'rechazada',
-                'motivo'             => 'La plantilla no tiene métodos obligatorios configurados.',
+                'motivo'             => 'La plantilla no tiene métodos permitidos configurados.',
             ];
         }
 
-        $claves = $metodos->pluck('clave')->values()->all();
+        $metodosPermitidos = $metodos->pluck('clave')->values()->all();
 
-        foreach ($metodos as $metodo) {
-            if ((int) $metodo->requiere_gps === 1) {
-                if (empty($data['latitud']) || empty($data['longitud'])) {
-                    return [
-                        'ok'                 => false,
-                        'estatus_validacion' => 'rechazada',
-                        'motivo'             => 'La plantilla requiere geolocalización.',
-                        'metodos_requeridos' => $claves,
-                    ];
-                }
+        $origen = $data['origen'] ?? 'geoloc';
+
+        $metodoClave = match ($origen) {
+            'geoloc'     => 'gps',
+            'biometrico' => 'biometrico',
+            'reloj'      => 'biometrico',
+            'manual'     => 'manual',
+            'api'        => 'biometrico',
+            'libre'      => 'libre',
+            default      => $origen,
+        };
+
+        $metodo = $metodos->firstWhere('clave', $metodoClave);
+
+        if ($metodoClave === 'libre') {
+            if (! $metodo) {
+                return [
+                    'ok'                 => false,
+                    'estatus_validacion' => 'rechazada',
+                    'motivo'             => 'La checada libre no está permitida en esta plantilla.',
+                    'metodos_permitidos' => $metodosPermitidos,
+                    'metodo_solicitado'  => 'libre',
+                ];
             }
 
-            if ((int) $metodo->requiere_qr === 1) {
-                if (empty($data['qr_token'])) {
-                    return [
-                        'ok'                 => false,
-                        'estatus_validacion' => 'rechazada',
-                        'motivo'             => 'La plantilla requiere código QR.',
-                        'metodos_requeridos' => $claves,
-                    ];
-                }
+            return [
+                'ok'                 => true,
+                'estatus_validacion' => 'advertida',
+                'motivo'             => 'Checada libre registrada sin validaciones fuertes.',
+                'metodos_requeridos' => ['libre'],
+            ];
+        }
+
+        if (! $metodo) {
+            return [
+                'ok'                 => false,
+                'estatus_validacion' => 'rechazada',
+                'motivo'             => 'El método de checada no está permitido en esta plantilla.',
+                'metodos_permitidos' => $metodosPermitidos,
+                'metodo_solicitado'  => $metodoClave,
+            ];
+        }
+
+        if ((int) $metodo->requiere_gps === 1) {
+            if (empty($data['latitud']) || empty($data['longitud'])) {
+                return [
+                    'ok'                 => false,
+                    'estatus_validacion' => 'rechazada',
+                    'motivo'             => 'La plantilla requiere geolocalización para este método.',
+                    'metodos_permitidos' => $metodosPermitidos,
+                    'metodo_solicitado'  => $metodoClave,
+                ];
+            }
+        }
+
+        if ((int) $metodo->requiere_qr === 1) {
+            if (empty($data['qr_token'])) {
+                return [
+                    'ok'                 => false,
+                    'estatus_validacion' => 'rechazada',
+                    'motivo'             => 'La plantilla requiere código QR para este método.',
+                    'metodos_permitidos' => $metodosPermitidos,
+                    'metodo_solicitado'  => $metodoClave,
+                ];
+            }
+        }
+
+        $metodosValidados = [$metodoClave];
+
+        // Foto de evidencia: solo aplica como complemento del GPS / MiPortal.
+        $fotoActiva = $metodos->firstWhere('clave', 'foto');
+        if (
+            $metodoClave === 'gps'
+            && $fotoActiva
+            && ($data['clase'] ?? 'work') === 'work'
+        ) {
+            if (empty($data['foto_path']) && empty($data['foto_base64'])) {
+                return [
+                    'ok'                 => false,
+                    'estatus_validacion' => 'rechazada',
+                    'motivo'             => 'La plantilla requiere foto de evidencia para checada GPS.',
+                    'metodos_permitidos' => $metodosPermitidos,
+                    'metodo_solicitado'  => $metodoClave,
+                ];
             }
 
-            if ((int) $metodo->requiere_foto === 1) {
-                if (empty($data['foto_path']) && empty($data['foto_base64'])) {
-                    return [
-                        'ok'                 => false,
-                        'estatus_validacion' => 'rechazada',
-                        'motivo'             => 'La plantilla requiere foto de evidencia.',
-                        'metodos_requeridos' => $claves,
-                    ];
-                }
-            }
+            $metodosValidados[] = 'foto';
         }
 
         return [
             'ok'                 => true,
             'estatus_validacion' => 'valida',
-            'motivo'             => 'Métodos requeridos completos.',
-            'metodos_requeridos' => $claves,
+            'motivo'             => 'Método de checada permitido.',
+            'metodos_requeridos' => $metodosValidados,
         ];
     }
     private function plantillaRequiereGps($asignacion): bool
     {
-        return DB::table('checador_checada_plantilla_metodos as pm')
+        return DB::connection('portal_main')->table('checador_checada_plantilla_metodos as pm')
             ->join('checador_metodos as m', 'm.id', '=', 'pm.id_metodo')
             ->where('pm.id_plantilla', $asignacion->id_plantilla_checada)
             ->where('pm.activo', 1)
@@ -407,8 +507,11 @@ class ChecadaValidationService
             ->exists();
     }
 
-    private function validarSecuenciaChecada(array $data, Carbon $checkTime): array
-    {
+    private function validarSecuenciaChecada(
+        array $data,
+        Carbon $checkTime,
+        Carbon $fechaJornada
+    ): array {
         $tipoSolicitado = $data['tipo'] ?? 'in';
 
         if (! in_array($tipoSolicitado, ['in', 'out'], true)) {
@@ -419,11 +522,18 @@ class ChecadaValidationService
             ];
         }
 
-        $ultimaChecada = DB::table('checadas')
+        $inicioBusqueda = $checkTime->copy()->subHours(16);
+        $finBusqueda    = $checkTime->copy()->addHours(4);
+
+        $ultimaChecada = DB::connection('portal_main')->table('checadas')
             ->where('id_portal', $data['id_portal'])
             ->where('id_cliente', $data['id_cliente'])
             ->where('id_empleado', $data['id_empleado'])
-            ->whereDate('fecha', $checkTime->toDateString())
+            ->whereIn('clase', ['work', 'meal', 'break', 'personal', 'transfer'])
+            ->whereBetween('check_time', [
+                $inicioBusqueda->format('Y-m-d H:i:s'),
+                $finBusqueda->format('Y-m-d H:i:s'),
+            ])
             ->orderByDesc('check_time')
             ->first();
 
@@ -449,6 +559,61 @@ class ChecadaValidationService
             'ok'                 => true,
             'estatus_validacion' => 'valida',
             'motivo'             => 'Secuencia válida.',
+        ];
+    }
+    private function resolverHorarioAplicable(
+        int $idPlantillaHorario,
+        Carbon $checkTime
+    ): array {
+        $candidatos = [
+            $checkTime->copy(),
+            $checkTime->copy()->subDay(),
+        ];
+
+        foreach ($candidatos as $fechaCandidata) {
+            $horario = $this->obtenerHorarioDelDia(
+                $idPlantillaHorario,
+                $fechaCandidata
+            );
+
+            if (
+                ! $horario ||
+                (int) $horario->labora !== 1 ||
+                ! $horario->hora_entrada ||
+                ! $horario->hora_salida
+            ) {
+                continue;
+            }
+
+            $inicio = Carbon::parse(
+                $fechaCandidata->toDateString() . ' ' . $horario->hora_entrada
+            );
+
+            $fin = Carbon::parse(
+                $fechaCandidata->toDateString() . ' ' . $horario->hora_salida
+            );
+
+            if ($fin->lessThanOrEqualTo($inicio)) {
+                $fin->addDay();
+            }
+
+            $inicioVentana = $inicio->copy()->subHours(4);
+            $finVentana    = $fin->copy()->addHours(4);
+
+            if (
+                $checkTime->greaterThanOrEqualTo($inicioVentana)
+                && $checkTime->lessThanOrEqualTo($finVentana)
+            ) {
+                return [
+                    'fecha_jornada' => $fechaCandidata,
+                    'horario'       => $horario,
+                ];
+            }
+        }
+
+        return [
+            'fecha_jornada' => $checkTime->copy(),
+            'horario'       => null,
         ];
     }
 }

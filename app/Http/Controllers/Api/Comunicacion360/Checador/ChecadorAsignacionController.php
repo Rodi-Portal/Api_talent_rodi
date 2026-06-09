@@ -348,4 +348,54 @@ class ChecadorAsignacionController extends Controller
             'message' => 'Plantilla asignada correctamente al empleado.',
         ]);
     }
+
+    public function aprobadoresDisponibles(Request $request)
+    {
+        $idPortal  = (int) $request->query('id_portal');
+        $idCliente = (int) $request->query('id_cliente');
+
+        $query = DB::connection('portal_main')
+            ->table('empleados')
+            ->select([
+                'id',
+                'id_portal',
+                'id_cliente',
+                'nombre',
+                'paterno',
+                'materno',
+                'puesto',
+                'departamento',
+            ])
+            ->where('id_portal', $idPortal)
+            ->where('status', 1)
+            ->where('eliminado', 0);
+
+        if ($idCliente > 0) {
+            $query->where('id_cliente', $idCliente);
+        }
+
+        $data = $query
+            ->orderBy('nombre')
+            ->orderBy('paterno')
+            ->get()
+            ->map(function ($empleado) {
+                return [
+                    'id'              => (int) $empleado->id,
+                    'id_cliente'      => (int) $empleado->id_cliente,
+                    'nombre_completo' => trim(collect([
+                        $empleado->nombre,
+                        $empleado->paterno,
+                        $empleado->materno,
+                    ])->filter()->implode(' ')),
+                    'puesto'          => $empleado->puesto,
+                    'departamento'    => $empleado->departamento,
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'ok'   => true,
+            'data' => $data,
+        ]);
+    }
 }
