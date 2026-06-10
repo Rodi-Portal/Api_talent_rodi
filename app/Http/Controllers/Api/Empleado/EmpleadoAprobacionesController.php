@@ -23,6 +23,7 @@ class EmpleadoAprobacionesController extends Controller
         $pendientes = DB::connection($conn)
             ->table('checador_evento_aprobaciones as a')
             ->join('calendario_eventos as ce', 'ce.id', '=', 'a.id_evento')
+            ->leftJoin('checador_evento_detalles as ced', 'ced.id_evento', '=', 'ce.id')
             ->join('eventos_option as eo', 'eo.id', '=', 'a.tipo_evento_id')
             ->leftJoin('empleados as s', 's.id', '=', 'a.id_empleado_solicitante')
             ->where('a.id_empleado_aprobador', (int) $employee->id)
@@ -44,7 +45,11 @@ class EmpleadoAprobacionesController extends Controller
                 'ce.archivo',
                 'ce.estado_aprobacion',
                 'ce.origen_evento',
-
+                'ced.hora_inicio',
+                'ced.hora_fin',
+                'ced.minutos_aprobados',
+                'ced.minutos_pagables',
+                'ced.minutos_detectados',
                 'eo.name as evento_nombre',
                 'eo.color as evento_color',
 
@@ -78,6 +83,13 @@ class EmpleadoAprobacionesController extends Controller
                         'inicio' => $item->inicio,
                         'fin'    => $item->fin,
                         'dias'   => $item->dias_evento,
+                    ],
+                    'detalle'           => [
+                        'hora_inicio'        => $item->hora_inicio,
+                        'hora_fin'           => $item->hora_fin,
+                        'minutos_aprobados'  => $item->minutos_aprobados,
+                        'minutos_pagables'   => $item->minutos_pagables,
+                        'minutos_detectados' => $item->minutos_detectados,
                     ],
                     'comentario'        => $item->descripcion,
                     'archivo'           => $item->archivo,
