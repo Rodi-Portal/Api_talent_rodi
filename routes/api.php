@@ -9,6 +9,7 @@ use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosTareasController;
+use App\Http\Controllers\Api\Comunicacion360\ChecadorEventosController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadaDispositivoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorAsignacionController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorChecadaPlantillaController;
@@ -24,6 +25,7 @@ use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
 use App\Http\Controllers\Api\Empleado\EmpleadoAprobacionesController;
 use App\Http\Controllers\Api\Empleado\EmpleadoChecadorController;
 use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
+use App\Http\Controllers\Api\Empleado\EmpleadoEventoConfirmacionesController;
 use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
 use App\Http\Controllers\Api\Empleado\EmpleadoTareasController;
 use App\Http\Controllers\Api\Empleado\ProfileController;
@@ -568,6 +570,26 @@ Route::middleware(['auth:empleado'])
             EmpleadoDashboardController::class,
             'verCompliance',
         ]);
+        /*
+|--------------------------------------------------------------------------
+| EVENTOS / CONFIRMACIONES EMPLEADO
+|--------------------------------------------------------------------------
+*/
+
+        Route::get('/eventos/confirmaciones-pendientes', [
+            EmpleadoEventoConfirmacionesController::class,
+            'pendientes',
+        ]);
+
+        Route::post('/eventos/{id}/confirmar', [
+            EmpleadoEventoConfirmacionesController::class,
+            'confirmar',
+        ]);
+
+        Route::post('/eventos/{id}/rechazar-confirmacion', [
+            EmpleadoEventoConfirmacionesController::class,
+            'rechazar',
+        ]);
 
     });
 
@@ -599,6 +621,7 @@ Route::prefix('comunicacion360')->group(function () {
     Route::post('/accesos/generar-individual', [AccesosController::class, 'generarIndividual']);
     Route::post('/accesos/actualizar-individual', [AccesosController::class, 'actualizarIndividual']);
     Route::post('/accesos/{id}/cerrar-sesion', [AccesosChecadorController::class, 'cerrarSesion']);
+    Route::post('/accesos/empleados/{id}/eliminar-acceso', [AccesosController::class, 'eliminarAcceso']);
     Route::get('/accesos/empleados/{id}/checadas-dia', [AccesosChecadorController::class, 'checadasDia']);
     Route::get('/accesos/empleados/{id}/metricas-dia', [AccesosChecadorController::class, 'metricasDia']);
     Route::get(
@@ -630,6 +653,18 @@ Route::prefix('comunicacion360')->group(function () {
     Route::get(
         '/accesos/empleados/{id}/analisis-operativo',
         [EmployeeProfileAnalysisController::class, 'show']
+    );
+    Route::post(
+        '/accesos/empleados/{id}/eventos/horas-extra',
+        [ChecadorEventosController::class, 'registrarHorasExtra']
+    );
+    Route::post(
+        '/accesos/eventos/horas-extra',
+        [ChecadorEventosController::class, 'registrarHorasExtraMasivo']
+    );
+    Route::get(
+        '/accesos/empleados/{id}/eventos',
+        [ChecadorEventosController::class, 'eventosEmpleado']
     );
 });
 

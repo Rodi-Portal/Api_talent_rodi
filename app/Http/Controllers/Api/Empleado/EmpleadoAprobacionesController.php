@@ -208,6 +208,56 @@ class EmpleadoAprobacionesController extends Controller
                 'estado'            => $estadoOperativo,
                 'updated_at'        => now(),
             ]);
+
+        $detalle = DB::connection($conn)
+            ->table('checador_evento_detalles')
+            ->where('id_evento', $eventoId)
+            ->first();
+
+        if (! $detalle) {
+            return;
+        }
+
+        if ($estadoAprobacion === 'aprobado') {
+
+            $ultimoAprobador = DB::connection($conn)
+                ->table('checador_evento_aprobaciones')
+                ->where('id_evento', $eventoId)
+                ->where('estatus', 'aprobado')
+                ->orderByDesc('fecha_respuesta')
+                ->orderByDesc('id')
+                ->first();
+
+            $minutosPagables = (int) $detalle->impacta_prenomina === 1
+                ? (int) $detalle->minutos_detectados
+                : 0;
+
+            DB::connection($conn)
+                ->table('checador_evento_detalles')
+                ->where('id_evento', $eventoId)
+                ->update([
+                    'minutos_aprobados' => (int) $detalle->minutos_detectados,
+                    'minutos_pagables'  => $minutosPagables,
+                    'aprobado_por_tipo' => 'empleado_aprobador',
+                    'aprobado_por_id'   => $ultimoAprobador?->id_empleado_aprobador,
+                    'aprobado_at'       => now(),
+                    'updated_at'        => now(),
+                ]);
+        }
+
+        if ($estadoAprobacion === 'rechazado') {
+            DB::connection($conn)
+                ->table('checador_evento_detalles')
+                ->where('id_evento', $eventoId)
+                ->update([
+                    'minutos_aprobados' => 0,
+                    'minutos_pagables'  => 0,
+                    'aprobado_por_tipo' => null,
+                    'aprobado_por_id'   => null,
+                    'aprobado_at'       => null,
+                    'updated_at'        => now(),
+                ]);
+        }
     }
     public function rechazar(Request $request, int $id)
     {

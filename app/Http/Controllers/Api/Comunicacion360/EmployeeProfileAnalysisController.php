@@ -166,8 +166,29 @@ class EmployeeProfileAnalysisController extends Controller
             ->whereDate('inicio', '<=', $fechaFin)
             ->whereDate('fin', '>=', $fechaInicio)
             ->get();
+        $employeeExtraEvents = DB::connection('portal_main')
+            ->table('checador_evento_detalles as ced')
+            ->join('calendario_eventos as ce', 'ce.id', '=', 'ced.id_evento')
+            ->where('ce.id_portal', $employee->id_portal)
+            ->where('ce.id_empleado', $employee->id)
+            ->where('ce.eliminado', 0)
+            ->where('ce.estado_aprobacion', 'aprobado')
+            ->where('ced.tipo_operativo', 'horas_extra')
+            ->where('ced.visible_analisis', 1)
+            ->whereDate('ced.fecha', '>=', $fechaInicio)
+            ->whereDate('ced.fecha', '<=', $fechaFin)
+            ->select([
+                'ced.*',
+                'ce.descripcion',
+                'ce.estado_aprobacion',
+                'ce.origen_evento',
+            ])
+            ->get();
 
-        $workCheckDates = $employeeChecks
+        $extraMinutesApproved = (int) $employeeExtraEvents->sum('minutos_aprobados');
+        $extraMinutesPayable  = (int) $employeeExtraEvents->sum('minutos_pagables');
+        $extraEventsCount     = $employeeExtraEvents->count();
+        $workCheckDates       = $employeeChecks
             ->where('tipo', 'in')
             ->where('clase', 'work')
             ->pluck('fecha')
@@ -218,6 +239,7 @@ class EmployeeProfileAnalysisController extends Controller
                 $workedDays++;
             }
         }
+
         $dailySummary = [];
 
         foreach (CarbonPeriod::create($fechaInicio, $fechaFin) as $date) {
@@ -274,21 +296,27 @@ class EmployeeProfileAnalysisController extends Controller
             $rejectedCount = $dayChecks->where('estatus_validacion', 'rechazada')->count();
             $checkCount    = $dayChecks->count();
 
-            $worked = $workIns->count() > 0;
-            $absent = $isScheduled && ! $isJustified && ! $worked;
+            $worked         = $workIns->count() > 0;
+            $absent         = $isScheduled && ! $isJustified && ! $worked;
+            $dayExtraEvents = $employeeExtraEvents->where('fecha', $currentDate);
 
-            $dailySummary[] = [
-                'date'           => $currentDate,
-                'weekday'        => $weekday,
-                'scheduled'      => $isScheduled,
-                'justified'      => $isJustified,
-                'worked'         => $worked,
-                'absent'         => $absent,
-                'extra_work'     => ! $isScheduled && $worked,
-                'check_count'    => $checkCount,
-                'late_count'     => $lateIns->pluck('fecha')->unique()->count(),
-                'warning_count'  => $warningCount,
-                'rejected_count' => $rejectedCount,
+            $extraMinutesApproved = (int) $dayExtraEvents->sum('minutos_aprobados');
+            $extraMinutesPayable  = (int) $dayExtraEvents->sum('minutos_pagables');
+            $dailySummary[]       = [
+                'date'                   => $currentDate,
+                'weekday'                => $weekday,
+                'scheduled'              => $isScheduled,
+                'justified'              => $isJustified,
+                'worked'                 => $worked,
+                'absent'                 => $absent,
+                'extra_work'             => ! $isScheduled && $worked,
+                'check_count'            => $checkCount,
+                'late_count'             => $lateIns->pluck('fecha')->unique()->count(),
+                'warning_count'          => $warningCount,
+                'rejected_count'         => $rejectedCount,
+                'extra_events_count'     => $dayExtraEvents->count(),
+                'extra_minutes_approved' => $extraMinutesApproved,
+                'extra_minutes_payable'  => $extraMinutesPayable,
             ];
         }
         $expectedWorkDays            = max($scheduledWorkDays - $justifiedDays, 0);
@@ -400,6 +428,29 @@ class EmployeeProfileAnalysisController extends Controller
                     ];
                 })
                 ->values();
+            $extraTimeline = $employeeExtraEvents
+                ->map(function ($item) {
+                    return [
+                        'type'     => 'overtime_approved',
+                        'severity' => 'medium',
+                        'datetime' => $item->fecha . ' ' . ($item->hora_inicio ?? '00:00:00'),
+                        'date'     => $item->fecha,
+                        'params'   => [
+                            'minutes_approved' => (int) $item->minutos_aprobados,
+                            'minutes_payable'  => (int) $item->minutos_pagables,
+                        ],
+                        'meta'     => [
+                            'approval_mode' => $item->modo_aprobacion,
+                            'origin'        => $item->origen_evento,
+                        ],
+                    ];
+                });
+
+            $timeline = $timeline
+                ->merge($extraTimeline)
+                ->sortByDesc('datetime')
+                ->take(12)
+                ->values();
             $insights = [];
 
             if ($attendanceScore !== null && $attendanceScore < 80) {
@@ -483,14 +534,17 @@ class EmployeeProfileAnalysisController extends Controller
                 ],
 
                 'kpis'          => [
-                    'late_count'          => $lateCount,
-                    'absences_count'      => $absencesCount,
-                    'completed_tasks'     => $completedTasks,
-                    'pending_tasks'       => $pendingTasks,
-                    'missing_evidence'    => $missingEvidence,
-                    'scheduled_work_days' => $scheduledWorkDays,
-                    'justified_days'      => $justifiedDays,
-                    'worked_days'         => $workedDays,
+                    'late_count'             => $lateCount,
+                    'absences_count'         => $absencesCount,
+                    'completed_tasks'        => $completedTasks,
+                    'pending_tasks'          => $pendingTasks,
+                    'missing_evidence'       => $missingEvidence,
+                    'scheduled_work_days'    => $scheduledWorkDays,
+                    'justified_days'         => $justifiedDays,
+                    'worked_days'            => $workedDays,
+                    'extra_events_count'     => $extraEventsCount,
+                    'extra_minutes_approved' => $extraMinutesApproved,
+                    'extra_minutes_payable'  => $extraMinutesPayable,
                 ],
 
                 'insights'      => $insights,
