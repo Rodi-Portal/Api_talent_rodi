@@ -2,6 +2,7 @@
 namespace App\Http\Controllers\Api\Comunicacion360;
 
 use App\Http\Controllers\Controller;
+use App\Services\ChecadorHorasExtraService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -53,142 +54,13 @@ class ChecadorEventosController extends Controller
             ], 404);
         }
 
-        $estadoAprobacion = $data['modo_aprobacion'] === 'directa_admin'
-            ? 'aprobado'
-            : 'pendiente';
-
-        $requiereAprobacion = $data['modo_aprobacion'] === 'flujo_aprobadores'
-            ? 1
-            : 0;
         try {
-            $resultado = DB::connection('portal_main')->transaction(function () use ($data, $employee, $estadoAprobacion, $requiereAprobacion) {
-                $idEvento = DB::connection('portal_main')
-                    ->table('calendario_eventos')
-                    ->insertGetId([
-                        'id_usuario'          => $data['id_usuario'],
-                        'id_empleado'         => $employee->id,
-                        'id_portal'           => $data['id_portal'],
-                        'id_cliente'          => $data['id_cliente'],
-                        'inicio'              => $data['fecha'],
-                        'fin'                 => $data['fecha'],
-                        'dias_evento'         => 1,
-                        'descripcion'         => $data['descripcion'] ?? null,
-                        'id_tipo'             => self::TIPO_HORAS_EXTRA,
-                        'estado'              => 2,
-                        'estado_aprobacion'   => $estadoAprobacion,
-                        'origen_evento'       => 'manual',
-                        'requiere_aprobacion' => $requiereAprobacion,
-                        'created_at'          => now(),
-                        'updated_at'          => now(),
-                    ]);
+            $data['registrado_por']   = 'admin';
+            $data['registrado_desde'] = 'comunicacion360';
+            $data['origen_evento']    = 'manual';
 
-                $minutosPagables = $data['impacta_prenomina']
-                    ? (int) $data['minutos_aprobados']
-                    : 0;
-
-                DB::connection('portal_main')
-                    ->table('checador_evento_detalles')
-                    ->insert([
-                        'id_evento'                      => $idEvento,
-                        'tipo_operativo'                 => 'horas_extra',
-                        'fecha'                          => $data['fecha'],
-                        'hora_inicio'                    => $data['hora_inicio'],
-                        'hora_fin'                       => $data['hora_fin'],
-                        'minutos_detectados'             => (int) $data['minutos_aprobados'],
-                        'minutos_aprobados'              => $data['modo_aprobacion'] === 'directa_admin'
-                            ? (int) $data['minutos_aprobados']
-                            : 0,
-                        'minutos_pagables'               => $data['modo_aprobacion'] === 'directa_admin'
-                            ? $minutosPagables
-                            : 0,
-                        'modo_aprobacion'                => $data['modo_aprobacion'],
-                        'requiere_confirmacion_empleado' => 1,
-
-                        'confirmacion_empleado_estado'   =>
-                        $data['modo_aprobacion'] === 'directa_admin'
-                            ? 'pendiente'
-                            : 'pendiente',
-
-                        'confirmado_por_empleado_id'     => null,
-                        'confirmado_at'                  => null,
-                        'confirmacion_comentario'        => null,
-                        'aprobado_por_tipo'              => $data['modo_aprobacion'] === 'directa_admin' ? 'admin' : null,
-                        'aprobado_por_id'                => $data['modo_aprobacion'] === 'directa_admin' ? $data['id_usuario'] : null,
-                        'aprobado_at'                    => $data['modo_aprobacion'] === 'directa_admin' ? now() : null,
-                        'impacta_asistencia'             => 1,
-                        'impacta_prenomina'              => $data['impacta_prenomina'] ? 1 : 0,
-                        'visible_analisis'               => 1,
-                        'observaciones'                  => $data['descripcion'] ?? null,
-                        'metadata'                       => json_encode([
-                            'registrado_por'   => 'admin',
-                            'registrado_desde' => 'comunicacion360',
-                        ]),
-                        'created_at'                     => now(),
-                        'updated_at'                     => now(),
-                    ]);
-
-                $aprobadoresCreados = 0;
-
-                if ($data['modo_aprobacion'] === 'flujo_aprobadores') {
-                    $asignacion = DB::connection('portal_main')
-                        ->table('checador_asignaciones')
-                        ->where('id_portal', $data['id_portal'])
-                        ->where('id_cliente', $data['id_cliente'])
-                        ->where('id_empleado', $employee->id)
-                        ->where('activa', 1)
-                        ->whereDate('fecha_inicio', '<=', $data['fecha'])
-                        ->where(function ($query) use ($data) {
-                            $query->whereNull('fecha_fin')
-                                ->orWhereDate('fecha_fin', '>=', $data['fecha']);
-                        })
-                        ->orderByDesc('prioridad')
-                        ->orderByDesc('id')
-                        ->first();
-
-                    if (! $asignacion) {
-                        throw new \Exception('El empleado no tiene plantilla activa para la fecha del evento.');
-                    }
-
-                    $aprobadores = DB::connection('portal_main')
-                        ->table('checador_checada_plantilla_aprobadores')
-                        ->where('id_plantilla', $asignacion->id_plantilla_checada)
-                        ->where('tipo_evento_id', self::TIPO_HORAS_EXTRA)
-                        ->where('activo', 1)
-                        ->orderBy('nivel')
-                        ->orderBy('id')
-                        ->get();
-
-                    if ($aprobadores->isEmpty()) {
-                        throw new \Exception('No hay aprobadores configurados para horas extra en la plantilla del empleado.');
-                    }
-
-                    foreach ($aprobadores as $aprobador) {
-                        DB::connection('portal_main')
-                            ->table('checador_evento_aprobaciones')
-                            ->insert([
-                                'id_portal'               => $data['id_portal'],
-                                'id_cliente'              => $data['id_cliente'],
-                                'id_evento'               => $idEvento,
-                                'tipo_evento_id'          => self::TIPO_HORAS_EXTRA,
-                                'id_empleado_solicitante' => $employee->id,
-                                'id_empleado_aprobador'   => $aprobador->id_empleado_aprobador,
-                                'nivel'                   => $aprobador->nivel,
-                                'estatus'                 => 'pendiente',
-                                'comentario'              => null,
-                                'fecha_respuesta'         => null,
-                                'created_at'              => now(),
-                                'updated_at'              => now(),
-                            ]);
-
-                        $aprobadoresCreados++;
-                    }
-                }
-
-                return [
-                    'evento_id'           => $idEvento,
-                    'aprobadores_creados' => $aprobadoresCreados,
-                ];
-            });
+            $resultado = app(ChecadorHorasExtraService::class)
+                ->registrar($data, $employee);
         } catch (Throwable $e) {
             return response()->json([
                 'ok'      => false,
@@ -199,7 +71,7 @@ class ChecadorEventosController extends Controller
             'ok'                  => true,
             'message'             => 'Evento de horas extra creado correctamente.',
             'evento_id'           => $resultado['evento_id'],
-            'estado_aprobacion'   => $estadoAprobacion,
+            'estado_aprobacion'   => $resultado['estado_aprobacion'],
             'aprobadores_creados' => $resultado['aprobadores_creados'],
         ]);
     }
@@ -328,10 +200,18 @@ class ChecadorEventosController extends Controller
             ->get();
 
         $aprobacionesPorEvento = DB::connection('portal_main')
-            ->table('checador_evento_aprobaciones')
-            ->whereIn('id_evento', $eventos->pluck('id')->values())
-            ->orderBy('nivel')
-            ->orderBy('id')
+            ->table('checador_evento_aprobaciones as a')
+            ->leftJoin('empleados as ap', 'ap.id', '=', 'a.id_empleado_aprobador')
+            ->whereIn('a.id_evento', $eventos->pluck('id')->values())
+            ->orderBy('a.nivel')
+            ->orderBy('a.id')
+            ->select([
+                'a.*',
+                'ap.id_empleado as aprobador_clave',
+                'ap.nombre as aprobador_nombre',
+                'ap.paterno as aprobador_paterno',
+                'ap.materno as aprobador_materno',
+            ])
             ->get()
             ->groupBy('id_evento');
 
@@ -382,7 +262,15 @@ class ChecadorEventosController extends Controller
                         ->map(function ($aprobacion) {
                             return [
                                 'id'              => $aprobacion->id,
-                                'aprobador_id'    => $aprobacion->id_empleado_aprobador,
+                                'aprobador'       => [
+                                    'id'     => $aprobacion->id_empleado_aprobador,
+                                    'clave'  => $aprobacion->aprobador_clave,
+                                    'nombre' => trim(collect([
+                                        $aprobacion->aprobador_nombre,
+                                        $aprobacion->aprobador_paterno,
+                                        $aprobacion->aprobador_materno,
+                                    ])->filter()->implode(' ')),
+                                ],
                                 'nivel'           => $aprobacion->nivel,
                                 'estatus'         => $aprobacion->estatus,
                                 'comentario'      => $aprobacion->comentario,

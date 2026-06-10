@@ -26,6 +26,7 @@ use App\Http\Controllers\Api\Empleado\EmpleadoAprobacionesController;
 use App\Http\Controllers\Api\Empleado\EmpleadoChecadorController;
 use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 use App\Http\Controllers\Api\Empleado\EmpleadoEventoConfirmacionesController;
+use App\Http\Controllers\Api\Empleado\EmpleadoHorasExtraController;
 use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
 use App\Http\Controllers\Api\Empleado\EmpleadoTareasController;
 use App\Http\Controllers\Api\Empleado\ProfileController;
@@ -571,10 +572,10 @@ Route::middleware(['auth:empleado'])
             'verCompliance',
         ]);
         /*
-|--------------------------------------------------------------------------
-| EVENTOS / CONFIRMACIONES EMPLEADO
-|--------------------------------------------------------------------------
-*/
+        |--------------------------------------------------------------------------
+        | EVENTOS / CONFIRMACIONES EMPLEADO
+        |--------------------------------------------------------------------------
+        */
 
         Route::get('/eventos/confirmaciones-pendientes', [
             EmpleadoEventoConfirmacionesController::class,
@@ -589,6 +590,14 @@ Route::middleware(['auth:empleado'])
         Route::post('/eventos/{id}/rechazar-confirmacion', [
             EmpleadoEventoConfirmacionesController::class,
             'rechazar',
+        ]);
+        Route::get('/eventos/horas-extra/colaboradores', [
+            EmpleadoHorasExtraController::class,
+            'colaboradores',
+        ]);
+        Route::post('/eventos/horas-extra', [
+            EmpleadoHorasExtraController::class,
+            'store',
         ]);
 
     });
