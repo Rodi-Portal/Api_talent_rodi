@@ -782,7 +782,134 @@ class AccesosController extends Controller
             'tokens_eliminados' => $tokensEliminados,
         ]);
     }
+    public function eliminarAcceso(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'id_portal'  => 'required|integer|min:1',
+            'id_usuario' => 'required|integer|min:1',
+        ]);
 
+        if ($validator->fails()) {
+            return response()->json([
+                'ok'   => false,
+                'code' => 'INVALID_PARAMS',
+                'data' => [
+                    'errors' => $validator->errors(),
+                ],
+            ], 422);
+        }
+
+        $idPortal  = (int) $request->input('id_portal');
+        $idUsuario = (int) $request->input('id_usuario');
+
+        $empleado = DB::connection('portal_main')
+            ->table('empleados')
+            ->where('id', (int) $id)
+            ->where('id_portal', $idPortal)
+            ->where(function ($q) {
+                $q->where('eliminado', 0)
+                    ->orWhereNull('eliminado');
+            })
+            ->first();
+
+        if (! $empleado) {
+            return response()->json([
+                'ok'      => false,
+                'code'    => 'NOT_FOUND',
+                'message' => 'Empleado no encontrado',
+            ], 404);
+        }
+
+       
+
+        DB::connection('portal_main')->beginTransaction();
+
+        try {
+            DB::connection('portal_main')
+                ->table('empleados')
+                ->where('id', $empleado->id)
+                ->where('id_portal', $idPortal)
+                ->update([
+                    'password'              => null,
+                    'force_password_change' => 0,
+                    'login_attempts'        => 0,
+                    'locked_until'          => null,
+                    'id_usuario'            => $idUsuario,
+                    'edicion'               => now(),
+                ]);
+
+            DB::connection('portal_main')
+                ->table('personal_access_tokens')
+                ->where('tokenable_type', 'App\\Models\\Auth\\EmpleadoAuth')
+                ->where('tokenable_id', (int) $empleado->id)
+                ->delete();
+
+            $dispositivos = DB::connection('portal_main')
+                ->table('checador_dispositivos')
+                ->where('id_portal', $idPortal)
+                ->where('id_cliente', $empleado->id_cliente)
+                ->where('tipo', 'biometrico')
+                ->where('activo', 1)
+                ->get();
+
+            foreach ($dispositivos as $dispositivo) {
+                DB::connection('portal_main')
+                    ->table('checador_dispositivo_sync')
+                    ->insert([
+                        'id_portal'        => $idPortal,
+                        'id_cliente'       => $empleado->id_cliente,
+                        'id_dispositivo'   => $dispositivo->id,
+                        'id_empleado'      => $empleado->id,
+                        'clave_biometrica' => $empleado->id_empleado,
+                        'accion'           => 'eliminar',
+                        'origen'           => 'comunicacion360',
+                        'estatus'          => 'pendiente',
+                        'intentos'         => 0,
+                        'payload'          => json_encode([
+                            'accion'           => 'delete_user_from_device',
+                            'empleado_pk'      => $empleado->id,
+                            'clave_biometrica' => $empleado->id_empleado,
+                            'nombre'           => trim($empleado->nombre . ' ' . $empleado->paterno . ' ' . $empleado->materno),
+                            'correo'           => $empleado->correo,
+                            'dispositivo_id'   => $dispositivo->id,
+                            'dispositivo'      => $dispositivo->nombre,
+                            'marca'            => $dispositivo->marca,
+                            'modelo'           => $dispositivo->modelo,
+                            'numero_serie'     => $dispositivo->numero_serie,
+                        ]),
+                        'created_at'       => now(),
+                        'updated_at'       => now(),
+                    ]);
+            }
+
+            DB::connection('portal_main')->commit();
+
+            return response()->json([
+                'ok'      => true,
+                'code'    => 'ACCESS_DELETE_REGISTERED',
+                'message' => 'Acceso eliminado y sincronización biométrica registrada',
+                'data'    => [
+                    'empleado_id'              => (int) $empleado->id,
+                    'clave_biometrica'         => $empleado->id_empleado,
+                    'dispositivos_encontrados' => $dispositivos->count(),
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            DB::connection('portal_main')->rollBack();
+
+            \Log::error('Error al eliminar acceso Comunicación 360', [
+                'empleado_id' => $id,
+                'id_portal'   => $idPortal,
+                'error'       => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'ok'      => false,
+                'code'    => 'PROCESS_FAILED',
+                'message' => 'No fue posible eliminar el acceso',
+            ], 500);
+        }
+    }
     private function procesarAccesoIndividual(
         int $idPortal,
         int $idUsuario,

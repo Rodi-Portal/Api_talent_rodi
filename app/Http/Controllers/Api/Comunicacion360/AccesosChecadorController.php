@@ -7,6 +7,7 @@ use App\Models\Comunicacion360\Checador\ChecadorAsignacion;
 use App\Services\Checador\JornadaCalculoService;
 use App\Services\Checador\VentanaOperativaService;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
 class AccesosChecadorController extends Controller
@@ -23,8 +24,39 @@ class AccesosChecadorController extends Controller
             ], 422);
         }
 
+        $asignacion = DB::connection('portal_main')
+            ->table('checador_asignaciones')
+            ->where('id_portal', $idPortal)
+            ->where('id_empleado', $id)
+            ->where('activa', 1)
+            ->whereDate('fecha_inicio', '<=', $fecha)
+            ->where(function ($q) use ($fecha) {
+                $q->whereNull('fecha_fin')
+                    ->orWhereDate('fecha_fin', '>=', $fecha);
+            })
+            ->orderByDesc('prioridad')
+            ->first();
+
+        $plantillaHorario = null;
+        $detalleHorario   = null;
         $ventanaOperativa = null;
 
+        if ($asignacion && $asignacion->id_plantilla_horario) {
+            $plantillaHorario = DB::connection('portal_main')
+                ->table('checador_horario_plantillas')
+                ->where('id', $asignacion->id_plantilla_horario)
+                ->first();
+
+            if ($plantillaHorario) {
+                $diaSemana = \Carbon\Carbon::parse($fecha)->dayOfWeek;
+
+                $detalleHorario = DB::connection('portal_main')
+                    ->table('checador_horario_detalles')
+                    ->where('id_plantilla', $plantillaHorario->id)
+                    ->where('dia_semana', $diaSemana)
+                    ->first();
+            }
+        }
         if ($detalleHorario && $detalleHorario->labora) {
             $ventanaOperativa = app(VentanaOperativaService::class)->resolver(
                 $fecha,
