@@ -7,8 +7,8 @@ use App\Models\Comunicacion360\Checador\ChecadorAsignacion;
 use App\Services\Checador\JornadaCalculoService;
 use App\Services\Checador\VentanaOperativaService;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AccesosChecadorController extends Controller
 {
@@ -494,7 +494,12 @@ class AccesosChecadorController extends Controller
                 ->orderByDesc('id')
                 ->first();
 
-            $checadasDia = collect();
+            $checadasDia = $todasChecadas
+                ->filter(function ($item) use ($fecha) {
+                    return Carbon::parse($item->fecha)->toDateString() === $fecha;
+                })
+                ->values();
+
             if (! $asignacion || ! $asignacion->horarioPlantilla) {
 
                 $diasSinHorario++;
@@ -534,18 +539,22 @@ class AccesosChecadorController extends Controller
 
             $checadasDia = $todasChecadas
                 ->filter(function ($item) use (
+                    $fecha,
                     $ventanaOperativa,
                     &$checadasProcesadas
                 ) {
-
                     if (in_array($item->id, $checadasProcesadas, true)) {
                         return false;
                     }
 
-                    $checkTime = $item->check_time?->format('Y-m-d H:i:s');
+                    $checkTime = Carbon::parse($item->check_time)->format('Y-m-d H:i:s');
+                    $itemFecha = Carbon::parse($item->fecha)->toDateString();
 
-                    return $checkTime >= $ventanaOperativa['ventana']['inicio']
-                        && $checkTime <= $ventanaOperativa['ventana']['fin'];
+                    return $itemFecha === $fecha
+                        || (
+                        $checkTime >= $ventanaOperativa['ventana']['inicio']
+                        && $checkTime <= $ventanaOperativa['ventana']['fin']
+                    );
                 })
                 ->values();
 
