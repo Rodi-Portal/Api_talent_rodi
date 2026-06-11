@@ -296,13 +296,12 @@ class EmployeeProfileAnalysisController extends Controller
             $rejectedCount = $dayChecks->where('estatus_validacion', 'rechazada')->count();
             $checkCount    = $dayChecks->count();
 
-            $worked         = $workIns->count() > 0;
-            $absent         = $isScheduled && ! $isJustified && ! $worked;
-            $dayExtraEvents = $employeeExtraEvents->where('fecha', $currentDate);
-
-            $extraMinutesApproved = (int) $dayExtraEvents->sum('minutos_aprobados');
-            $extraMinutesPayable  = (int) $dayExtraEvents->sum('minutos_pagables');
-            $dailySummary[]       = [
+            $worked                  = $workIns->count() > 0;
+            $absent                  = $isScheduled && ! $isJustified && ! $worked;
+            $dayExtraEvents          = $employeeExtraEvents->where('fecha', $currentDate);
+            $dayExtraMinutesApproved = (int) $dayExtraEvents->sum('minutos_aprobados');
+            $dayExtraMinutesPayable  = (int) $dayExtraEvents->sum('minutos_pagables');
+            $dailySummary[]          = [
                 'date'                   => $currentDate,
                 'weekday'                => $weekday,
                 'scheduled'              => $isScheduled,
@@ -315,8 +314,8 @@ class EmployeeProfileAnalysisController extends Controller
                 'warning_count'          => $warningCount,
                 'rejected_count'         => $rejectedCount,
                 'extra_events_count'     => $dayExtraEvents->count(),
-                'extra_minutes_approved' => $extraMinutesApproved,
-                'extra_minutes_payable'  => $extraMinutesPayable,
+                'extra_minutes_approved' => $dayExtraMinutesApproved,
+                'extra_minutes_payable'  => $dayExtraMinutesPayable,
             ];
         }
         $expectedWorkDays            = max($scheduledWorkDays - $justifiedDays, 0);
@@ -351,6 +350,8 @@ class EmployeeProfileAnalysisController extends Controller
         ) {
             $riskLevel = 'medium';
         }
+        $timeline = collect();
+        $insights = [];
         if (! $hasOperationalConfiguration) {
             $operationalStatus = 'unconfigured';
         } else {
