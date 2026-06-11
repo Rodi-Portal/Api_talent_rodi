@@ -41,8 +41,31 @@ class JornadaCalculoService
             'other'    => $this->resolverPeriodosPorClase($checadas, 'other', $timezone),
         ];
 
-        $estadoJornada = $this->resolverEstadoJornada($checadas, $periodosOperativos);
+        $estadoJornada         = $this->resolverEstadoJornada($checadas, $periodosOperativos);
+        $cierreVirtualAplicado = false;
 
+        $esDiaAnterior = Carbon::parse($fecha, $timezone)
+            ->startOfDay()
+            ->lt(now($timezone)->startOfDay());
+
+        if ($esDiaAnterior) {
+            $periodosOperativos = $this->cerrarPeriodosSinSalida(
+                $periodosOperativos,
+                $finProgramado
+            );
+
+            $periodosPorClase['work'] = $this->cerrarPeriodosSinSalida(
+                $periodosPorClase['work'],
+                $finProgramado
+            );
+
+            $cierreVirtualAplicado = collect($periodosOperativos)
+                ->contains(fn($periodo) => ($periodo['cierre_virtual'] ?? false) === true);
+
+            if ($cierreVirtualAplicado && $estadoJornada === 'sin_salida') {
+                $estadoJornada = 'sin_salida_cerrada_virtual';
+            }
+        }
         $minutosBrutos            = 0;
         $minutosNormales          = 0;
         $minutosExtraAntes        = 0;
@@ -104,11 +127,11 @@ class JornadaCalculoService
         $toleranciaEntrada = (int) ($plantillaHorario->tolerancia_entrada_min ?? 0);
         $toleranciaSalida  = (int) ($plantillaHorario->tolerancia_salida_min ?? 0);
 
-        $entradaReal  = $this->obtenerPrimeraEntrada($periodosOperativos);
-        $salidaReal   = $this->obtenerUltimaSalidaConFin($periodosOperativos);
+        $entradaReal = $this->obtenerPrimeraEntrada($periodosOperativos);
+        $salidaReal  = $this->obtenerUltimaSalidaConFin($periodosOperativos);
 
-        $minutosRetardoDetectado        = 0;
-        $minutosRetardoFueraTolerancia  = 0;
+        $minutosRetardoDetectado       = 0;
+        $minutosRetardoFueraTolerancia = 0;
 
         if ($entradaReal && $entradaReal->greaterThan($inicioProgramado)) {
             $minutosRetardoDetectado = $inicioProgramado->diffInMinutes($entradaReal);
@@ -119,8 +142,8 @@ class JornadaCalculoService
             );
         }
 
-        $minutosSalidaAnticipadaDetectada       = 0;
-        $minutosSalidaAnticipadaFueraTolerancia = 0;
+        $minutosSalidaAnticipadaDetectada        = 0;
+        $minutosSalidaAnticipadaFueraTolerancia  = 0;
 
         if ($salidaReal && $salidaReal->lessThan($finProgramado)) {
             $minutosSalidaAnticipadaDetectada = $salidaReal->diffInMinutes($finProgramado);
@@ -150,6 +173,8 @@ class JornadaCalculoService
                 'salida'         => $salidaReal
                     ? $salidaReal->format('Y-m-d H:i:s')
                     : null,
+
+                'salida_virtual' => $cierreVirtualAplicado,
 
                 'minutos_brutos' => $minutosBrutos,
             ],
@@ -392,21 +417,46 @@ class JornadaCalculoService
 
         return $periodos;
     }
+    private function cerrarPeriodosSinSalida(array $periodos, Carbon $finProgramado): array
+    {
+        return array_map(function (array $periodo) use ($finProgramado): array {
+            if (! empty($periodo['fin'])) {
+                return $periodo;
+            }
 
+            if (($periodo['motivo'] ?? null) !== 'sin_salida') {
+                return $periodo;
+            }
+
+            $finVirtual = $finProgramado->copy();
+
+            if ($finVirtual->lessThanOrEqualTo($periodo['inicio'])) {
+                $finVirtual = $periodo['inicio']->copy()->addMinutes(1);
+            }
+
+            $periodo['fin']            = $finVirtual;
+            $periodo['incompleto']     = true;
+            $periodo['motivo']         = 'sin_salida_cerrada_virtual';
+            $periodo['cierre_virtual'] = true;
+
+            return $periodo;
+        }, $periodos);
+    }
     private function serializarPeriodos(array $periodos): array
     {
         return array_map(function (array $periodo): array {
             return [
-                'clase'      => $periodo['clase'] ?? null,
-                'inicio'     => $periodo['inicio']->format('Y-m-d H:i:s'),
-                'fin'        => $periodo['fin']
+                'clase'          => $periodo['clase'] ?? null,
+                'inicio'         => $periodo['inicio']->format('Y-m-d H:i:s'),
+                'fin'            => $periodo['fin']
                     ? $periodo['fin']->format('Y-m-d H:i:s')
                     : null,
-                'minutos'    => $periodo['fin']
+                'minutos'        => $periodo['fin']
                     ? $periodo['inicio']->diffInMinutes($periodo['fin'])
                     : 0,
-                'incompleto' => (bool) ($periodo['incompleto'] ?? false),
-                'motivo'     => $periodo['motivo'] ?? null,
+                'incompleto'     => (bool) ($periodo['incompleto'] ?? false),
+                'motivo'         => $periodo['motivo'] ?? null,
+                'cierre_virtual' => (bool) ($periodo['cierre_virtual'] ?? false),
             ];
         }, $periodos);
     }
