@@ -204,6 +204,7 @@ class AccesosController extends Controller
             'id_usuario'  => 'required|integer|min:1',
             'empleados'   => 'required|array|min:1',
             'empleados.*' => 'integer|min:1',
+            'locale'      => 'nullable|in:es,en',
         ]);
 
         if ($validator->fails()) {
@@ -218,7 +219,7 @@ class AccesosController extends Controller
 
         $idPortal  = (int) $request->input('id_portal');
         $idUsuario = (int) $request->input('id_usuario');
-
+        $locale    = $request->input('locale', 'es');
         $empleados = collect($request->input('empleados', []))
             ->map(fn($id) => (int) $id)
             ->filter(fn($id) => $id > 0)
@@ -374,6 +375,7 @@ class AccesosController extends Controller
                             'correo'        => $empleado->correo,
                             'passwordPlano' => $passwordPlano,
                             'loginUrl'      => 'https://miportal.talentsafecontrol.com/login',
+                            'locale'        => $locale,
                         ],
                         function ($message) use ($empleado) {
                             $message->to($empleado->correo)
@@ -441,6 +443,8 @@ class AccesosController extends Controller
             'id_usuario'  => 'required|integer|min:1',
             'empleados'   => 'required|array|min:1',
             'empleados.*' => 'integer|min:1',
+            'locale'      => 'nullable|in:es,en',
+
         ]);
 
         if ($validator->fails()) {
@@ -455,7 +459,7 @@ class AccesosController extends Controller
 
         $idPortal  = (int) $request->input('id_portal');
         $idUsuario = (int) $request->input('id_usuario');
-
+        $locale    = $request->input('locale', 'es');
         $empleados = collect($request->input('empleados', []))
             ->map(fn($id) => (int) $id)
             ->filter(fn($id) => $id > 0)
@@ -604,6 +608,7 @@ class AccesosController extends Controller
                             'correo'        => $empleado->correo,
                             'passwordPlano' => $passwordPlano,
                             'loginUrl'      => 'https://miportal.talentsafecontrol.com/login',
+                            'locale'        => $locale,
                         ],
                         function ($message) use ($empleado) {
                             $message->to($empleado->correo)
@@ -682,6 +687,7 @@ class AccesosController extends Controller
                     ->symbols(),
             ],
             'password_confirmation' => 'required|string',
+            'locale' => 'nullable|in:es,en',
         ]);
 
         if ($validator->fails()) {
@@ -701,7 +707,8 @@ class AccesosController extends Controller
             idUsuario: (int) $data['id_usuario'],
             empleadoId: (int) $data['id_empleado'],
             passwordPlano: $data['password'],
-            modo: 'generate'
+            modo: 'generate',
+             locale: $request->input('locale', 'es')
         );
 
         $status = $resultado['ok'] ? 200 : 422;
@@ -726,6 +733,7 @@ class AccesosController extends Controller
                     ->symbols(),
             ],
             'password_confirmation' => 'required|string',
+            'locale' => 'nullable|in:es,en',
         ]);
 
         if ($validator->fails()) {
@@ -745,7 +753,8 @@ class AccesosController extends Controller
             idUsuario: (int) $data['id_usuario'],
             empleadoId: (int) $data['id_empleado'],
             passwordPlano: $data['password'],
-            modo: 'update'
+            modo: 'update',
+            locale: $request->input('locale', 'es')
         );
 
         $status = $resultado['ok'] ? 200 : 422;
@@ -819,8 +828,6 @@ class AccesosController extends Controller
                 'message' => 'Empleado no encontrado',
             ], 404);
         }
-
-       
 
         DB::connection('portal_main')->beginTransaction();
 
@@ -915,7 +922,8 @@ class AccesosController extends Controller
         int $idUsuario,
         int $empleadoId,
         string $passwordPlano,
-        string $modo
+        string $modo,
+        string $locale = 'es'
     ): array {
         $empleado = DB::connection('portal_main')
             ->table('empleados as e')
@@ -1084,11 +1092,15 @@ class AccesosController extends Controller
                         'correo'        => $empleado->correo,
                         'passwordPlano' => $passwordPlano,
                         'loginUrl'      => 'https://miportal.talentsafecontrol.com/login',
+                        'locale'        => $locale,
+
                     ],
-                    function ($message) use ($empleado, $modo) {
+                    function ($message) use ($empleado, $modo, $locale) {
+                        $isEnglish = $locale === 'en';
+
                         $subject = $modo === 'generate'
-                            ? 'Tus accesos de Communication 360'
-                            : 'Actualización de accesos - Communication 360';
+                            ? ($isEnglish ? 'Your My Portal Access' : 'Tus accesos a Mi Portal')
+                            : ($isEnglish ? 'My Portal Access Update' : 'Actualización de accesos - Mi Portal');
 
                         $message->to($empleado->correo)
                             ->subject($subject);

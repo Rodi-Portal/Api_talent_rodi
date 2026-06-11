@@ -1,9 +1,44 @@
+@php
+    $isEnglish = ($locale ?? 'es') === 'en';
+
+    $title = $isEnglish
+        ? 'Your My Portal Access'
+        : 'Tus accesos a Mi Portal';
+
+    $platformAccess = $isEnglish ? 'Platform Access' : 'Acceso a plataforma';
+    $readyTitle = $isEnglish ? 'Your access is ready' : 'Tus accesos están listos';
+    $hello = $isEnglish ? 'Hello' : 'Hola';
+
+    $description = $isEnglish
+        ? 'Your temporary credentials have been generated to access'
+        : 'Se generaron tus credenciales temporales para ingresar a';
+
+    $userLabel = $isEnglish ? 'User' : 'Usuario';
+    $passwordLabel = $isEnglish ? 'Temporary password' : 'Contraseña temporal';
+    $buttonLabel = $isEnglish ? 'Access My Portal' : 'Ingresar a Mi Portal';
+
+    $importantLabel = $isEnglish ? 'Important:' : 'Importante:';
+
+    $importantText = $isEnglish
+        ? 'For security reasons, you must change your password when you sign in.'
+        : 'Por seguridad, deberás cambiar tu contraseña al iniciar sesión.';
+
+    $footerText = $isEnglish
+        ? 'If you do not recognize this access, please contact the appropriate department.'
+        : 'Si no reconoces este acceso, comunícate con el área correspondiente.';
+
+    $rightsText = $isEnglish
+        ? 'All rights reserved.'
+        : 'Todos los derechos reservados.';
+@endphp
+
 <!DOCTYPE html>
-<html lang="es">
+<html lang="{{ $isEnglish ? 'en' : 'es' }}">
 <head>
     <meta charset="UTF-8">
-    <title>Tus accesos de Communication 360</title>
+    <title>{{ $title }}</title>
 </head>
+
 <body style="margin:0; padding:0; background-color:#f1f5f9; font-family:Arial, sans-serif;">
 
 <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0; background-color:#f1f5f9;">
@@ -16,10 +51,11 @@
                 <tr>
                     <td style="background:#0f172a; padding:30px; text-align:center;">
                         <h1 style="color:#ffffff; margin:0; font-size:22px;">
-                            TalentSafe Comunicación 360
+                            TalentSafe Communication 360
                         </h1>
+
                         <p style="color:#94a3b8; margin-top:8px; font-size:14px;">
-                            Acceso a plataforma
+                            {{ $platformAccess }}
                         </p>
                     </td>
                 </tr>
@@ -28,12 +64,12 @@
                     <td style="padding:40px 30px; text-align:center;">
 
                         <h2 style="color:#0f172a; margin:0 0 15px 0;">
-                            Tus accesos están listos
+                            {{ $readyTitle }}
                         </h2>
 
                         <p style="color:#475569; font-size:15px; margin:0 0 30px 0; line-height:1.6;">
-                            Hola <strong>{{ $nombre }}</strong>,<br>
-                            se generaron tus credenciales temporales para ingresar a <strong>Communication 360</strong>.
+                            {{ $hello }} <strong>{{ $nombre }}</strong>,<br>
+                            {{ $description }} <strong>Communication 360</strong>.
                         </p>
 
                         <table width="100%" cellpadding="0" cellspacing="0"
@@ -42,15 +78,17 @@
                                 <td style="padding:24px; text-align:left;">
 
                                     <div style="font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:.6px; margin-bottom:8px;">
-                                        Usuario
+                                        {{ $userLabel }}
                                     </div>
+
                                     <div style="font-size:16px; font-weight:bold; color:#0f172a; margin-bottom:20px;">
                                         {{ $correo }}
                                     </div>
 
                                     <div style="font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:.6px; margin-bottom:8px;">
-                                        Contraseña temporal
+                                        {{ $passwordLabel }}
                                     </div>
+
                                     <div style="
                                         display:inline-block;
                                         padding:16px 22px;
@@ -74,7 +112,7 @@
                                 <td align="center" bgcolor="#2563eb" style="border-radius:8px;">
                                     <a href="{{ $loginUrl ?? '#' }}"
                                        style="display:inline-block; padding:14px 28px; font-size:14px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:8px;">
-                                        Ingresar mi Portal
+                                        {{ $buttonLabel }}
                                     </a>
                                 </td>
                             </tr>
@@ -90,7 +128,7 @@
                             line-height:1.6;
                             text-align:left;
                         ">
-                            <strong>Importante:</strong> por seguridad, deberás cambiar tu contraseña al iniciar sesión.
+                            <strong>{{ $importantLabel }}</strong> {{ $importantText }}
                         </div>
 
                     </td>
@@ -98,9 +136,9 @@
 
                 <tr>
                     <td style="background:#f8fafc; padding:25px; text-align:center; font-size:12px; color:#94a3b8;">
-                        Si no reconoces este acceso, comunícate con el área correspondiente.
+                        {{ $footerText }}
                         <br><br>
-                        © {{ date('Y') }} TalentSafe. Todos los derechos reservados.
+                        © {{ date('Y') }} TalentSafe. {{ $rightsText }}
                     </td>
                 </tr>
 
