@@ -12,6 +12,7 @@ class ChecadorHorarioPlantilla extends Model
     protected $fillable = [
         'id_portal',
         'id_cliente',
+        'codigo',
         'nombre',
         'descripcion',
         'timezone',

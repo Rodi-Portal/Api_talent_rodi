@@ -8,12 +8,14 @@ use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
+use App\Http\Controllers\Api\Comunicacion360\AccesosIpController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosTareasController;
 use App\Http\Controllers\Api\Comunicacion360\ChecadorEventosController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadaDispositivoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorAsignacionController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorChecadaPlantillaController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorHorarioPlantillaController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorImportExportController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorMetodoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorQrController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorUbicacionesController;
@@ -630,7 +632,13 @@ Route::prefix('comunicacion360')->group(function () {
     Route::post('/accesos/generar-individual', [AccesosController::class, 'generarIndividual']);
     Route::post('/accesos/actualizar-individual', [AccesosController::class, 'actualizarIndividual']);
     Route::post('/accesos/{id}/cerrar-sesion', [AccesosChecadorController::class, 'cerrarSesion']);
-    Route::post('/accesos/empleados/{id}/eliminar-acceso', [AccesosController::class, 'eliminarAcceso']);
+
+
+    Route::get('/accesos/empleados/{id}/ips', [AccesosIpController::class, 'index']);
+    Route::post('/accesos/empleados/{id}/ips', [AccesosIpController::class, 'guardarIp']);
+    Route::put('/accesos/empleados/{id}/ips/{ipId}', [AccesosIpController::class, 'actualizarIp']);
+    Route::delete('/accesos/empleados/{id}/ips/{ipId}', [AccesosIpController::class, 'eliminarIp']);
+
     Route::get('/accesos/empleados/{id}/checadas-dia', [AccesosChecadorController::class, 'checadasDia']);
     Route::get('/accesos/empleados/{id}/metricas-dia', [AccesosChecadorController::class, 'metricasDia']);
     Route::get(
@@ -748,6 +756,14 @@ Route::prefix('checador')->group(function () {
         Route::put('/{id}', [ChecadorHorarioPlantillaController::class, 'update']);
         Route::post('/{id}/estado', [ChecadorHorarioPlantillaController::class, 'cambiarEstado']);
     });
+
+    // Importaciones / Exportaciones STC
+    Route::prefix('/importaciones')->group(function () {
+        Route::get('/horarios/exportar', [ChecadorImportExportController::class, 'exportarHorarios']);
+        Route::post('/horarios/importar', [ChecadorImportExportController::class, 'importarHorarios']);
+
+    });
+
     Route::get('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'plantillaEmpleado']);
     Route::post('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'guardarPlantillaEmpleado']);
     // Metodos
