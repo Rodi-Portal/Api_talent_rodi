@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Empleado;
 use App\Http\Controllers\Controller;
 use App\Models\Auth\EmpleadoAuth;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rules\Password;
@@ -69,12 +70,39 @@ class AuthController extends Controller
                 'blocked_until' => $empleado->locked_until,
             ], 401);
         }
+        // 🔐 Validar restricción por IP autorizada
+        $ipCliente  = $request->ip();
+        \Log::info('=== LOGIN EMPLEADO ===', [
+            'ip_request'       => $request->ip(),
+            'remote_addr'      => $_SERVER['REMOTE_ADDR'] ?? null,
+            'x_forwarded_for'  => $request->header('X-Forwarded-For'),
+            'cf_connecting_ip' => $request->header('CF-Connecting-IP'),
+            'user_agent'       => $request->userAgent(),
+        ]);
+        $ipsAutorizadas  = DB::connection('portal_main')
+            ->table('empleado_ips_autorizadas')
+            ->where('id_portal', (int) $empleado->id_portal)
+            ->where('id_cliente', (int) $empleado->id_cliente)
+            ->where('id_empleado', (int) $empleado->id)
+            ->where('activo', 1)
+            ->pluck('ip')
+            ->map(fn($ip) => trim((string) $ip))
+            ->filter()
+            ->values();
+
+        if ($ipsAutorizadas->isNotEmpty() && ! $ipsAutorizadas->contains($ipCliente)) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Acceso no autorizado desde esta dirección IP.',
+                'code'    => 'IP_NOT_AUTHORIZED',
+            ], 403);
+        }
 
         // ✅ Login correcto → resetear intentos
         $empleado->login_attempts = 0;
         $empleado->locked_until   = null;
         $empleado->last_login_at  = now();
-        $empleado->last_login_ip  = $request->ip();
+        $empleado->last_login_ip  = $ipCliente;
         $empleado->save();
 
         // Revocar tokens anteriores
