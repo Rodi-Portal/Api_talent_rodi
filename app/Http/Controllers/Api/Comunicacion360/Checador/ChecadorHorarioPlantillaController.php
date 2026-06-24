@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers\Api\Comunicacion360\Checador;
 
 use App\Http\Controllers\Controller;
@@ -26,7 +25,7 @@ class ChecadorHorarioPlantillaController extends Controller
             ->get();
 
         return response()->json([
-            'ok' => true,
+            'ok'   => true,
             'data' => $horarios,
         ]);
     }
@@ -37,17 +36,21 @@ class ChecadorHorarioPlantillaController extends Controller
 
         $horario = DB::connection('portal_main')->transaction(function () use ($data) {
             $horario = ChecadorHorarioPlantilla::create([
-                'id_portal' => $data['id_portal'],
-                'id_cliente' => $data['id_cliente'],
-                'nombre' => $data['nombre'],
-                'descripcion' => $data['descripcion'] ?? null,
-                'timezone' => $data['timezone'] ?? 'America/Mexico_City',
+                'id_portal'              => $data['id_portal'],
+                'id_cliente'             => $data['id_cliente'],
+                'nombre'                 => $data['nombre'],
+                'descripcion'            => $data['descripcion'] ?? null,
+                'timezone'               => $data['timezone'] ?? 'America/Mexico_City',
                 'tolerancia_entrada_min' => $data['tolerancia_entrada_min'] ?? 0,
-                'tolerancia_salida_min' => $data['tolerancia_salida_min'] ?? 0,
-                'permite_descanso' => $data['permite_descanso'] ?? false,
-                'activo' => 1,
+                'tolerancia_salida_min'  => $data['tolerancia_salida_min'] ?? 0,
+                'permite_descanso'       => $data['permite_descanso'] ?? false,
+                'activo'                 => 1,
             ]);
-
+            if (empty($horario->codigo)) {
+                $horario->update([
+                    'codigo' => 'HOR-' . str_pad((string) $horario->id, 6, '0', STR_PAD_LEFT),
+                ]);
+            }
             $this->guardarDetalles($horario, $data['detalles'] ?? []);
 
             return $horario;
@@ -56,9 +59,9 @@ class ChecadorHorarioPlantillaController extends Controller
         $horario->load('detalles');
 
         return response()->json([
-            'ok' => true,
+            'ok'      => true,
             'message' => 'Horario creado correctamente.',
-            'data' => $horario,
+            'data'    => $horario,
         ], 201);
     }
 
@@ -70,21 +73,21 @@ class ChecadorHorarioPlantillaController extends Controller
 
         if (! $horario) {
             return response()->json([
-                'ok' => false,
+                'ok'      => false,
                 'message' => 'El horario no existe.',
             ], 404);
         }
 
         DB::connection('portal_main')->transaction(function () use ($horario, $data) {
             $horario->update([
-                'id_portal' => $data['id_portal'],
-                'id_cliente' => $data['id_cliente'],
-                'nombre' => $data['nombre'],
-                'descripcion' => $data['descripcion'] ?? null,
-                'timezone' => $data['timezone'] ?? 'America/Mexico_City',
+                'id_portal'              => $data['id_portal'],
+                'id_cliente'             => $data['id_cliente'],
+                'nombre'                 => $data['nombre'],
+                'descripcion'            => $data['descripcion'] ?? null,
+                'timezone'               => $data['timezone'] ?? 'America/Mexico_City',
                 'tolerancia_entrada_min' => $data['tolerancia_entrada_min'] ?? 0,
-                'tolerancia_salida_min' => $data['tolerancia_salida_min'] ?? 0,
-                'permite_descanso' => $data['permite_descanso'] ?? false,
+                'tolerancia_salida_min'  => $data['tolerancia_salida_min'] ?? 0,
+                'permite_descanso'       => $data['permite_descanso'] ?? false,
             ]);
 
             $horario->detalles()->delete();
@@ -95,9 +98,9 @@ class ChecadorHorarioPlantillaController extends Controller
         $horario->load('detalles');
 
         return response()->json([
-            'ok' => true,
+            'ok'      => true,
             'message' => 'Horario actualizado correctamente.',
-            'data' => $horario,
+            'data'    => $horario,
         ]);
     }
 
@@ -111,7 +114,7 @@ class ChecadorHorarioPlantillaController extends Controller
 
         if (! $horario) {
             return response()->json([
-                'ok' => false,
+                'ok'      => false,
                 'message' => 'El horario no existe.',
             ], 404);
         }
@@ -123,34 +126,34 @@ class ChecadorHorarioPlantillaController extends Controller
         $horario->load('detalles');
 
         return response()->json([
-            'ok' => true,
+            'ok'      => true,
             'message' => $data['activo']
                 ? 'Horario activado correctamente.'
                 : 'Horario desactivado correctamente.',
-            'data' => $horario,
+            'data'    => $horario,
         ]);
     }
 
     private function validar(Request $request): array
     {
         return $request->validate([
-            'id_portal' => ['required', 'integer'],
-            'id_cliente' => ['required', 'integer'],
-            'nombre' => ['required', 'string', 'max:150'],
-            'descripcion' => ['nullable', 'string'],
-            'timezone' => ['nullable', 'string', 'max:80'],
-            'tolerancia_entrada_min' => ['nullable', 'integer', 'min:0'],
-            'tolerancia_salida_min' => ['nullable', 'integer', 'min:0'],
-            'permite_descanso' => ['nullable', 'boolean'],
+            'id_portal'                  => ['required', 'integer'],
+            'id_cliente'                 => ['required', 'integer'],
+            'nombre'                     => ['required', 'string', 'max:150'],
+            'descripcion'                => ['nullable', 'string'],
+            'timezone'                   => ['nullable', 'string', 'max:80'],
+            'tolerancia_entrada_min'     => ['nullable', 'integer', 'min:0'],
+            'tolerancia_salida_min'      => ['nullable', 'integer', 'min:0'],
+            'permite_descanso'           => ['nullable', 'boolean'],
 
-            'detalles' => ['required', 'array'],
-            'detalles.*.dia_semana' => ['required', 'integer', 'between:0,6'],
-            'detalles.*.labora' => ['required', 'boolean'],
-            'detalles.*.hora_entrada' => ['nullable', 'date_format:H:i'],
-            'detalles.*.hora_salida' => ['nullable', 'date_format:H:i'],
+            'detalles'                   => ['required', 'array'],
+            'detalles.*.dia_semana'      => ['required', 'integer', 'between:0,6'],
+            'detalles.*.labora'          => ['required', 'boolean'],
+            'detalles.*.hora_entrada'    => ['nullable', 'date_format:H:i'],
+            'detalles.*.hora_salida'     => ['nullable', 'date_format:H:i'],
             'detalles.*.descanso_inicio' => ['nullable', 'date_format:H:i'],
-            'detalles.*.descanso_fin' => ['nullable', 'date_format:H:i'],
-            'detalles.*.orden' => ['nullable', 'integer', 'min:0'],
+            'detalles.*.descanso_fin'    => ['nullable', 'date_format:H:i'],
+            'detalles.*.orden'           => ['nullable', 'integer', 'min:0'],
         ]);
     }
 
@@ -160,13 +163,13 @@ class ChecadorHorarioPlantillaController extends Controller
             $labora = (bool) ($detalle['labora'] ?? false);
 
             $horario->detalles()->create([
-                'dia_semana' => $detalle['dia_semana'],
-                'labora' => $labora ? 1 : 0,
-                'hora_entrada' => $labora ? ($detalle['hora_entrada'] ?? null) : null,
-                'hora_salida' => $labora ? ($detalle['hora_salida'] ?? null) : null,
+                'dia_semana'      => $detalle['dia_semana'],
+                'labora'          => $labora ? 1 : 0,
+                'hora_entrada'    => $labora ? ($detalle['hora_entrada'] ?? null) : null,
+                'hora_salida'     => $labora ? ($detalle['hora_salida'] ?? null) : null,
                 'descanso_inicio' => null,
-                'descanso_fin' => null,
-                'orden' => $detalle['orden'] ?? $index,
+                'descanso_fin'    => null,
+                'orden'           => $detalle['orden'] ?? $index,
             ]);
         }
     }
