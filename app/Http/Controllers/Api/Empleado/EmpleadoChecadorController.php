@@ -5,6 +5,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Comunicacion360\Checador\Checada;
 use App\Services\Checador\ChecadaRegistroService;
 use App\Services\Checador\ChecadaValidationService;
+use App\Services\Checador\ChecadorRegularizacionService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -134,13 +135,13 @@ class EmpleadoChecadorController extends Controller
                     return $horario;
                 });
         }
-        $this->cerrarJornadaPendienteSiAplica(
+        /*  $this->cerrarJornadaPendienteSiAplica(
             $idPortal,
             $idCliente,
             $idEmpleado,
             Carbon::now('America/Mexico_City')
         );
-
+        */
         $horarioAsignado   = null;
         $timezoneOperativo = config('app.timezone', 'UTC');
 
@@ -199,7 +200,8 @@ class EmpleadoChecadorController extends Controller
         if (! $empleado) {
             return response()->json([
                 'ok'      => false,
-                'message' => 'Empleado no autenticado.',
+                'code'    => 'unauthenticated',
+                'message' => 'unauthenticated',
             ], 401);
         }
 
@@ -331,7 +333,8 @@ class EmpleadoChecadorController extends Controller
         if (! $empleado) {
             return response()->json([
                 'ok'      => false,
-                'message' => 'Empleado no autenticado.',
+                'code'    => 'unauthenticated',
+                'message' => 'unauthenticated',
             ], 401);
         }
 
@@ -353,13 +356,15 @@ class EmpleadoChecadorController extends Controller
             'timezone'         => 'nullable|string',
             'device_info'      => 'nullable|string',
         ]);
-        $validationService = app(ChecadaValidationService::class);
-        $registroService   = app(ChecadaRegistroService::class);
+        $validationService     = app(ChecadaValidationService::class);
+        $registroService       = app(ChecadaRegistroService::class);
+        $regularizacionService = app(ChecadorRegularizacionService::class);
 
         if ($validator->fails()) {
             return response()->json([
                 'ok'      => false,
-                'message' => 'Datos inválidos.',
+                'code'    => 'invalid_request',
+                'message' => 'invalid_request',
                 'errors'  => $validator->errors(),
             ], 422);
         }
@@ -381,7 +386,8 @@ class EmpleadoChecadorController extends Controller
         if (! $asignacion) {
             return response()->json([
                 'ok'      => false,
-                'message' => 'No tienes una plantilla de checada asignada.',
+                'code'    => 'attendance_template_not_assigned',
+                'message' => 'attendance_template_not_assigned',
             ], 422);
         }
         $plantilla = DB::connection('portal_main')
@@ -395,10 +401,43 @@ class EmpleadoChecadorController extends Controller
         if (! $plantilla) {
             return response()->json([
                 'ok'      => false,
-                'message' => 'La plantilla de checada asignada no está activa o no existe.',
+                'code'    => 'attendance_template_inactive',
+                'message' => 'attendance_template_inactive',
+            ], 422);
+        }
+        $metodoSeleccionado = DB::connection('portal_main')
+            ->table('checador_checada_plantilla_metodos as pm')
+            ->join('checador_metodos as m', 'm.id', '=', 'pm.id_metodo')
+            ->where('pm.id_plantilla', (int) $plantilla->id)
+            ->where('pm.activo', 1)
+            ->where('m.activo', 1)
+            ->where('m.clave', $request->metodo)
+            ->select([
+                'm.id',
+                'm.clave',
+                'm.requiere_gps',
+                'm.requiere_qr',
+                'm.requiere_foto',
+            ])
+            ->first();
+
+        if (! $metodoSeleccionado) {
+            return response()->json([
+                'ok'      => false,
+                'code'    => 'attendance_method_not_allowed',
+                'message' => 'attendance_method_not_allowed',
             ], 422);
         }
 
+        $metodoRequiereGps     = (int) $metodoSeleccionado->requiere_gps === 1;
+        $plantillaPermiteLibre = DB::connection('portal_main')
+            ->table('checador_checada_plantilla_metodos as pm')
+            ->join('checador_metodos as m', 'm.id', '=', 'pm.id_metodo')
+            ->where('pm.id_plantilla', (int) $plantilla->id)
+            ->where('pm.activo', 1)
+            ->where('m.activo', 1)
+            ->where('m.clave', 'libre')
+            ->exists();
         $horario = DB::connection('portal_main')
             ->table('checador_horario_plantillas')
             ->where('id', (int) $asignacion->id_plantilla_horario)
@@ -417,7 +456,8 @@ class EmpleadoChecadorController extends Controller
         if (! $horario || empty($horario->timezone)) {
             return response()->json([
                 'ok'      => false,
-                'message' => 'La plantilla asignada no tiene zona horaria configurada.',
+                'code'    => 'attendance_timezone_not_configured',
+                'message' => 'attendance_timezone_not_configured',
             ], 422);
         }
 
@@ -425,13 +465,14 @@ class EmpleadoChecadorController extends Controller
 
         $fechaHora = Carbon::parse($request->check_time)
             ->setTimezone($timezone);
-
+        /*
         $this->cerrarJornadaPendienteSiAplica(
             $idPortal,
             $idCliente,
             $idEmpleado,
             $fechaHora
         );
+        */
         $this->registrarFaltaSiAplica(
             $idPortal,
             $idCliente,
@@ -449,16 +490,20 @@ class EmpleadoChecadorController extends Controller
         if (! $ultimaChecada && $request->tipo !== 'in') {
             return response()->json([
                 'ok'      => false,
-                'message' => 'Primero debes registrar una entrada.',
+                'code'    => 'checkin_required_first',
+                'message' => 'checkin_required_first',
             ], 422);
         }
 
         if ($ultimaChecada && $ultimaChecada->tipo === $request->tipo) {
             return response()->json([
                 'ok'      => false,
+                'code'    => $request->tipo === 'in'
+                    ? 'checkin_already_registered'
+                    : 'checkout_already_registered',
                 'message' => $request->tipo === 'in'
-                    ? 'Ya tienes una entrada registrada. Primero debes registrar una salida.'
-                    : 'Ya tienes una salida registrada. Primero debes registrar una entrada.',
+                    ? 'checkin_already_registered'
+                    : 'checkout_already_registered',
             ], 422);
         }
 
@@ -469,6 +514,18 @@ class EmpleadoChecadorController extends Controller
             ->where('labora', 1)
             ->orderBy('orden')
             ->first();
+
+        if (
+            $request->tipo === 'in' &&
+            $request->clase === 'work' &&
+            ! $detalleHorario
+        ) {
+            return response()->json([
+                'ok'      => false,
+                'code'    => 'non_working_day',
+                'message' => 'non_working_day',
+            ], 422);
+        }
 
         $ubicacionesPermitidas = DB::connection('portal_main')
             ->table('checador_checada_plantilla_ubicaciones as pu')
@@ -538,20 +595,23 @@ class EmpleadoChecadorController extends Controller
         $estatusValidacion   = 'valida';
         $observacionGeocerca = null;
 
-        if ((int) $plantilla->requiere_ubicacion === 1 && ! $estaDentroGeocerca) {
-            if ($plantilla->regla_fuera_ubicacion === 'bloquear') {
+        if (
+            (int) $plantilla->requiere_ubicacion === 1 &&
+            ! $estaDentroGeocerca
+        ) {
+            if ($plantillaPermiteLibre) {
+                $estatusValidacion   = 'advertida';
+                $observacionGeocerca = 'Checada registrada fuera de ubicación permitida. Permitida porque la plantilla permite checada libre.';
+            } elseif ($metodoRequiereGps && $plantilla->regla_fuera_ubicacion === 'bloquear') {
                 return response()->json([
                     'ok'      => false,
-                    'message' => 'No estás dentro de una ubicación permitida para registrar tu asistencia.',
+                    'code'    => 'outside_allowed_location',
+                    'message' => 'outside_allowed_location',
                 ], 422);
-            }
-
-            if ($plantilla->regla_fuera_ubicacion === 'advertir') {
+            } elseif ($metodoRequiereGps && $plantilla->regla_fuera_ubicacion === 'advertir') {
                 $estatusValidacion   = 'advertida';
                 $observacionGeocerca = 'Checada registrada fuera de ubicación permitida.';
-            }
-
-            if ($plantilla->regla_fuera_ubicacion === 'permitir') {
+            } elseif ($metodoRequiereGps && $plantilla->regla_fuera_ubicacion === 'permitir') {
                 $estatusValidacion   = 'valida';
                 $observacionGeocerca = 'Checada registrada fuera de ubicación permitida, permitida por regla de plantilla.';
             }
@@ -581,11 +641,12 @@ class EmpleadoChecadorController extends Controller
         $resultadoValidacion = $validationService->validar($payloadValidacion);
 
         if (! $resultadoValidacion['ok']) {
-            return response()->json([
+            return response()->json(array_merge([
                 'ok'                 => false,
+                'code'               => $resultadoValidacion['code'] ?? null,
                 'message'            => $resultadoValidacion['motivo'],
                 'estatus_validacion' => $resultadoValidacion['estatus_validacion'] ?? 'rechazada',
-            ], 422);
+            ], $resultadoValidacion['extra'] ?? []), 422);
         }
 
         $minutosRetardo = 0;
@@ -621,7 +682,8 @@ class EmpleadoChecadorController extends Controller
         if ($request->clase === 'break' && (int) $horario->permite_descanso !== 1) {
             return response()->json([
                 'ok'      => false,
-                'message' => 'El horario asignado no permite registrar descansos.',
+                'code'    => 'break_not_allowed',
+                'message' => 'break_not_allowed',
             ], 422);
         }
 
@@ -642,7 +704,8 @@ class EmpleadoChecadorController extends Controller
         if ($requiereFotoParaMovimiento && ! $request->hasFile('foto')) {
             return response()->json([
                 'ok'      => false,
-                'message' => 'La plantilla asignada requiere fotografía de evidencia.',
+                'code'    => 'photo_required',
+                'message' => 'photo_required',
             ], 422);
         }
         $evidenciaFoto = $this->guardarSelfieFile(
@@ -732,9 +795,12 @@ class EmpleadoChecadorController extends Controller
         }
         return response()->json([
             'ok'       => true,
+            'code'     => count($warnings) > 0
+                ? 'attendance_registered_with_warnings'
+                : 'attendance_registered_successfully',
             'message'  => count($warnings) > 0
-                ? 'Asistencia registrada con observaciones.'
-                : 'Asistencia registrada correctamente.',
+                ? 'attendance_registered_with_warnings'
+                : 'attendance_registered_successfully',
             'warnings' => $warnings,
             'data'     => [
                 'id'                => $checada->id,
@@ -750,6 +816,107 @@ class EmpleadoChecadorController extends Controller
             ],
         ]);
     }
+    public function previewRegularizacionSalidaPendiente(Request $request)
+    {
+        $empleado = $request->user();
+
+        if (! $empleado) {
+            return response()->json([
+                'ok'      => false,
+                'code'    => 'unauthenticated',
+                'message' => 'unauthenticated',
+            ], 401);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'checkin_id'       => 'required|integer|min:1',
+            'timezone'         => 'nullable|string',
+            'device_info'      => 'nullable|string',
+            'latitud'          => 'nullable|numeric',
+            'longitud'         => 'nullable|numeric',
+            'precision_metros' => 'nullable|numeric',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'ok'      => false,
+                'code'    => 'invalid_request',
+                'message' => 'invalid_request',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $service = app(ChecadorRegularizacionService::class);
+
+        $resultado = $service->preview([
+            'id_portal'        => (int) $empleado->id_portal,
+            'id_cliente'       => (int) $empleado->id_cliente,
+            'id_empleado'      => (int) $empleado->id,
+            'checkin_id'       => (int) $request->checkin_id,
+            'confirmed_at'     => now()->toDateTimeString(),
+            'ip_address'       => $request->ip(),
+            'device_info'      => $request->device_info,
+            'timezone'         => $request->timezone,
+            'latitud'          => $request->latitud,
+            'longitud'         => $request->longitud,
+            'precision_metros' => $request->precision_metros,
+        ]);
+
+        return response()->json($resultado, $resultado['ok'] ? 200 : 422);
+    }
+    public function confirmarRegularizacionSalidaPendiente(Request $request)
+    {
+        $empleado = $request->user();
+
+        if (! $empleado) {
+            return response()->json([
+                'ok'      => false,
+                'code'    => 'unauthenticated',
+                'message' => 'unauthenticated',
+            ], 401);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'checkin_id'       => 'required|integer|min:1',
+            'timezone'         => 'nullable|string',
+            'device_info'      => 'nullable|string',
+            'latitud'          => 'nullable|numeric',
+            'longitud'         => 'nullable|numeric',
+            'precision_metros' => 'nullable|numeric',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'ok'      => false,
+                'code'    => 'invalid_request',
+                'message' => 'invalid_request',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $service = app(ChecadorRegularizacionService::class);
+
+        $resultado = $service->confirmar([
+            'id_portal'        => (int) $empleado->id_portal,
+            'id_cliente'       => (int) $empleado->id_cliente,
+            'id_empleado'      => (int) $empleado->id,
+            'checkin_id'       => (int) $request->checkin_id,
+            'confirmed_at'     => now()->toDateTimeString(),
+            'ip_address'       => $request->ip(),
+            'device_info'      => $request->device_info,
+            'timezone'         => $request->timezone,
+            'latitud'          => $request->latitud,
+            'longitud'         => $request->longitud,
+            'precision_metros' => $request->precision_metros,
+            'performed_by'     => [
+                'type' => 'employee',
+                'id'   => (int) $empleado->id,
+            ],
+        ]);
+
+        return response()->json($resultado, $resultado['ok'] ? 200 : 422);
+    }
+
     private function guardarSelfieBase64(
         ?string $selfie,
         ?string $mime,
@@ -896,10 +1063,11 @@ class EmpleadoChecadorController extends Controller
         if (! $ultimaChecada) {
             return [
                 [
-                    'tipo'   => 'in',
-                    'clase'  => 'work',
-                    'label'  => 'Entrada',
-                    'accion' => 'entrada',
+                    'tipo'      => 'in',
+                    'clase'     => 'work',
+                    'label'     => 'Entrada',
+                    'label_key' => 'attendance.actions.check_in',
+                    'accion'    => 'entrada',
                 ],
             ];
         }
@@ -907,34 +1075,39 @@ class EmpleadoChecadorController extends Controller
         if ($ultimaChecada->tipo === 'in') {
             return [
                 [
-                    'tipo'   => 'out',
-                    'clase'  => 'work',
-                    'label'  => 'Salida',
-                    'accion' => 'salida',
+                    'tipo'      => 'out',
+                    'clase'     => 'work',
+                    'label'     => 'Salida',
+                    'label_key' => 'attendance.actions.check_out',
+                    'accion'    => 'salida',
                 ],
                 [
-                    'tipo'   => 'out',
-                    'clase'  => 'meal',
-                    'label'  => 'Salida a comida',
-                    'accion' => 'meal',
+                    'tipo'      => 'out',
+                    'clase'     => 'meal',
+                    'label'     => 'Salida a comida',
+                    'label_key' => 'attendance.actions.meal_out',
+                    'accion'    => 'meal',
                 ],
                 [
-                    'tipo'   => 'out',
-                    'clase'  => 'break',
-                    'label'  => 'Salida a descanso',
-                    'accion' => 'break',
+                    'tipo'      => 'out',
+                    'clase'     => 'break',
+                    'label'     => 'Salida a descanso',
+                    'label_key' => 'attendance.actions.break_out',
+                    'accion'    => 'break',
                 ],
                 [
-                    'tipo'   => 'out',
-                    'clase'  => 'personal',
-                    'label'  => 'Salida personal',
-                    'accion' => 'personal',
+                    'tipo'      => 'out',
+                    'clase'     => 'personal',
+                    'label'     => 'Salida personal',
+                    'label_key' => 'attendance.actions.personal_out',
+                    'accion'    => 'personal',
                 ],
                 [
-                    'tipo'   => 'out',
-                    'clase'  => 'transfer',
-                    'label'  => 'Salida a traslado',
-                    'accion' => 'transfer',
+                    'tipo'      => 'out',
+                    'clase'     => 'transfer',
+                    'label'     => 'Salida a traslado',
+                    'label_key' => 'attendance.actions.transfer_out',
+                    'accion'    => 'transfer',
                 ],
             ];
         }
@@ -942,16 +1115,23 @@ class EmpleadoChecadorController extends Controller
         if ($ultimaChecada->tipo === 'out') {
             return [
                 [
-                    'tipo'   => 'in',
-                    'clase'  => $ultimaChecada->clase,
-                    'label'  => match ($ultimaChecada->clase) {
+                    'tipo'      => 'in',
+                    'clase'     => $ultimaChecada->clase,
+                    'label'     => match ($ultimaChecada->clase) {
                         'meal'     => 'Regreso de comida',
                         'break'    => 'Regreso de descanso',
                         'personal' => 'Regreso de salida personal',
                         'transfer' => 'Regreso de traslado',
                         default    => 'Entrada',
                     },
-                    'accion' => $ultimaChecada->clase,
+                    'label_key' => match ($ultimaChecada->clase) {
+                        'meal'     => 'attendance.actions.meal_in',
+                        'break'    => 'attendance.actions.break_in',
+                        'personal' => 'attendance.actions.personal_in',
+                        'transfer' => 'attendance.actions.transfer_in',
+                        default    => 'attendance.actions.check_in',
+                    },
+                    'accion'    => $ultimaChecada->clase,
                 ],
             ];
         }
@@ -1273,5 +1453,89 @@ class EmpleadoChecadorController extends Controller
                 'created_at'           => now(),
                 'updated_at'           => now(),
             ]);
+    }
+
+    public function horarioSemanal(Request $request)
+    {
+        $empleado = $request->user();
+
+        if (! $empleado) {
+            return response()->json([
+                'ok'      => false,
+                'code'    => 'unauthenticated',
+                'message' => 'unauthenticated',
+            ], 401);
+        }
+
+        $asignacion = DB::connection('portal_main')
+            ->table('checador_asignaciones')
+            ->where('id_portal', (int) $empleado->id_portal)
+            ->where('id_cliente', (int) $empleado->id_cliente)
+            ->where('id_empleado', (int) $empleado->id)
+            ->where('activa', 1)
+            ->orderByDesc('prioridad')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $asignacion || empty($asignacion->id_plantilla_horario)) {
+            return response()->json([
+                'ok'   => true,
+                'data' => [
+                    'horario'  => null,
+                    'detalles' => [],
+                ],
+            ]);
+        }
+
+        $horario = DB::connection('portal_main')
+            ->table('checador_horario_plantillas')
+            ->where('id', (int) $asignacion->id_plantilla_horario)
+            ->where('id_portal', (int) $empleado->id_portal)
+            ->where('id_cliente', (int) $empleado->id_cliente)
+            ->where('activo', 1)
+            ->select([
+                'id',
+                'nombre',
+                'descripcion',
+                'timezone',
+                'tolerancia_entrada_min',
+                'tolerancia_salida_min',
+                'permite_descanso',
+            ])
+            ->first();
+
+        if (! $horario) {
+            return response()->json([
+                'ok'   => true,
+                'data' => [
+                    'horario'  => null,
+                    'detalles' => [],
+                ],
+            ]);
+        }
+
+        $detalles = DB::connection('portal_main')
+            ->table('checador_horario_detalles')
+            ->where('id_plantilla', (int) $horario->id)
+            ->orderBy('dia_semana')
+            ->orderBy('orden')
+            ->select([
+                'dia_semana',
+                'labora',
+                'hora_entrada',
+                'hora_salida',
+                'descanso_inicio',
+                'descanso_fin',
+                'orden',
+            ])
+            ->get();
+
+        return response()->json([
+            'ok'   => true,
+            'data' => [
+                'horario'  => $horario,
+                'detalles' => $detalles,
+            ],
+        ]);
     }
 }

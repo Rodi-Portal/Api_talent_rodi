@@ -21,7 +21,8 @@ class ChecadaValidationService
             return [
                 'ok'                 => false,
                 'estatus_validacion' => 'rechazada',
-                'motivo'             => 'El empleado no tiene una asignación activa de checador.',
+                'code'               => 'checker_assignment_not_found',
+                'motivo'             => 'checker_assignment_not_found',
             ];
         }
 
@@ -37,7 +38,8 @@ class ChecadaValidationService
                 'ok'                 => false,
                 'id_asignacion'      => $asignacion->id,
                 'estatus_validacion' => 'rechazada',
-                'motivo'             => 'El empleado no tiene horario laboral configurado para este día.',
+                'code'               => 'non_working_day',
+                'motivo'             => 'non_working_day',
             ];
         }
         $validacionSecuencia = $this->validarSecuenciaChecada(
@@ -78,6 +80,8 @@ class ChecadaValidationService
         if (
             ($data['origen'] ?? 'geoloc') === 'geoloc'
             && $this->plantillaRequiereGps($asignacion)
+            && ! empty($data['latitud'])
+            && ! empty($data['longitud'])
         ) {
             $validacionUbicacion = $this->validarUbicacion($asignacion, $data);
 
@@ -186,7 +190,8 @@ class ChecadaValidationService
             return [
                 'ok'                 => false,
                 'estatus_validacion' => 'rechazada',
-                'motivo'             => 'Tipo de checada no válido.',
+                'code'               => 'invalid_check_type',
+                'motivo'             => 'invalid_check_type',
             ];
         }
 
@@ -197,7 +202,8 @@ class ChecadaValidationService
                 return [
                     'ok'                 => false,
                     'estatus_validacion' => 'rechazada',
-                    'motivo'             => 'No hay hora de entrada configurada.',
+                    'code'               => 'checkin_time_not_configured',
+                    'motivo'             => 'checkin_time_not_configured',
                 ];
             }
 
@@ -214,7 +220,8 @@ class ChecadaValidationService
                 return [
                     'ok'                 => true,
                     'estatus_validacion' => 'valida',
-                    'motivo'             => 'Entrada intermedia registrada.',
+                    'code'               => 'intermediate_checkin_registered',
+                    'motivo'             => 'intermediate_checkin_registered',
                     'minutos_diferencia' => null,
                 ];
             }
@@ -227,7 +234,8 @@ class ChecadaValidationService
                 return [
                     'ok'                 => true,
                     'estatus_validacion' => 'advertida',
-                    'motivo'             => 'Entrada registrada con retardo.',
+                    'code'               => 'late_checkin_registered',
+                    'motivo'             => 'late_checkin_registered',
                     'minutos_diferencia' => $checkTime->diffInMinutes($horaProgramada),
                 ];
             }
@@ -235,7 +243,8 @@ class ChecadaValidationService
             return [
                 'ok'                 => true,
                 'estatus_validacion' => 'valida',
-                'motivo'             => 'Entrada dentro del horario permitido.',
+                'code'               => 'checkin_within_allowed_time',
+                'motivo'             => 'checkin_within_allowed_time',
                 'minutos_diferencia' => $checkTime->diffInMinutes($horaProgramada, false),
             ];
         }
@@ -247,7 +256,8 @@ class ChecadaValidationService
                 return [
                     'ok'                 => false,
                     'estatus_validacion' => 'rechazada',
-                    'motivo'             => 'No hay hora de salida configurada.',
+                    'code'               => 'checkout_time_not_configured',
+                    'motivo'             => 'checkout_time_not_configured',
                 ];
             }
 
@@ -261,7 +271,8 @@ class ChecadaValidationService
                 return [
                     'ok'                 => true,
                     'estatus_validacion' => 'valida',
-                    'motivo'             => 'Salida final registrada.',
+                    'code'               => 'final_checkout_registered',
+                    'motivo'             => 'final_checkout_registered',
                     'minutos_diferencia' => $checkTime->diffInMinutes($horaSalida, false),
                 ];
             }
@@ -269,7 +280,8 @@ class ChecadaValidationService
             return [
                 'ok'                 => true,
                 'estatus_validacion' => 'valida',
-                'motivo'             => 'Salida intermedia registrada.',
+                'code'               => 'intermediate_checkout_registered',
+                'motivo'             => 'intermediate_checkout_registered',
                 'minutos_diferencia' => null,
             ];
         }
@@ -281,7 +293,8 @@ class ChecadaValidationService
             return [
                 'ok'                 => false,
                 'estatus_validacion' => 'rechazada',
-                'motivo'             => 'No se recibió ubicación GPS.',
+                'code'               => 'gps_location_missing',
+                'motivo'             => 'gps_location_missing',
             ];
         }
 
@@ -305,9 +318,16 @@ class ChecadaValidationService
 
         if ($ubicaciones->isEmpty()) {
             return [
-                'ok'                 => false,
-                'estatus_validacion' => 'rechazada',
-                'motivo'             => 'La plantilla no tiene ubicaciones permitidas.',
+                'ok'                 => true,
+                'estatus_validacion' => 'advertida',
+                'code'               => 'no_allowed_locations_but_free_allowed',
+                'message'            => 'no_allowed_locations_but_free_allowed',
+                'motivo'             => 'no_allowed_locations_but_free_allowed',
+                'extra'              => [
+                    'warnings' => [
+                        'no_allowed_locations_but_free_allowed',
+                    ],
+                ],
             ];
         }
 
@@ -335,7 +355,8 @@ class ChecadaValidationService
                 return [
                     'ok'                 => true,
                     'estatus_validacion' => 'valida',
-                    'motivo'             => 'Ubicación válida.',
+                    'code'               => 'valid_location',
+                    'motivo'             => 'valid_location',
                     'id_ubicacion'       => $ubicacion->id,
                     'distancia_metros'   => round($distancia, 2),
                 ];
@@ -345,7 +366,8 @@ class ChecadaValidationService
         return [
             'ok'                 => false,
             'estatus_validacion' => 'rechazada',
-            'motivo'             => 'La ubicación está fuera del radio permitido.',
+            'code'               => 'outside_allowed_location',
+            'motivo'             => 'outside_allowed_location',
             'id_ubicacion'       => $ubicacionMasCercana->id ?? null,
             'distancia_metros'   => $distanciaMenor !== null ? round($distanciaMenor, 2) : null,
         ];
@@ -393,7 +415,8 @@ class ChecadaValidationService
             return [
                 'ok'                 => false,
                 'estatus_validacion' => 'rechazada',
-                'motivo'             => 'La plantilla no tiene métodos permitidos configurados.',
+                'code'               => 'attendance_methods_not_configured',
+                'motivo'             => 'attendance_methods_not_configured',
             ];
         }
 
@@ -418,7 +441,8 @@ class ChecadaValidationService
                 return [
                     'ok'                 => false,
                     'estatus_validacion' => 'rechazada',
-                    'motivo'             => 'La checada libre no está permitida en esta plantilla.',
+                    'code'               => 'free_check_not_allowed',
+                    'motivo'             => 'free_check_not_allowed',
                     'metodos_permitidos' => $metodosPermitidos,
                     'metodo_solicitado'  => 'libre',
                 ];
@@ -427,7 +451,8 @@ class ChecadaValidationService
             return [
                 'ok'                 => true,
                 'estatus_validacion' => 'advertida',
-                'motivo'             => 'Checada libre registrada sin validaciones fuertes.',
+                'code'               => 'free_check_registered',
+                'motivo'             => 'free_check_registered',
                 'metodos_requeridos' => ['libre'],
             ];
         }
@@ -436,20 +461,34 @@ class ChecadaValidationService
             return [
                 'ok'                 => false,
                 'estatus_validacion' => 'rechazada',
-                'motivo'             => 'El método de checada no está permitido en esta plantilla.',
+                'code'               => 'attendance_method_not_allowed',
+                'motivo'             => 'attendance_method_not_allowed',
                 'metodos_permitidos' => $metodosPermitidos,
                 'metodo_solicitado'  => $metodoClave,
             ];
         }
 
         if ((int) $metodo->requiere_gps === 1) {
-            if (empty($data['latitud']) || empty($data['longitud'])) {
+            $permiteLibre = in_array('libre', $metodosPermitidos, true);
+
+            if ((empty($data['latitud']) || empty($data['longitud'])) && ! $permiteLibre) {
                 return [
                     'ok'                 => false,
                     'estatus_validacion' => 'rechazada',
-                    'motivo'             => 'La plantilla requiere geolocalización para este método.',
+                    'code'               => 'gps_required',
+                    'motivo'             => 'gps_required',
                     'metodos_permitidos' => $metodosPermitidos,
                     'metodo_solicitado'  => $metodoClave,
+                ];
+            }
+
+            if ((empty($data['latitud']) || empty($data['longitud'])) && $permiteLibre) {
+                return [
+                    'ok'                 => true,
+                    'estatus_validacion' => 'advertida',
+                    'code'               => 'gps_missing_but_free_allowed',
+                    'motivo'             => 'gps_missing_but_free_allowed',
+                    'metodos_requeridos' => ['gps', 'libre'],
                 ];
             }
         }
@@ -459,7 +498,8 @@ class ChecadaValidationService
                 return [
                     'ok'                 => false,
                     'estatus_validacion' => 'rechazada',
-                    'motivo'             => 'La plantilla requiere código QR para este método.',
+                    'code'               => 'qr_required',
+                    'motivo'             => 'qr_required',
                     'metodos_permitidos' => $metodosPermitidos,
                     'metodo_solicitado'  => $metodoClave,
                 ];
@@ -479,7 +519,8 @@ class ChecadaValidationService
                 return [
                     'ok'                 => false,
                     'estatus_validacion' => 'rechazada',
-                    'motivo'             => 'La plantilla requiere foto de evidencia para checada GPS.',
+                    'code'               => 'photo_required_for_gps',
+                    'motivo'             => 'photo_required_for_gps',
                     'metodos_permitidos' => $metodosPermitidos,
                     'metodo_solicitado'  => $metodoClave,
                 ];
@@ -491,7 +532,8 @@ class ChecadaValidationService
         return [
             'ok'                 => true,
             'estatus_validacion' => 'valida',
-            'motivo'             => 'Método de checada permitido.',
+            'code'               => 'attendance_method_allowed',
+            'motivo'             => 'attendance_method_allowed',
             'metodos_requeridos' => $metodosValidados,
         ];
     }
@@ -534,31 +576,131 @@ class ChecadaValidationService
                 $inicioBusqueda->format('Y-m-d H:i:s'),
                 $finBusqueda->format('Y-m-d H:i:s'),
             ])
+            ->where('check_time', '<=', $checkTime->format('Y-m-d H:i:s'))
             ->orderByDesc('check_time')
+            ->orderByDesc('id')
             ->first();
+        $claseSolicitada = $data['clase'] ?? 'work';
+        if ($tipoSolicitado === 'in') {
+            $entradaWorkAbiertaAnterior = DB::connection('portal_main')->table('checadas as entrada')
+                ->where('entrada.id_portal', $data['id_portal'])
+                ->where('entrada.id_cliente', $data['id_cliente'])
+                ->where('entrada.id_empleado', $data['id_empleado'])
+                ->where('entrada.tipo', 'in')
+                ->where('entrada.clase', 'work')
+                ->whereDate('entrada.fecha', '<', $checkTime->toDateString())
+                ->whereNotExists(function ($query) {
+                    $query->select(DB::raw(1))
+                        ->from('checadas as salida')
+                        ->whereColumn('salida.id_portal', 'entrada.id_portal')
+                        ->whereColumn('salida.id_cliente', 'entrada.id_cliente')
+                        ->whereColumn('salida.id_empleado', 'entrada.id_empleado')
+                        ->whereColumn('salida.fecha', 'entrada.fecha')
+                        ->where('salida.tipo', 'out')
+                        ->where('salida.clase', 'work')
+                        ->whereColumn('salida.check_time', '>', 'entrada.check_time');
+                })
+                ->orderByDesc('entrada.check_time')
+                ->first();
 
+            if ($entradaWorkAbiertaAnterior) {
+                return [
+                    'ok'                 => false,
+                    'estatus_validacion' => 'pendiente',
+                    'code'               => 'previous_movement_open',
+                    'motivo'             => 'previous_movement_open',
+                    'extra'              => [
+                        'requires_previous_checkout' => true,
+                        'pending_movement'           => [
+                            'id'         => $entradaWorkAbiertaAnterior->id,
+                            'fecha'      => $entradaWorkAbiertaAnterior->fecha,
+                            'check_time' => $entradaWorkAbiertaAnterior->check_time,
+                            'tipo'       => $entradaWorkAbiertaAnterior->tipo,
+                            'clase'      => $entradaWorkAbiertaAnterior->clase,
+                        ],
+                    ],
+                ];
+            }
+        }
+        if ($ultimaChecada) {
+            $fechaUltimaChecada = Carbon::parse($ultimaChecada->check_time)->toDateString();
+            $fechaActual        = $checkTime->toDateString();
+
+            $movimientoAnteriorAbierto =
+                ($ultimaChecada->clase === 'work' && $ultimaChecada->tipo === 'in')
+                || ($ultimaChecada->clase !== 'work' && $ultimaChecada->tipo === 'out');
+
+            if (
+                $movimientoAnteriorAbierto
+                && $fechaUltimaChecada !== $fechaActual
+            ) {
+                return [
+                    'ok'                 => false,
+                    'estatus_validacion' => 'pendiente',
+                    'code'               => 'previous_movement_open',
+                    'motivo'             => 'previous_movement_open',
+                    'extra'              => [
+                        'requires_previous_checkout' => true,
+                        'pending_movement'           => [
+                            'id'         => $ultimaChecada->id,
+                            'fecha'      => $fechaUltimaChecada,
+                            'check_time' => $ultimaChecada->check_time,
+                            'tipo'       => $ultimaChecada->tipo,
+                            'clase'      => $ultimaChecada->clase,
+                        ],
+                    ],
+                ];
+            }
+        }
         if (! $ultimaChecada && $tipoSolicitado !== 'in') {
             return [
                 'ok'                 => false,
                 'estatus_validacion' => 'rechazada',
-                'motivo'             => 'Primero debes registrar una entrada.',
+                'code'               => 'checkin_required_first',
+                'motivo'             => 'checkin_required_first',
             ];
         }
 
         if ($ultimaChecada && $ultimaChecada->tipo === $tipoSolicitado) {
+            $fechaUltimaChecada = Carbon::parse($ultimaChecada->check_time)->toDateString();
+            $fechaActual        = $checkTime->toDateString();
+
+            if ($tipoSolicitado === 'in' && $fechaUltimaChecada !== $fechaActual) {
+                return [
+                    'ok'                 => false,
+                    'estatus_validacion' => 'pendiente',
+                    'code'               => 'previous_checkin_open',
+                    'motivo'             => 'previous_checkin_open',
+                    'extra'              => [
+                        'requires_previous_checkout' => true,
+                        'pending_checkin'            => [
+                            'id'         => $ultimaChecada->id,
+                            'fecha'      => $fechaUltimaChecada,
+                            'check_time' => $ultimaChecada->check_time,
+                            'tipo'       => $ultimaChecada->tipo,
+                            'clase'      => $ultimaChecada->clase,
+                        ],
+                    ],
+                ];
+            }
+
             return [
                 'ok'                 => false,
                 'estatus_validacion' => 'rechazada',
+                'code'               => $tipoSolicitado === 'in'
+                    ? 'checkin_already_registered'
+                    : 'checkout_already_registered',
                 'motivo'             => $tipoSolicitado === 'in'
-                    ? 'Ya tienes una entrada registrada. Primero debes registrar una salida.'
-                    : 'Ya tienes una salida registrada. Primero debes registrar una entrada.',
+                    ? 'checkin_already_registered'
+                    : 'checkout_already_registered',
             ];
         }
 
         return [
             'ok'                 => true,
             'estatus_validacion' => 'valida',
-            'motivo'             => 'Secuencia válida.',
+            'code'               => 'valid_sequence',
+            'motivo'             => 'valid_sequence',
         ];
     }
     private function resolverHorarioAplicable(

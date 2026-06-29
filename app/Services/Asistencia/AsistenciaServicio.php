@@ -81,7 +81,7 @@ final class AsistenciaServicio
         // Inasistencia total
         if (! $firstIn && ! $lastOut) {
             if ($sw['registrar_falta']) {
-                $this->upsertCalendarEvent($empleadoId, $fechaYmd, self::EV_FALTA, 'Falta por inasistencia (sin checadas).');
+                $this->upsertCalendarEvent($portalId, $clienteId, $empleadoId, $fechaYmd, self::EV_FALTA, 'Falta por inasistencia (sin checadas).');
                 $made[] = self::EV_FALTA;
             }
             $this->syncSystemEvents($empleadoId, $fechaYmd, $made);
@@ -93,14 +93,14 @@ final class AsistenciaServicio
             if ($sw['registrar_retardo']) {
                 $late = $firstIn->greaterThan($expectedIn) ? $expectedIn->diffInMinutes($firstIn) : 0;
                 if ($late > $tolMin) {
-                    $this->upsertCalendarEvent($empleadoId, $fechaYmd, self::EV_RETARDO, "Retardo de {$late} minutos.");
+                    $this->upsertCalendarEvent($portalId, $clienteId, $empleadoId, $fechaYmd, self::EV_RETARDO, "Retardo de {$late} minutos.");
                     $made[] = self::EV_RETARDO;
                 }
             }
         } else {
             // Sin entrada (pero quizá hay salida) => Falta de entrada
             if ($sw['registrar_falta']) {
-                $this->upsertCalendarEvent($empleadoId, $fechaYmd, self::EV_FALTA, 'Falta (no se detectó entrada).');
+                $this->upsertCalendarEvent($portalId, $clienteId, $empleadoId, $fechaYmd, self::EV_FALTA, 'Falta (no se detectó entrada).');
                 $made[] = self::EV_FALTA;
             }
             $this->syncSystemEvents($empleadoId, $fechaYmd, $made);
@@ -112,12 +112,12 @@ final class AsistenciaServicio
             if ($lastOut) {
                 $early = $lastOut->lessThan($expectedOut) ? $lastOut->diffInMinutes($expectedOut) : 0;
                 if ($early > 0) {
-                    $this->upsertCalendarEvent($empleadoId, $fechaYmd, self::EV_SALIDA_ANT, "Salida anticipada de {$early} minutos.");
+                    $this->upsertCalendarEvent($portalId, $clienteId, $empleadoId, $fechaYmd, self::EV_SALIDA_ANT, "Salida anticipada de {$early} minutos.");
                     $made[] = self::EV_SALIDA_ANT;
                 }
             } else {
                 // No hay OUT -> registro incompleto; lo tratamos como salida anticipada si política lo desea
-                $this->upsertCalendarEvent($empleadoId, $fechaYmd, self::EV_SALIDA_ANT, 'No se detectó salida (registro incompleto).');
+                $this->upsertCalendarEvent($portalId, $clienteId, $empleadoId, $fechaYmd, self::EV_SALIDA_ANT, 'No se detectó salida (registro incompleto).');
                 $made[] = self::EV_SALIDA_ANT;
             }
         }
@@ -238,8 +238,14 @@ final class AsistenciaServicio
     }
 
     /** Upsert idempotente en calendario_eventos por empleado+fecha+tipo */
-    private function upsertCalendarEvent(int $empleadoId, string $fechaYmd, string $name, string $desc): void
-    {
+    private function upsertCalendarEvent(
+        int $portalId,
+        ?int $clienteId,
+        int $empleadoId,
+        string $fechaYmd,
+        string $name,
+        string $desc
+    ): void {
         try {
             $tipoId = DB::connection($this->conn)->table('eventos_option')->where('name', $name)->value('id');
             if (! $tipoId) {
@@ -264,8 +270,11 @@ final class AsistenciaServicio
                 DB::connection($this->conn)->table('calendario_eventos')
                     ->where('id', $exists->id)
                     ->update([
-                        'descripcion' => $desc,
-                        'updated_at'  => now(),
+                        'id_portal'     => $portalId,
+                        'id_cliente'    => $clienteId,
+                        'descripcion'   => $desc,
+                        'origen_evento' => 'checador',
+                        'updated_at'    => now(),
                     ]);
                 Log::info('[Asistencia] Evento actualizado', [
                     'id' => $exists->id, 'emp' => $empleadoId, 'fecha' => $fechaYmd, 'tipoId' => $tipoId,
@@ -274,18 +283,23 @@ final class AsistenciaServicio
             }
 
             DB::connection($this->conn)->table('calendario_eventos')->insert([
-                'id_usuario'        => null,
-                'id_empleado'       => $empleadoId,
-                'id_periodo_nomina' => null,
-                'inicio'            => $fechaYmd,
-                'fin'               => $fechaYmd,
-                'dias_evento'       => 1,
-                'descripcion'       => $desc,
-                'archivo'           => null,
-                'created_at'        => now(),
-                'updated_at'        => now(),
-                'id_tipo'           => $tipoId,
-                'eliminado'         => 0,
+                'id_usuario'          => null,
+                'id_empleado'         => $empleadoId,
+                'id_portal'           => $portalId,
+                'id_cliente'          => $clienteId,
+                'id_periodo_nomina'   => null,
+                'inicio'              => $fechaYmd,
+                'fin'                 => $fechaYmd,
+                'dias_evento'         => 1,
+                'descripcion'         => $desc,
+                'archivo'             => null,
+                'created_at'          => now(),
+                'updated_at'          => now(),
+                'id_tipo'             => $tipoId,
+                'eliminado'           => 0,
+                'estado_aprobacion'   => 'no_requiere',
+                'origen_evento'       => 'checador',
+                'requiere_aprobacion' => 0,
             ]);
             Log::info('[Asistencia] Evento insertado', [
                 'emp' => $empleadoId, 'fecha' => $fechaYmd, 'tipo' => $name, 'tipoId' => $tipoId,
@@ -305,8 +319,7 @@ final class AsistenciaServicio
     private function shouldWorkToday(int $empleadoId, string $fechaYmd, array $pol): bool
     {
         $tz      = $pol['timezone'] ?? 'America/Mexico_City';
-        $weekday = (int) CarbonImmutable::parse($fechaYmd, $tz)->dayOfWeekIso; // 1..7
-
+        $weekday = (int) CarbonImmutable::parse($fechaYmd, $tz)->dayOfWeek; // 0 = domingo, 6 = sábado
         if (! isset($this->workdaysCache[$empleadoId])) {
             $this->workdaysCache[$empleadoId] = $this->resolveEmployeeWorkdays($empleadoId, $pol);
         }
@@ -359,12 +372,13 @@ final class AsistenciaServicio
     private function policyWorkdays(array $pol): array
     {
         $wd = [1, 2, 3, 4, 5];
+
         if (! empty($pol['trabaja_sabado'])) {
             $wd[] = 6;
         }
 
         if (! empty($pol['trabaja_domingo'])) {
-            $wd[] = 7;
+            $wd[] = 0;
         }
 
         return $wd;
@@ -372,7 +386,7 @@ final class AsistenciaServicio
 
     private function invertDaysOffToWorkdays(array $daysOffIso, array $pol): array
     {
-        $all  = [1, 2, 3, 4, 5, 6, 7];
+        $all  = [0, 1, 2, 3, 4, 5, 6];
         $work = array_values(array_diff($all, array_unique($daysOffIso)));
         return $work ?: $this->policyWorkdays($pol);
     }
@@ -421,13 +435,13 @@ final class AsistenciaServicio
     {
         $n = $this->normalizeNoAccents(mb_strtolower(trim($name)));
         return match ($n) {
+            'domingo', 'dom' => 0,
             'lunes', 'lun'   => 1,
             'martes', 'mar'  => 2,
             'miercoles', 'miercoles.', 'mie', 'mie.' => 3,
             'jueves', 'jue'  => 4,
             'viernes', 'vie' => 5,
             'sabado', 'sab'  => 6,
-            'domingo', 'dom' => 7,
             default => null,
         };
     }
