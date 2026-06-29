@@ -708,7 +708,11 @@ class EmpleadoController extends Controller
         } catch (ModelNotFoundException $e) {
             return response()->json(['error' => 'Empleado o domicilio no encontrado.'], 404);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Ocurrió un error al actualizar los datos.'], 500);
+            return response()->json([
+                'message' => $e->getMessage(),
+                'line'    => $e->getLine(),
+                'file'    => $e->getFile(),
+            ], 500);
         }
     }
 

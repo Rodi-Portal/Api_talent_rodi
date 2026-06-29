@@ -564,7 +564,9 @@ Route::middleware(['auth:empleado'])
         Route::get('/checador/contexto', [EmpleadoChecadorController::class, 'contexto']);
         Route::get('/checador/historial-hoy', [EmpleadoChecadorController::class, 'historialHoy']);
         Route::post('/checador/registrar', [EmpleadoChecadorController::class, 'registrar']);
-        /*
+        Route::post('/checador/regularizar-salida-pendiente/preview', [EmpleadoChecadorController::class, 'previewRegularizacionSalidaPendiente']);
+
+        Route::post('/checador/regularizar-salida-pendiente/confirmar', [EmpleadoChecadorController::class, 'confirmarRegularizacionSalidaPendiente']); /*
         |--------------------------------------------------------------------------
         | CHECADOR / ASISTENCIA
         |--------------------------------------------------------------------------
@@ -601,6 +603,7 @@ Route::middleware(['auth:empleado'])
             EmpleadoHorasExtraController::class,
             'store',
         ]);
+            Route::get('/horario-semanal', [EmpleadoChecadorController::class, 'horarioSemanal']);
 
     });
 
@@ -632,7 +635,6 @@ Route::prefix('comunicacion360')->group(function () {
     Route::post('/accesos/generar-individual', [AccesosController::class, 'generarIndividual']);
     Route::post('/accesos/actualizar-individual', [AccesosController::class, 'actualizarIndividual']);
     Route::post('/accesos/{id}/cerrar-sesion', [AccesosChecadorController::class, 'cerrarSesion']);
-
 
     Route::get('/accesos/empleados/{id}/ips', [AccesosIpController::class, 'index']);
     Route::post('/accesos/empleados/{id}/ips', [AccesosIpController::class, 'guardarIp']);
