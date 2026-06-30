@@ -19,14 +19,16 @@ class ChecadorRegularizacionService
             $pendiente['entrada'],
             $data
         );
+
+        if (! $preview['ok']) {
+            return $preview;
+        }
+
         $movimientosFaltantes = $this->resolverMovimientosFaltantes(
             $pendiente['entrada'],
             $preview,
             $data
         );
-        if (! $preview['ok']) {
-            return $preview;
-        }
 
         return [
             'ok'                    => true,
@@ -236,7 +238,7 @@ class ChecadorRegularizacionService
             $preview['timezone']
         );
 
-          /*
+        /*
           |--------------------------------------------------------------------------
           | Caso 1: la pendiente es work in
           |--------------------------------------------------------------------------
@@ -276,7 +278,7 @@ class ChecadorRegularizacionService
             return $movimientos;
         }
 
-          /*
+        /*
           |--------------------------------------------------------------------------
           | Caso 2: la pendiente es una salida intermedia
           |--------------------------------------------------------------------------
