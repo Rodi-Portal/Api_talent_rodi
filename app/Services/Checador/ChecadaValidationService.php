@@ -604,6 +604,29 @@ class ChecadaValidationService
                 ->first();
 
             if ($entradaWorkAbiertaAnterior) {
+
+                if (! $this->movimientoPendienteTieneHorario($entradaWorkAbiertaAnterior, $data)) {
+                    return [
+                        'ok'                 => true,
+                        'estatus_validacion' => 'advertida',
+                        'code'               => 'previous_movement_requires_admin_review',
+                        'motivo'             => 'previous_movement_requires_admin_review',
+                        'extra'              => [
+                            'warnings'              => [
+                                'previous_movement_requires_admin_review',
+                            ],
+                            'admin_review_required' => true,
+                            'pending_movement'      => [
+                                'id'         => $entradaWorkAbiertaAnterior->id,
+                                'fecha'      => $entradaWorkAbiertaAnterior->fecha,
+                                'check_time' => $entradaWorkAbiertaAnterior->check_time,
+                                'tipo'       => $entradaWorkAbiertaAnterior->tipo,
+                                'clase'      => $entradaWorkAbiertaAnterior->clase,
+                            ],
+                        ],
+                    ];
+                }
+
                 return [
                     'ok'                 => false,
                     'estatus_validacion' => 'pendiente',
@@ -702,6 +725,54 @@ class ChecadaValidationService
             'code'               => 'valid_sequence',
             'motivo'             => 'valid_sequence',
         ];
+    }
+
+    private function movimientoPendienteTieneHorario(object $movimiento, array $data): bool
+    {
+        $fechaMovimiento = Carbon::parse($movimiento->fecha)->toDateString();
+
+        $asignacion = DB::connection('portal_main')
+            ->table('checador_asignaciones')
+            ->where('id_portal', (int) $data['id_portal'])
+            ->where('id_cliente', (int) $data['id_cliente'])
+            ->where('id_empleado', (int) $data['id_empleado'])
+            ->where('activa', 1)
+            ->whereDate('fecha_inicio', '<=', $fechaMovimiento)
+            ->where(function ($query) use ($fechaMovimiento) {
+                $query->whereNull('fecha_fin')
+                    ->orWhereDate('fecha_fin', '>=', $fechaMovimiento);
+            })
+            ->orderByDesc('prioridad')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $asignacion || empty($asignacion->id_plantilla_horario)) {
+            return false;
+        }
+
+        $horario = DB::connection('portal_main')
+            ->table('checador_horario_plantillas')
+            ->where('id', (int) $asignacion->id_plantilla_horario)
+            ->where('id_portal', (int) $data['id_portal'])
+            ->where('id_cliente', (int) $data['id_cliente'])
+            ->where('activo', 1)
+            ->first();
+
+        if (! $horario || empty($horario->timezone)) {
+            return false;
+        }
+
+        $fechaOperativa = Carbon::parse($fechaMovimiento, $horario->timezone);
+
+        $detalle = DB::connection('portal_main')
+            ->table('checador_horario_detalles')
+            ->where('id_plantilla', (int) $horario->id)
+            ->where('dia_semana', (int) $fechaOperativa->dayOfWeek)
+            ->where('labora', 1)
+            ->whereNotNull('hora_salida')
+            ->first();
+
+        return (bool) $detalle;
     }
     private function resolverHorarioAplicable(
         int $idPlantillaHorario,
