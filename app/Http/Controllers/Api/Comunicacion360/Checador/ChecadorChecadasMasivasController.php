@@ -710,7 +710,7 @@ class ChecadorChecadasMasivasController extends Controller
     {
         if ($locale === 'en') {
             return [
-                'client'    => 'Branch/Project',
+                'client'    => 'Project/Branch',
                 'template'  => 'Attendance Bulk Import Template',
                 'period'    => 'Period',
                 'generated' => 'Generated',

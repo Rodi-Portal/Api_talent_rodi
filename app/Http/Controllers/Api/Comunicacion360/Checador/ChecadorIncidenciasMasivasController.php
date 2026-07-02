@@ -69,7 +69,7 @@ class ChecadorIncidenciasMasivasController extends Controller
         ];
 
         $t = [
-            'client'    => $locale === 'en' ? 'Client' : 'Cliente',
+            'client'    => $locale === 'en' ? 'Project/Branch' : 'Proyecto/Sucursal',
             'template'  => $locale === 'en'
                 ? 'Mass incidents import template'
                 : 'Plantilla de importación masiva de incidencias',
