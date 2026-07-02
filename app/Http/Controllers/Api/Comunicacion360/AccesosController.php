@@ -154,6 +154,61 @@ class AccesosController extends Controller
                 $sesionActiva =
                 now()->diffInMinutes($tokenActivo->last_used_at) <= 15;
             }
+
+            $asignacionHorario = DB::connection('portal_main')
+                ->table('checador_asignaciones as a')
+                ->join('checador_horario_plantillas as h', 'h.id', '=', 'a.id_plantilla_horario')
+                ->where('a.id_portal', (int) $item->id_portal)
+                ->where('a.id_cliente', (int) $item->id_cliente)
+                ->where('a.id_empleado', (int) $item->id)
+                ->where('a.activa', 1)
+                ->whereDate('a.fecha_inicio', '<=', now()->toDateString())
+                ->where(function ($q) {
+                    $q->whereNull('a.fecha_fin')
+                        ->orWhereDate('a.fecha_fin', '>=', now()->toDateString());
+                })
+                ->select([
+                    'h.id',
+                    'h.nombre',
+                ])
+                ->orderByDesc('a.fecha_inicio')
+                ->first();
+
+            $horarioDetalles = collect();
+
+            if ($asignacionHorario) {
+                $horarioDetalles = DB::connection('portal_main')
+                    ->table('checador_horario_detalles')
+                    ->where('id_plantilla', (int) $asignacionHorario->id)
+                    ->orderBy('dia_semana')
+                    ->get()
+                    ->map(function ($detalle) {
+                        return [
+                            'dia_semana'   => (int) $detalle->dia_semana,
+                            'labora'       => (int) $detalle->labora === 1,
+                            'hora_entrada' => $detalle->hora_entrada
+                                ? substr($detalle->hora_entrada, 0, 5)
+                                : null,
+                            'hora_salida'  => $detalle->hora_salida
+                                ? substr($detalle->hora_salida, 0, 5)
+                                : null,
+                        ];
+                    })
+                    ->values();
+            }
+
+            $diasLabora = $horarioDetalles
+                ->filter(fn($dia) => $dia['labora'])
+                ->values();
+
+            $horarioResumen = null;
+
+            if ($diasLabora->isNotEmpty()) {
+                $primerDia = $diasLabora->first();
+                $ultimoDia = $diasLabora->last();
+
+                $horarioResumen = $primerDia['hora_entrada'] . ' - ' . $primerDia['hora_salida'];
+            }
             return [
 
                 'id'                        => (int) $item->id,
@@ -187,6 +242,10 @@ class AccesosController extends Controller
                 'ultima_checada_clase'      => $ultimaChecada?->clase,
                 'sesion_activa'             => $sesionActiva,
                 'ultimo_acceso_token'       => $tokenActivo?->last_used_at,
+                'horario_asignado'          => (bool) $asignacionHorario,
+                'horario_resumen'           => $horarioResumen,
+                'horario_nombre'            => $asignacionHorario?->nombre,
+                'horario_detalles'          => $horarioDetalles,
             ];
         })->values();
 
@@ -687,7 +746,7 @@ class AccesosController extends Controller
                     ->symbols(),
             ],
             'password_confirmation' => 'required|string',
-            'locale' => 'nullable|in:es,en',
+            'locale'                => 'nullable|in:es,en',
         ]);
 
         if ($validator->fails()) {
@@ -708,7 +767,7 @@ class AccesosController extends Controller
             empleadoId: (int) $data['id_empleado'],
             passwordPlano: $data['password'],
             modo: 'generate',
-             locale: $request->input('locale', 'es')
+            locale: $request->input('locale', 'es')
         );
 
         $status = $resultado['ok'] ? 200 : 422;
@@ -733,7 +792,7 @@ class AccesosController extends Controller
                     ->symbols(),
             ],
             'password_confirmation' => 'required|string',
-            'locale' => 'nullable|in:es,en',
+            'locale'                => 'nullable|in:es,en',
         ]);
 
         if ($validator->fails()) {
