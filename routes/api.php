@@ -14,8 +14,10 @@ use App\Http\Controllers\Api\Comunicacion360\ChecadorEventosController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadaDispositivoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorAsignacionController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorChecadaPlantillaController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorChecadasMasivasController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorHorarioPlantillaController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorImportExportController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorIncidenciasMasivasController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorMetodoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorQrController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorUbicacionesController;
@@ -603,7 +605,7 @@ Route::middleware(['auth:empleado'])
             EmpleadoHorasExtraController::class,
             'store',
         ]);
-            Route::get('/horario-semanal', [EmpleadoChecadorController::class, 'horarioSemanal']);
+        Route::get('/horario-semanal', [EmpleadoChecadorController::class, 'horarioSemanal']);
 
     });
 
@@ -764,6 +766,20 @@ Route::prefix('checador')->group(function () {
         Route::get('/horarios/exportar', [ChecadorImportExportController::class, 'exportarHorarios']);
         Route::post('/horarios/importar', [ChecadorImportExportController::class, 'importarHorarios']);
 
+    });
+
+    // Checadas Masivas
+    Route::prefix('/checadas-masivas')->group(function () {
+        Route::post('/exportar-plantilla', [ChecadorChecadasMasivasController::class, 'exportarPlantilla']);
+        Route::post('/importar-preview', [ChecadorChecadasMasivasController::class, 'importarPreview']);
+        Route::post('/importar-confirmar', [ChecadorChecadasMasivasController::class, 'importarConfirmar']);
+
+    });
+// Incidencias Masivas
+    Route::prefix('/incidencias-masivas')->group(function () {
+        Route::post('/exportar-plantilla', [ChecadorIncidenciasMasivasController::class, 'exportarPlantilla']);
+        Route::post('/importar-preview', [ChecadorIncidenciasMasivasController::class, 'importarPreview']);
+        Route::post('/importar-confirmar', [ChecadorIncidenciasMasivasController::class, 'importarConfirmar']);
     });
 
     Route::get('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'plantillaEmpleado']);
