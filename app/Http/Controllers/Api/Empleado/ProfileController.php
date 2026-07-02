@@ -35,12 +35,18 @@ class ProfileController extends Controller
     {
         $fechaIngreso = $empleado->fecha_ingreso ?? $empleado->creacion;
 
-        $antiguedad = null;
+        $antiguedad       = null;
+        $antiguedadYears  = null;
+        $antiguedadMonths = null;
 
         if ($fechaIngreso) {
             $diff = Carbon::parse($fechaIngreso)->diff(now());
 
-            $antiguedad = $diff->y . ' años ' . $diff->m . ' meses';
+            $antiguedadYears  = $diff->y;
+            $antiguedadMonths = $diff->m;
+
+            // Se mantiene por compatibilidad con el front actual
+            $antiguedad = $antiguedadYears . ' años ' . $antiguedadMonths . ' meses';
         }
         return [
 
@@ -75,6 +81,8 @@ class ProfileController extends Controller
                     : null,
 
                 'antiguedad'             => $antiguedad,
+                'antiguedad_years'       => $antiguedadYears,
+                'antiguedad_months'      => $antiguedadMonths,
                 'tipo_contrato'          =>
                 optional($empleado->laborales)->tipo_contrato,
 
