@@ -49,11 +49,11 @@ class EmpleadosImport implements ToModel, WithHeadingRow
             'fecha nacimiento', 'fecha de nacimiento', 'fecha_nacimiento', 'nacimiento', 'f. nacimiento',
             'fecha nac.', 'fechanac', 'dob', 'date of birth', 'birthdate', 'birthday',
         ],
-            'fecha_ingreso' => [
+        'fecha_ingreso'    => [
             'fecha de ingreso', 'fecha ingreso', 'fecha_ingreso', 'ingreso', 'f. ingreso',
             'fecha ing.', 'fechaing', 'doi', 'date of join',
         ],
-                'departamento'           => ['departamento', 'area'],
+        'departamento'     => ['departamento', 'area'],
 
     ];
 
@@ -226,17 +226,17 @@ class EmpleadosImport implements ToModel, WithHeadingRow
         }
 
         // fecha y cp
-        $fechaRaw     = $get('fecha_nacimiento');
-        $fechaRaw2     = $get('fecha_ingreso');
-        $cpRaw        = $get('cp');
-        $departamentoRaw        = $get('departamento');
+        $fechaRaw        = $get('fecha_nacimiento');
+        $fechaRaw2       = $get('fecha_ingreso');
+        $cpRaw           = $get('cp');
+        $departamentoRaw = $get('departamento');
 
         $fechaParsed  = $this->parseExcelDate($fechaRaw);
-        $fechaParsed2  = $this->parseExcelDate($fechaRaw2);
+        $fechaParsed2 = $this->parseExcelDate($fechaRaw2);
 
         $cpNormalized = $this->normalizeCp($cpRaw);
 
-       /* Log::debug('Parse row fecha/cp', [
+        /* Log::debug('Parse row fecha/cp', [
             'fecha_raw' => $fechaRaw,
             'fecha_db'  => $fechaParsed,
             'cp_raw'    => $cpRaw,
@@ -306,7 +306,10 @@ class EmpleadosImport implements ToModel, WithHeadingRow
         $domicilio = DomicilioEmpleado::create($validatedData['domicilio_empleado']);
 
         $empleado = Empleado::create([
-            'creacion'              => $fechaParsed2,
+            'creacion'              => $fechaParsed2
+                ? $fechaParsed2 . ' 00:00:00'
+                : $this->generalData['creacion'],
+            'fecha_ingreso'         => $fechaParsed2,
             'edicion'               => $this->generalData['edicion'],
             'id_portal'             => $this->generalData['id_portal'],
             'id_usuario'            => $this->generalData['id_usuario'],
@@ -328,7 +331,7 @@ class EmpleadosImport implements ToModel, WithHeadingRow
             'fecha_nacimiento'      => $fechaParsed, // 👈 guardamos fecha
         ]);
 
-      /*  Log::debug('Guardados', [
+        /*  Log::debug('Guardados', [
             'empleado_id'      => $empleado->id,
             'fecha_nacimiento' => $empleado->fecha_nacimiento?->format('Y-m-d'),
             'dom_cp'           => $domicilio->cp,
