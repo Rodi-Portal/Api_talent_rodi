@@ -100,7 +100,7 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow, WithCalcula
         // ===== Validación de cabeceras (solo una vez) =====
         if (! $validatedHeaders) {
             $requiredHeaders = [
-                'id',
+                'id_sistema',
                 'tipo_contrato',
                 'tipo_regimen',
                 'tipo_jornada',
