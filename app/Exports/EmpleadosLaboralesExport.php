@@ -40,62 +40,67 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
         // helper para mostrar '--' si viene vacío
         $val = function ($v) {return ($v === null || $v === '') ? '--' : $v;};
 
-        return collect($this->empleados)->map(function ($item) use ($val, $contratos, $regimenes, $jornadas, $periodicidades) {
-            // Descripciones SAT si hay clave; si no, legacy; si no, '--'
-            $descContrato = $contratos[$item->tipo_contrato_sat ?? ''] ?? $item->tipo_contrato ?? '--';
-            $descRegimen  = $regimenes[$item->tipo_regimen_sat ?? ''] ?? $item->tipo_regimen ?? '--';
-            $descJornada  = $jornadas[$item->tipo_jornada_sat ?? ''] ?? $item->tipo_jornada ?? '--';
-            $descPerio    = $periodicidades[$item->periodicidad_pago_sat ?? ''] ?? $item->periodicidad_pago ?? '--';
+        return collect($this->empleados)
+            ->sortBy(function ($item) {
+                return mb_strtoupper(trim($item->nombre_completo ?? ''));
+            })
+            ->values()
+            ->map(function ($item) use ($val, $contratos, $regimenes, $jornadas, $periodicidades) {
+                // Descripciones SAT si hay clave; si no, legacy; si no, '--'
+                $descContrato = $contratos[$item->tipo_contrato_sat ?? ''] ?? $item->tipo_contrato ?? '--';
+                $descRegimen  = $regimenes[$item->tipo_regimen_sat ?? ''] ?? $item->tipo_regimen ?? '--';
+                $descJornada  = $jornadas[$item->tipo_jornada_sat ?? ''] ?? $item->tipo_jornada ?? '--';
+                $descPerio    = $periodicidades[$item->periodicidad_pago_sat ?? ''] ?? $item->periodicidad_pago ?? '--';
 
-            // Días de descanso a columnas Sí/No
-            $dias = is_array($tmp = json_decode($item->dias_descanso ?? '[]', true)) ? $tmp : [];
-            $siNo = fn($d) => in_array($d, $dias) ? 'Sí' : 'No';
+                // Días de descanso a columnas Sí/No
+                $dias = is_array($tmp = json_decode($item->dias_descanso ?? '[]', true)) ? $tmp : [];
+                $siNo = fn($d) => in_array($d, $dias) ? 'Sí' : 'No';
 
-            // === DEVUELVE UN ARREGLO ORDENADO (match con headings) ===
-            return [
-                // A: ID (la tengo oculta en AfterSheet; quita la línea si quieres verla)
-                $val($item->id ?? null),
+                // === DEVUELVE UN ARREGLO ORDENADO (match con headings) ===
+                return [
+                    // A: ID (la tengo oculta en AfterSheet; quita la línea si quieres verla)
+                    $val($item->id ?? null),
 
-                // B–AD: en el mismo orden de headings()
-                $val($item->id_empleado ?? null),
-                $val($item->nombre_completo ?? null),
-                $val($descContrato),
-                $val($item->otro_tipo_contrato ?? null),
-                $val($descRegimen),
-                $val($descJornada),
-                $val($item->horas_dia ?? null),
-                $val($item->grupo_nomina ?? null),
-                $val($descPerio),
-                $val($item->sindicato ?? null),
-                $val($item->vacaciones_disponibles ?? null),
-                $val($item->sueldo_diario ?? null),
-                $val($item->sueldo_asimilado ?? null),
-                $val($item->pago_dia_festivo ?? null),
-                $val($item->pago_dia_festivo_a ?? null),
-                $val($item->pago_hora_extra ?? null),
-                $val($item->pago_hora_extra_a ?? null),
-                $val($item->dias_aguinaldo ?? null),
-                $val($item->prima_vacacional ?? null),
-                $val($item->prestamo_pendiente ?? null),
-                $val($item->descuento_ausencia ?? null),
-                $val($item->descuento_ausencia_a ?? null),
+                    // B–AD: en el mismo orden de headings()
+                    $val($item->id_empleado ?? null),
+                    $val($item->nombre_completo ?? null),
+                    $val($descContrato),
+                    $val($item->otro_tipo_contrato ?? null),
+                    $val($descRegimen),
+                    $val($descJornada),
+                    $val($item->horas_dia ?? null),
+                    $val($item->grupo_nomina ?? null),
+                    $val($descPerio),
+                    $val($item->sindicato ?? null),
+                    $val($item->vacaciones_disponibles ?? null),
+                    $val($item->sueldo_diario ?? null),
+                    $val($item->sueldo_asimilado ?? null),
+                    $val($item->pago_dia_festivo ?? null),
+                    $val($item->pago_dia_festivo_a ?? null),
+                    $val($item->pago_hora_extra ?? null),
+                    $val($item->pago_hora_extra_a ?? null),
+                    $val($item->dias_aguinaldo ?? null),
+                    $val($item->prima_vacacional ?? null),
+                    $val($item->prestamo_pendiente ?? null),
+                    $val($item->descuento_ausencia ?? null),
+                    $val($item->descuento_ausencia_a ?? null),
 
-                // Días de descanso (X–AD)
-                $siNo('Lunes'),
-                $siNo('Martes'),
-                $siNo('Miércoles'),
-                $siNo('Jueves'),
-                $siNo('Viernes'),
-                $siNo('Sábado'),
-                $siNo('Domingo'),
-            ];
-        });
+                    // Días de descanso (X–AD)
+                    $siNo('Lunes'),
+                    $siNo('Martes'),
+                    $siNo('Miércoles'),
+                    $siNo('Jueves'),
+                    $siNo('Viernes'),
+                    $siNo('Sábado'),
+                    $siNo('Domingo'),
+                ];
+            });
     }
 
     public function headings(): array
     {
         return [
-            'ID', 'ID Empleado', 'Nombre Completo', 'Tipo Contrato', 'Otro Tipo Contrato',
+            'ID Sistema', 'ID Empleado', 'Nombre Completo', 'Tipo Contrato', 'Otro Tipo Contrato',
             'Tipo Régimen', 'Tipo Jornada', 'Horas Día', 'Grupo Nómina', 'Periodicidad Pago',
             'Pertenece Sindicato', 'Vacaciones Disponibles', 'Sueldo Diario', 'Sueldo Diario Asimilado',
             'Pago Día Festivo', 'Pago Día Festivo Asimilado', 'Pago Hora Extra', 'Pago Hora Extra Asimilado',
@@ -133,8 +138,7 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
                 $spreadsheet   = $sheet->getParent();
                 $highestColumn = $sheet->getHighestColumn();
                 $highestRow    = $sheet->getHighestRow();
-                $sheet->freezePane('D2');
-
+                $sheet->freezePane('E2');
                 // Crea hoja oculta de listas
                 if ($spreadsheet->sheetNameExists('listas')) {
                     $spreadsheet->removeSheetByIndex(
@@ -210,8 +214,8 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
                     $sheet->getColumnDimension($colLetter)->setWidth(strlen($heading) + 5);
                 }
                 $sheet->getColumnDimension('C')->setWidth(40);
-                $sheet->getColumnDimension('A')->setVisible(false);
-
+                $sheet->getColumnDimension('A')->setVisible(true);
+                $sheet->getColumnDimension('A')->setWidth(12);
                 // Altura automática
                 for ($row = 2; $row <= $highestRow; $row++) {
                     $sheet->getRowDimension($row)->setRowHeight(-1);

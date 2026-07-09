@@ -124,18 +124,28 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow, WithCalcula
         $row   = $row->toArray();
         $clean = fn($v) => (trim((string) $v) === '' || trim((string) $v) === '--') ? null : trim((string) $v);
 
-        $empleadoId = $clean($row['id'] ?? null);
+        $empleadoId = $clean($row['id_sistema'] ?? $row['id'] ?? null);
         if (! $empleadoId) {
             return;
         }
 
         $empleado = Empleado::find($empleadoId);
+
         if (! $empleado || (int) $empleado->id_cliente !== (int) $this->idCliente) {
             throw new \Exception(
-                "No fue posible actualizar los datos. El archivo contiene empleados que no pertenecen a esta sucursal."
+                "import_employee_identifier_mismatch_branch"
             );
         }
 
+// Validar que el ID Empleado corresponda al ID interno (si fue proporcionado)
+        $idEmpleadoArchivo = $clean($row['id_empleado'] ?? null);
+
+        if ($idEmpleadoArchivo !== null && $idEmpleadoArchivo !== '') {
+            if ((string) $empleado->id_empleado !== (string) $idEmpleadoArchivo) {
+                throw new \Exception('import_employee_identifier_mismatch');
+            }
+        }
+                                                           //validacion extra
                                                            // ===== Catálogos SAT desde BD =====
         $catContratos      = $this->sat->contratos();      // ['01'=>'Tiempo indeterminado', ...]
         $catRegimenes      = $this->sat->regimenes();      // ['02'=>'Sueldos', '09'=>'Asimilados...', ...]
