@@ -100,7 +100,7 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
     public function headings(): array
     {
         return [
-            'ID Sistema', 'ID Empleado', 'Nombre Completo', 'Tipo Contrato', 'Otro Tipo Contrato',
+            'ID', 'ID Empleado', 'Nombre Completo', 'Tipo Contrato', 'Otro Tipo Contrato',
             'Tipo Régimen', 'Tipo Jornada', 'Horas Día', 'Grupo Nómina', 'Periodicidad Pago',
             'Pertenece Sindicato', 'Vacaciones Disponibles', 'Sueldo Diario', 'Sueldo Diario Asimilado',
             'Pago Día Festivo', 'Pago Día Festivo Asimilado', 'Pago Hora Extra', 'Pago Hora Extra Asimilado',

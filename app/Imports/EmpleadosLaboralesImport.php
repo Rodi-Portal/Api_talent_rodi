@@ -100,7 +100,7 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow, WithCalcula
         // ===== Validación de cabeceras (solo una vez) =====
         if (! $validatedHeaders) {
             $requiredHeaders = [
-                'id_sistema',
+                'id',
                 'tipo_contrato',
                 'tipo_regimen',
                 'tipo_jornada',
@@ -124,7 +124,7 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow, WithCalcula
         $row   = $row->toArray();
         $clean = fn($v) => (trim((string) $v) === '' || trim((string) $v) === '--') ? null : trim((string) $v);
 
-        $empleadoId = $clean($row['id_sistema'] ?? $row['id'] ?? null);
+        $empleadoId = $clean($row['id'] ?? null);
         if (! $empleadoId) {
             return;
         }
@@ -133,7 +133,7 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow, WithCalcula
 
         if (! $empleado || (int) $empleado->id_cliente !== (int) $this->idCliente) {
             throw new \Exception(
-                "import_employee_identifier_mismatch_branch"
+                "import_employee_identifier_mismatch"
             );
         }
 
