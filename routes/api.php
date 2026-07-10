@@ -7,6 +7,7 @@ use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorController;
+use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorGestionController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosIpController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosTareasController;
@@ -687,6 +688,15 @@ Route::prefix('comunicacion360')->group(function () {
         '/accesos/empleados/{id}/eventos',
         [ChecadorEventosController::class, 'eventosEmpleado']
     );
+
+    Route::get(
+        '/accesos/empleados/{id}/gestion-checadas/contexto',
+        [AccesosChecadorGestionController::class, 'contextoDia']
+    );
+    Route::post(
+    '/accesos/empleados/{id}/gestion-checadas/ejecutar',
+    [AccesosChecadorGestionController::class, 'ejecutarAccionAdministrativa']
+);
 });
 
 Route::prefix('comunicacion360/tasks')->group(function () {

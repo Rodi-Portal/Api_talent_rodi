@@ -4,11 +4,11 @@ namespace App\Http\Controllers\Api\Comunicacion360;
 use App\Http\Controllers\Controller;
 use App\Models\Comunicacion360\Checador\Checada;
 use App\Models\Comunicacion360\Checador\ChecadorAsignacion;
+use App\Services\Checador\AttendanceDayContextService;
 use App\Services\Checador\JornadaCalculoService;
 use App\Services\Checador\VentanaOperativaService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class AccesosChecadorController extends Controller
 {
@@ -24,63 +24,13 @@ class AccesosChecadorController extends Controller
             ], 422);
         }
 
-        $asignacion = DB::connection('portal_main')
-            ->table('checador_asignaciones')
-            ->where('id_portal', $idPortal)
-            ->where('id_empleado', $id)
-            ->where('activa', 1)
-            ->whereDate('fecha_inicio', '<=', $fecha)
-            ->where(function ($q) use ($fecha) {
-                $q->whereNull('fecha_fin')
-                    ->orWhereDate('fecha_fin', '>=', $fecha);
-            })
-            ->orderByDesc('prioridad')
-            ->first();
+        $contexto = app(AttendanceDayContextService::class)->resolver(
+            (int) $idPortal,
+            (int) $id,
+            $fecha
+        );
 
-        $plantillaHorario = null;
-        $detalleHorario   = null;
-        $ventanaOperativa = null;
-
-        if ($asignacion && $asignacion->id_plantilla_horario) {
-            $plantillaHorario = DB::connection('portal_main')
-                ->table('checador_horario_plantillas')
-                ->where('id', $asignacion->id_plantilla_horario)
-                ->first();
-
-            if ($plantillaHorario) {
-                $diaSemana = \Carbon\Carbon::parse($fecha)->dayOfWeek;
-
-                $detalleHorario = DB::connection('portal_main')
-                    ->table('checador_horario_detalles')
-                    ->where('id_plantilla', $plantillaHorario->id)
-                    ->where('dia_semana', $diaSemana)
-                    ->first();
-            }
-        }
-        if ($detalleHorario && $detalleHorario->labora) {
-            $ventanaOperativa = app(VentanaOperativaService::class)->resolver(
-                $fecha,
-                $detalleHorario,
-                $plantillaHorario
-            );
-
-            $checadas = Checada::query()
-                ->where('id_portal', $idPortal)
-                ->where('id_empleado', $id)
-                ->whereBetween('check_time', [
-                    $ventanaOperativa['ventana']['inicio'],
-                    $ventanaOperativa['ventana']['fin'],
-                ])
-                ->orderBy('check_time')
-                ->get();
-        } else {
-            $checadas = Checada::query()
-                ->where('id_portal', $idPortal)
-                ->where('id_empleado', $id)
-                ->whereDate('fecha', $fecha)
-                ->orderBy('check_time')
-                ->get();
-        }
+        $checadas = $contexto['checadas'];
 
         $primeraEntrada = $checadas
             ->where('tipo', 'in')
@@ -140,27 +90,19 @@ class AccesosChecadorController extends Controller
 
         $fechaCarbon = Carbon::parse($fecha);
         $diaSemana   = (int) $fechaCarbon->dayOfWeek;
+        $contexto    = app(AttendanceDayContextService::class)->resolver(
+            (int) $idPortal,
+            (int) $id,
+            $fecha
+        );
 
-        $asignacion = ChecadorAsignacion::query()
-            ->with([
-                'horarioPlantilla.detalles' => function ($query) use ($diaSemana) {
-                    $query->where('dia_semana', $diaSemana)
-                        ->orderBy('orden');
-                },
-            ])
-            ->where('id_portal', $idPortal)
-            ->where('id_empleado', $id)
-            ->where('activa', 1)
-            ->whereDate('fecha_inicio', '<=', $fecha)
-            ->where(function ($query) use ($fecha) {
-                $query->whereNull('fecha_fin')
-                    ->orWhereDate('fecha_fin', '>=', $fecha);
-            })
-            ->orderByDesc('prioridad')
-            ->orderByDesc('id')
-            ->first();
+        $asignacion       = $contexto['asignacion'];
+        $plantillaHorario = $contexto['plantillaHorario'];
+        $detalleHorario   = $contexto['detalleHorario'];
+        $ventanaOperativa = $contexto['ventanaOperativa'];
+        $checadas         = $contexto['checadas'];
 
-        if (! $asignacion || ! $asignacion->horarioPlantilla) {
+        if (! $asignacion || ! $plantillaHorario) {
             return response()->json([
                 'ok'   => true,
                 'data' => [
@@ -177,39 +119,6 @@ class AccesosChecadorController extends Controller
                     ],
                 ],
             ]);
-        }
-
-        $plantillaHorario = $asignacion->horarioPlantilla;
-        $detalleHorario   = $plantillaHorario->detalles->first();
-
-        $ventanaOperativa = null;
-
-        if ($detalleHorario && (int) $detalleHorario->labora === 1) {
-
-            $ventanaOperativa = app(VentanaOperativaService::class)->resolver(
-                $fecha,
-                $detalleHorario,
-                $plantillaHorario
-            );
-
-            $checadas = Checada::query()
-                ->where('id_portal', $idPortal)
-                ->where('id_empleado', $id)
-                ->whereBetween('check_time', [
-                    $ventanaOperativa['ventana']['inicio'],
-                    $ventanaOperativa['ventana']['fin'],
-                ])
-                ->orderBy('check_time')
-                ->get();
-
-        } else {
-
-            $checadas = Checada::query()
-                ->where('id_portal', $idPortal)
-                ->where('id_empleado', $id)
-                ->whereDate('fecha', $fecha)
-                ->orderBy('check_time')
-                ->get();
         }
 
         if (! $detalleHorario || ! $detalleHorario->labora) {
