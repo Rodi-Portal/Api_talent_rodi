@@ -192,7 +192,12 @@ class AttendanceCheckWriterService
         if ($checkInTime->lessThanOrEqualTo($checkOutTime)) {
             throw new InvalidArgumentException('INTERMEDIATE_CHECK_IN_MUST_BE_AFTER_CHECK_OUT');
         }
-
+        $this->ensureIntermediatePairIsInsideWorkJourney(
+            checks: $context['checadas'] ?? collect(),
+            intermediateCheckOutTime: $checkOutTime,
+            intermediateCheckInTime: $checkInTime,
+            timezone: $timezone
+        );
         $this->ensureNaturalCheckDoesNotExist(
             (int) $payload['id_portal'],
             (int) $payload['id_cliente'],
@@ -650,6 +655,83 @@ class AttendanceCheckWriterService
                     'CHECK_TIME_MUST_NOT_BE_AFTER_NEXT_CHECK'
                 );
             }
+        }
+    }
+    private function ensureIntermediatePairIsInsideWorkJourney(
+        $checks,
+        Carbon $intermediateCheckOutTime,
+        Carbon $intermediateCheckInTime,
+        string $timezone
+    ): void {
+        $orderedChecks = collect($checks)
+            ->filter(function ($check) {
+                return data_get($check, 'check_time') !== null;
+            })
+            ->sortBy(function ($check) use ($timezone) {
+                return Carbon::parse(
+                    data_get($check, 'check_time'),
+                    $timezone
+                )->timestamp;
+            })
+            ->values();
+
+        $workCheckIn = $orderedChecks
+            ->first(function ($check) {
+                return data_get($check, 'tipo') === 'in'
+                && data_get($check, 'clase') === 'work';
+            });
+
+        if (! $workCheckIn) {
+            throw new InvalidArgumentException(
+                'WORK_CHECK_IN_REQUIRED_FOR_INTERMEDIATE_PAIR'
+            );
+        }
+
+        $workCheckInTime = Carbon::parse(
+            data_get($workCheckIn, 'check_time'),
+            $timezone
+        );
+
+        /*
+     * La salida intermedia debe ocurrir después
+     * de la entrada laboral.
+     */
+        if ($intermediateCheckOutTime->lessThanOrEqualTo($workCheckInTime)) {
+            throw new InvalidArgumentException(
+                'INTERMEDIATE_CHECK_OUT_MUST_BE_AFTER_WORK_CHECK_IN'
+            );
+        }
+
+        /*
+     * Si la jornada ya tiene salida laboral,
+     * ambos movimientos intermedios deben quedar antes de ella.
+     */
+        $workCheckOut = $orderedChecks
+            ->filter(function ($check) {
+                return data_get($check, 'tipo') === 'out'
+                && data_get($check, 'clase') === 'work';
+            })
+            ->last();
+
+        if (! $workCheckOut) {
+            return;
+        }
+
+        $workCheckOutTime = Carbon::parse(
+            data_get($workCheckOut, 'check_time'),
+            $timezone
+        );
+
+        if ($intermediateCheckOutTime->greaterThanOrEqualTo($workCheckOutTime)) {
+            throw new InvalidArgumentException(
+                'INTERMEDIATE_CHECK_OUT_MUST_BE_BEFORE_WORK_CHECK_OUT'
+            );
+        }
+
+        if ($intermediateCheckInTime->greaterThanOrEqualTo($workCheckOutTime)) {
+            throw new InvalidArgumentException(
+                'INTERMEDIATE_CHECK_IN_MUST_BE_BEFORE_WORK_CHECK_OUT'
+            );
         }
     }
     private function ensureNaturalCheckDoesNotExist(
