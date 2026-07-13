@@ -37,10 +37,12 @@ class Plantilla extends Model
         'deleted_at'         => 'datetime',
     ];
 
-    public function tareas()
-    {
-        return $this->hasMany(PlantillaTarea::class, 'plantilla_id', 'id')
-            ->whereNull('deleted_at')
-            ->orderBy('orden');
-    }
+  public function tareas()
+{
+    return $this->hasMany(
+        PlantillaTarea::class,
+        'plantilla_id',
+        'id'
+    )->orderBy('orden');
+}
 }

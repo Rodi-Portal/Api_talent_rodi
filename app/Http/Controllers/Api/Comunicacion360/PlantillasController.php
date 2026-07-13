@@ -201,79 +201,147 @@ class PlantillasController extends Controller
             'nombre'             => ['required', 'string', 'max:150'],
             'descripcion'        => ['nullable', 'string'],
             'vigencia_inicio'    => ['required', 'date'],
-            'vigencia_fin'       => ['required', 'date', 'after_or_equal:vigencia_inicio'],
+            'vigencia_fin'       => [
+                'required',
+                'date',
+                'after_or_equal:vigencia_inicio',
+            ],
             'prioridad'          => ['required', 'integer', 'min:1'],
-            'modo_superposicion' => ['required', 'string', 'in:merge,override'],
+            'modo_superposicion' => [
+                'required',
+                'string',
+                'in:merge,override',
+            ],
             'activa'             => ['required', 'boolean'],
             'tareas'             => ['required', 'array', 'min:1'],
-            'tareas.*.task_id'   => ['required', 'integer'],
-            'tareas.*.orden'     => ['required', 'integer', 'min:1'],
+            'tareas.*.task_id'   => [
+                'required',
+                'integer',
+                'distinct',
+            ],
+            'tareas.*.orden'     => [
+                'required',
+                'integer',
+                'min:1',
+                'distinct',
+            ],
         ]);
 
-        $result = DB::connection('portal_main')->transaction(function () use ($validated, $id) {
-            $plantilla = Plantilla::query()
-                ->where('id', $id)
-                ->where('id_portal', $validated['id_portal'])
-                ->whereNull('deleted_at')
-                ->firstOrFail();
+        $result = DB::connection('portal_main')->transaction(
+            function () use ($validated, $id) {
+                $idPortal = (int) $validated['id_portal'];
 
-            $plantilla->update([
-                'nombre'             => $validated['nombre'],
-                'descripcion'        => $validated['descripcion'] ?? null,
-                'vigencia_inicio'    => $validated['vigencia_inicio'],
-                'vigencia_fin'       => $validated['vigencia_fin'],
-                'prioridad'          => $validated['prioridad'],
-                'modo_superposicion' => $validated['modo_superposicion'],
-                'activa'             => $validated['activa'],
-            ]);
+                $plantilla = Plantilla::query()
+                    ->where('id', $id)
+                    ->where('id_portal', $idPortal)
+                    ->whereNull('deleted_at')
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            $taskIds = collect($validated['tareas'])
-                ->pluck('task_id')
-                ->unique()
-                ->values();
-
-            $catalogo = Tareas::query()
-                ->where('id_portal', $validated['id_portal'])
-                ->whereNull('deleted_at')
-                ->whereIn('id', $taskIds)
-                ->get()
-                ->keyBy('id');
-
-            if ($catalogo->count() !== $taskIds->count()) {
-                abort(response()->json([
-                    'ok'   => false,
-                    'code' => 'INVALID_TASKS',
-                    'data' => null,
-                ], 422));
-            }
-
-            PlantillaTarea::query()
-                ->where('plantilla_id', $plantilla->id)
-                ->where('id_portal', $validated['id_portal'])
-                ->forceDelete();
-
-            foreach ($validated['tareas'] as $item) {
-                $task = $catalogo->get($item['task_id']);
-
-                PlantillaTarea::create([
-                    'id_portal'            => $validated['id_portal'],
-                    'plantilla_id'         => $plantilla->id,
-                    'tarea_catalogo_id'    => $task->id,
-                    'orden'                => $item['orden'],
-                    'clave_snapshot'       => $task->clave,
-                    'nombre_snapshot'      => $task->nombre,
-                    'descripcion_snapshot' => $task->descripcion,
-                    'requiere_evidencia'   => (bool) $task->requiere_evidencia,
-                    'permite_comentarios'  => (bool) $task->permite_comentarios,
-                    'tiempo_estimado_min'  => $task->tiempo_estimado_min,
-                    'activa'               => (bool) $task->activa,
+                $plantilla->update([
+                    'nombre'             => $validated['nombre'],
+                    'descripcion'        => $validated['descripcion'] ?? null,
+                    'vigencia_inicio'    => $validated['vigencia_inicio'],
+                    'vigencia_fin'       => $validated['vigencia_fin'],
+                    'prioridad'          => $validated['prioridad'],
+                    'modo_superposicion' => $validated['modo_superposicion'],
+                    'activa'             => $validated['activa'],
                 ]);
+
+                $taskIds = collect($validated['tareas'])
+                    ->pluck('task_id')
+                    ->map(fn($taskId) => (int) $taskId)
+                    ->unique()
+                    ->values();
+
+                $catalogo = Tareas::query()
+                    ->where('id_portal', $idPortal)
+                    ->whereNull('deleted_at')
+                    ->whereIn('id', $taskIds)
+                    ->get()
+                    ->keyBy(fn(Tareas $tarea) => (int) $tarea->id);
+
+                if ($catalogo->count() !== $taskIds->count()) {
+                    abort(response()->json([
+                        'ok'   => false,
+                        'code' => 'INVALID_TASKS',
+                        'data' => null,
+                    ], 422));
+                }
+
+                /*
+             * Incluimos registros eliminados suavemente para poder
+             * restaurarlos conservando su ID histórico.
+             */
+                $tareasActuales = PlantillaTarea::withTrashed()
+                    ->where('plantilla_id', $plantilla->id)
+                    ->where('id_portal', $idPortal)
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy(
+                        fn(PlantillaTarea $tarea) =>
+                        (int) $tarea->tarea_catalogo_id
+                    );
+
+                $idsConservados = [];
+
+                foreach ($validated['tareas'] as $item) {
+                    $taskId = (int) $item['task_id'];
+                    $task   = $catalogo->get($taskId);
+
+                    $plantillaTarea = $tareasActuales->get($taskId);
+
+                    if ($plantillaTarea) {
+                        if ($plantillaTarea->trashed()) {
+                            $plantillaTarea->restore();
+                        }
+
+                        $plantillaTarea->update([
+                            'orden'                => (int) $item['orden'],
+                            'clave_snapshot'       => $task->clave,
+                            'nombre_snapshot'      => $task->nombre,
+                            'descripcion_snapshot' => $task->descripcion,
+                            'requiere_evidencia'   => (bool) $task->requiere_evidencia,
+                            'permite_comentarios'  => (bool) $task->permite_comentarios,
+                            'tiempo_estimado_min'  => $task->tiempo_estimado_min,
+                            'activa'               => (bool) $task->activa,
+                        ]);
+                    } else {
+                        $plantillaTarea = PlantillaTarea::create([
+                            'id_portal'            => $idPortal,
+                            'plantilla_id'         => $plantilla->id,
+                            'tarea_catalogo_id'    => $task->id,
+                            'orden'                => (int) $item['orden'],
+                            'clave_snapshot'       => $task->clave,
+                            'nombre_snapshot'      => $task->nombre,
+                            'descripcion_snapshot' => $task->descripcion,
+                            'requiere_evidencia'   => (bool) $task->requiere_evidencia,
+                            'permite_comentarios'  => (bool) $task->permite_comentarios,
+                            'tiempo_estimado_min'  => $task->tiempo_estimado_min,
+                            'activa'               => (bool) $task->activa,
+                        ]);
+                    }
+
+                    $idsConservados[] = (int) $plantillaTarea->id;
+                }
+
+                /*
+             * Retiramos únicamente las tareas que ya no forman parte
+             * de la plantilla. Es soft delete, nunca forceDelete.
+             */
+                if (! empty($idsConservados)) {
+                    PlantillaTarea::query()
+                        ->where('plantilla_id', $plantilla->id)
+                        ->where('id_portal', $idPortal)
+                        ->whereNotIn('id', $idsConservados)
+                        ->delete();
+                }
+
+                $plantilla->load(['tareas']);
+
+                return $plantilla;
             }
-
-            $plantilla->load(['tareas']);
-
-            return $plantilla;
-        });
+        );
 
         return response()->json([
             'ok'   => true,
@@ -284,22 +352,28 @@ class PlantillasController extends Controller
                 'clave'              => $result->clave,
                 'nombre'             => $result->nombre,
                 'descripcion'        => $result->descripcion,
-                'vigencia_inicio'    => optional($result->vigencia_inicio)->format('Y-m-d'),
-                'vigencia_fin'       => optional($result->vigencia_fin)->format('Y-m-d'),
+                'vigencia_inicio'    => optional(
+                    $result->vigencia_inicio
+                )->format('Y-m-d'),
+                'vigencia_fin'       => optional(
+                    $result->vigencia_fin
+                )->format('Y-m-d'),
                 'prioridad'          => $result->prioridad,
                 'modo_superposicion' => $result->modo_superposicion,
                 'activa'             => (bool) $result->activa,
                 'vigencia_dias'      => $result->vigencia_dias,
-                'tareas'             => $result->tareas->map(function ($tarea) {
-                    return [
-                        'id'                => $tarea->id,
-                        'task_id'           => $tarea->tarea_catalogo_id,
-                        'tarea_catalogo_id' => $tarea->tarea_catalogo_id,
-                        'orden'             => $tarea->orden,
-                        'nombre'            => $tarea->nombre_snapshot,
-                        'descripcion'       => $tarea->descripcion_snapshot,
-                    ];
-                })->values(),
+                'tareas'             => $result->tareas
+                    ->map(function ($tarea) {
+                        return [
+                            'id'                => $tarea->id,
+                            'task_id'           => $tarea->tarea_catalogo_id,
+                            'tarea_catalogo_id' => $tarea->tarea_catalogo_id,
+                            'orden'             => $tarea->orden,
+                            'nombre'            => $tarea->nombre_snapshot,
+                            'descripcion'       => $tarea->descripcion_snapshot,
+                        ];
+                    })
+                    ->values(),
             ],
         ]);
     }
