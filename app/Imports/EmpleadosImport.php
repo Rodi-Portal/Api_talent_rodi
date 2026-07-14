@@ -291,6 +291,7 @@ class EmpleadosImport implements ToModel, WithHeadingRow
             ->whereRaw('UPPER(paterno)=?', [mb_strtoupper($validatedData['paterno'], 'UTF-8')])
             ->where('id_cliente', $this->generalData['id_cliente'])
             ->where('id_portal', $this->generalData['id_portal'])
+            ->where('status', 1)
             ->exists();
 
         if ($existe) {
