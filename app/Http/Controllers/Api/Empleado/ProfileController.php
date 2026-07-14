@@ -73,26 +73,36 @@ class ProfileController extends Controller
                 'cp'     => optional($empleado->domicilioEmpleado)->cp,
             ],
 
-            'laboral'   => [
-                'puesto'                 => $empleado->puesto,
-                'departamento'           => $empleado->departamento,
-                'fecha_ingreso'          => $fechaIngreso
+            'laboral' => [
+                'puesto'       => $empleado->puesto,
+                'departamento' => $empleado->departamento,
+
+                'fecha_ingreso' => $fechaIngreso
                     ? Carbon::parse($fechaIngreso)->format('Y-m-d')
                     : null,
 
-                'antiguedad'             => $antiguedad,
-                'antiguedad_years'       => $antiguedadYears,
-                'antiguedad_months'      => $antiguedadMonths,
-                'tipo_contrato'          =>
-                optional($empleado->laborales)->tipo_contrato,
+                'antiguedad'        => $antiguedad,
+                'antiguedad_years'  => $antiguedadYears,
+                'antiguedad_months' => $antiguedadMonths,
 
-                'periodicidad_pago'      =>
-                optional($empleado->laborales)->periodicidad_pago,
+                // Valor legado
+                'tipo_contrato' => optional(
+                    $empleado->laborales
+                )->tipo_contrato,
 
-                'vacaciones_disponibles' =>
-                optional($empleado->laborales)->vacaciones_disponibles,
+                // Código SAT usado para i18n
+                'tipo_contrato_sat' => optional(
+                    $empleado->laborales
+                )->tipo_contrato_sat,
+
+                'periodicidad_pago' => optional(
+                    $empleado->laborales
+                )->periodicidad_pago,
+
+                'vacaciones_disponibles' => optional(
+                    $empleado->laborales
+                )->vacaciones_disponibles,
             ],
-
             'medico'    => [
                 'tipo_sangre'           =>
                 optional($empleado->informacionMedica)->tipo_sangre,
