@@ -292,6 +292,7 @@ class EmpleadosImport implements ToModel, WithHeadingRow
             ->where('id_cliente', $this->generalData['id_cliente'])
             ->where('id_portal', $this->generalData['id_portal'])
             ->where('status', 1)
+            ->where('eliminado', 0)
             ->exists();
 
         if ($existe) {
