@@ -41,8 +41,7 @@ class EmpleadoIncidenciasController extends Controller
             'fechaInicio'    => 'required|date',
             'fechaFin'       => 'required|date|after_or_equal:fechaInicio',
             'comentario'     => 'nullable|string',
-            'aprobadores'    => 'required|array',
-            'aprobadores.*'  => 'integer|exists:portal_main.empleados,id',
+       
             'evidencia'      => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ]);
 
