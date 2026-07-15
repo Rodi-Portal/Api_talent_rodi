@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
 use App\Http\Controllers\Api\Empleado\EmpleadoEventoConfirmacionesController;
 use App\Http\Controllers\Api\Empleado\EmpleadoHorasExtraController;
 use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
+use App\Http\Controllers\Api\Empleado\EmpleadoSucursalController;
 use App\Http\Controllers\Api\Empleado\EmpleadoTareasController;
 use App\Http\Controllers\Api\Empleado\ProfileController;
 use App\Http\Controllers\Api\Rodi\ReporteBecasController;
@@ -119,7 +120,14 @@ Route::get('/api/test-status', function () {
     }
 });
 Route::middleware(['api'])->group(function () {
-
+    Route::get(
+        '/usuarios/{idUsuario}/sucursales-permitidas',
+        [EmpleadoSucursalController::class, 'sucursalesPermitidas']
+    );
+    Route::post(
+        '/empleados/{idEmpleado}/cambiar-sucursal',
+        [EmpleadoSucursalController::class, 'cambiarSucursal']
+    );
     //// */ rutas  para  el organigrama
 
     Route::prefix('organigrama')->group(function () {
@@ -694,9 +702,9 @@ Route::prefix('comunicacion360')->group(function () {
         [AccesosChecadorGestionController::class, 'contextoDia']
     );
     Route::post(
-    '/accesos/empleados/{id}/gestion-checadas/ejecutar',
-    [AccesosChecadorGestionController::class, 'ejecutarAccionAdministrativa']
-);
+        '/accesos/empleados/{id}/gestion-checadas/ejecutar',
+        [AccesosChecadorGestionController::class, 'ejecutarAccionAdministrativa']
+    );
 });
 
 Route::prefix('comunicacion360/tasks')->group(function () {

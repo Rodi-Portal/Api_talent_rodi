@@ -46,18 +46,20 @@ class AccesosChecadorGestionController extends Controller
         }
         if (! $plantillaHorario || ! $detalleHorario) {
             $alertas[] = [
-                'tipo'    => 'sin_horario',
-                'nivel'   => 'warning',
-                'mensaje' => 'El colaborador no tiene un horario activo asignado para esta fecha.',
+                'tipo'       => 'sin_horario',
+                'nivel'      => 'warning',
+                'parametros' => [],
+                'mensaje'    => 'El colaborador no tiene un horario activo asignado para esta fecha.',
             ];
         }
 
         if ($plantillaHorario && $detalleHorario && ! $detalleHorario->labora) {
             if ($checadas->count() > 0) {
                 $alertas[] = [
-                    'tipo'    => 'dia_no_laborable_con_checadas',
-                    'nivel'   => 'warning',
-                    'mensaje' => 'El colaborador registró checadas en un día no laborable.',
+                    'tipo'       => 'dia_no_laborable_con_checadas',
+                    'nivel'      => 'warning',
+                    'parametros' => [],
+                    'mensaje'    => 'El colaborador registró checadas en un día no laborable.',
                 ];
             }
         }
@@ -65,25 +67,28 @@ class AccesosChecadorGestionController extends Controller
         if ($jornada) {
             if ($jornada['estado_jornada'] === 'sin_checadas') {
                 $alertas[] = [
-                    'tipo'    => 'ausencia',
-                    'nivel'   => 'danger',
-                    'mensaje' => 'Día laborable sin checadas registradas.',
+                    'tipo'       => 'ausencia',
+                    'nivel'      => 'danger',
+                    'parametros' => [],
+                    'mensaje'    => 'Día laborable sin checadas registradas.',
                 ];
             }
 
             if ($jornada['estado_jornada'] === 'sin_entrada') {
                 $alertas[] = [
-                    'tipo'    => 'sin_entrada',
-                    'nivel'   => 'danger',
-                    'mensaje' => 'No existe entrada laboral registrada.',
+                    'tipo'       => 'sin_entrada',
+                    'nivel'      => 'danger',
+                    'parametros' => [],
+                    'mensaje'    => 'No existe entrada laboral registrada.',
                 ];
             }
 
             if ($jornada['estado_jornada'] === 'sin_salida') {
                 $alertas[] = [
-                    'tipo'    => 'sin_salida',
-                    'nivel'   => 'danger',
-                    'mensaje' => 'No existe salida laboral registrada.',
+                    'tipo'       => 'sin_salida',
+                    'nivel'      => 'danger',
+                    'parametros' => [],
+                    'mensaje'    => 'No existe salida laboral registrada.',
                 ];
             }
 
@@ -94,10 +99,21 @@ class AccesosChecadorGestionController extends Controller
             $jornada['incidencias']['retardo']['fuera_tolerancia_minutos'] ?? 0;
 
             if ($minutosRetardoDetectado > 0) {
+                $fueraTolerancia = $minutosRetardoFueraTolerancia > 0;
+
                 $alertas[] = [
-                    'tipo'    => 'retardo',
-                    'nivel'   => $minutosRetardoFueraTolerancia > 0 ? 'warning' : 'info',
-                    'mensaje' => $minutosRetardoFueraTolerancia > 0
+                    'tipo'       => $fueraTolerancia
+                        ? 'retardo_fuera_tolerancia'
+                        : 'retardo_dentro_tolerancia',
+
+                    'nivel'      => $fueraTolerancia ? 'warning' : 'info',
+
+                    'parametros' => [
+                        'minutos_detectados'       => $minutosRetardoDetectado,
+                        'minutos_fuera_tolerancia' => $minutosRetardoFueraTolerancia,
+                    ],
+
+                    'mensaje'    => $fueraTolerancia
                         ? "Retardo detectado de {$minutosRetardoDetectado} minutos; {$minutosRetardoFueraTolerancia} fuera de tolerancia."
                         : "Retardo detectado de {$minutosRetardoDetectado} minutos dentro de tolerancia.",
                 ];
@@ -110,10 +126,21 @@ class AccesosChecadorGestionController extends Controller
             $jornada['incidencias']['salida_anticipada']['fuera_tolerancia_minutos'] ?? 0;
 
             if ($minutosSalidaAnticipadaDetectada > 0) {
+                $fueraTolerancia = $minutosSalidaAnticipadaFueraTolerancia > 0;
+
                 $alertas[] = [
-                    'tipo'    => 'salida_anticipada',
-                    'nivel'   => $minutosSalidaAnticipadaFueraTolerancia > 0 ? 'warning' : 'info',
-                    'mensaje' => $minutosSalidaAnticipadaFueraTolerancia > 0
+                    'tipo'       => $fueraTolerancia
+                        ? 'salida_anticipada_fuera_tolerancia'
+                        : 'salida_anticipada_dentro_tolerancia',
+
+                    'nivel'      => $fueraTolerancia ? 'warning' : 'info',
+
+                    'parametros' => [
+                        'minutos_detectados'       => $minutosSalidaAnticipadaDetectada,
+                        'minutos_fuera_tolerancia' => $minutosSalidaAnticipadaFueraTolerancia,
+                    ],
+
+                    'mensaje'    => $fueraTolerancia
                         ? "Salida anticipada detectada de {$minutosSalidaAnticipadaDetectada} minutos; {$minutosSalidaAnticipadaFueraTolerancia} fuera de tolerancia."
                         : "Salida anticipada detectada de {$minutosSalidaAnticipadaDetectada} minutos dentro de tolerancia.",
                 ];
@@ -124,9 +151,12 @@ class AccesosChecadorGestionController extends Controller
 
             if ($minutosExtraDetectados > 0) {
                 $alertas[] = [
-                    'tipo'    => 'tiempo_extra_detectado',
-                    'nivel'   => 'warning',
-                    'mensaje' => "Tiempo extra detectado de {$minutosExtraDetectados} minutos pendiente de aprobación.",
+                    'tipo'       => 'tiempo_extra_detectado',
+                    'nivel'      => 'warning',
+                    'parametros' => [
+                        'minutos_detectados' => $minutosExtraDetectados,
+                    ],
+                    'mensaje'    => "Tiempo extra detectado de {$minutosExtraDetectados} minutos pendiente de aprobación.",
                 ];
             }
         }
