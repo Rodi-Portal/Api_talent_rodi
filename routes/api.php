@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorGestionController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosIpController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosTareasController;
+use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorReportesController;
 use App\Http\Controllers\Api\Comunicacion360\ChecadorEventosController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadaDispositivoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorAsignacionController;
@@ -705,6 +706,11 @@ Route::prefix('comunicacion360')->group(function () {
         '/accesos/empleados/{id}/gestion-checadas/ejecutar',
         [AccesosChecadorGestionController::class, 'ejecutarAccionAdministrativa']
     );
+    Route::get(
+        '/accesos/empleados/{id}/reportes/checadas/vista-previa',
+        [AccesosChecadorReportesController::class, 'vistaPrevia']
+    );
+
 });
 
 Route::prefix('comunicacion360/tasks')->group(function () {
