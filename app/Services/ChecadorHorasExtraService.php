@@ -161,7 +161,38 @@ class ChecadorHorasExtraService
             ];
         });
     }
-
+    public function obtenerAprobadasPorFecha(
+        int $idPortal,
+        int $idEmpleado,
+        string $fecha
+    ) {
+        return DB::connection('portal_main')
+            ->table('calendario_eventos as evento')
+            ->join(
+                'checador_evento_detalles as detalle',
+                'detalle.id_evento',
+                '=',
+                'evento.id'
+            )
+            ->where('evento.id_portal', $idPortal)
+            ->where('evento.id_empleado', $idEmpleado)
+            ->whereDate('detalle.fecha', $fecha)
+            ->where('evento.estado_aprobacion', 'aprobado')
+            ->where('detalle.tipo_operativo', 'horas_extra')
+            ->where('detalle.impacta_asistencia', 1)
+            ->where('detalle.minutos_aprobados', '>', 0)
+            ->select([
+                'detalle.fecha',
+                'detalle.hora_inicio',
+                'detalle.hora_fin',
+                'detalle.minutos_aprobados',
+                'detalle.minutos_pagables',
+                'detalle.impacta_prenomina',
+            ])
+            ->distinct()
+            ->orderBy('detalle.hora_inicio')
+            ->get();
+    }
     private function recalcularDespuesDeCrearFlujo(
         int $idEvento,
         array $data,
