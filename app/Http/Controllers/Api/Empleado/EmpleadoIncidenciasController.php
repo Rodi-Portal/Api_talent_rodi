@@ -41,12 +41,11 @@ class EmpleadoIncidenciasController extends Controller
             'fechaInicio'    => 'required|date',
             'fechaFin'       => 'required|date|after_or_equal:fechaInicio',
             'comentario'     => 'nullable|string',
-       
+
             'evidencia'      => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ]);
 
-        DB::beginTransaction();
-
+        DB::connection($conn)->beginTransaction();
         try {
 
             /* =========================
@@ -62,12 +61,18 @@ class EmpleadoIncidenciasController extends Controller
                 $portalId   = $employee->id_portal ?? 0;
                 $clienteId  = $employee->id_cliente ?? 0;
                 $empleadoId = $employee->id;
+                $basePath   = rtrim(
+                    str_replace('\\', '/', $this->getBasePath()),
+                    '/'
+                );
 
-                $basePath = $this->getBasePath();
+                $calendarBasePath = $basePath . '/_archivo_calendario';
 
-                $relativePath = "portals/$portalId/clientes/$clienteId/empleados/$empleadoId/incidencias/";
+                $relativePath =
+                    "portals/{$portalId}/clientes/{$clienteId}/" .
+                    "empleados/{$empleadoId}/incidencias/";
 
-                $fullPath = $basePath . '/' . $relativePath;
+                $fullPath = $calendarBasePath . '/' . $relativePath;
 
                 if (! file_exists($fullPath)) {
                     if (! is_dir($fullPath)) {
@@ -188,7 +193,7 @@ class EmpleadoIncidenciasController extends Controller
                 }
             }
 
-            DB::commit();
+            DB::connection($conn)->commit();
 
             return response()->json([
                 'success' => true,
@@ -198,8 +203,7 @@ class EmpleadoIncidenciasController extends Controller
 
         } catch (\Exception $e) {
 
-            DB::rollBack();
-
+            DB::connection($conn)->rollBack();
             return response()->json([
                 'error'   => true,
                 'message' => $e->getMessage(),
