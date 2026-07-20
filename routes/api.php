@@ -8,10 +8,10 @@ use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorGestionController;
+use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorReportesController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosIpController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosTareasController;
-use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorReportesController;
 use App\Http\Controllers\Api\Comunicacion360\ChecadorEventosController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadaDispositivoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorAsignacionController;
@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorQrController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorUbicacionesController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorValidacionController;
 use App\Http\Controllers\Api\Comunicacion360\EmployeeProfileAnalysisController;
+use App\Http\Controllers\Api\Comunicacion360\Incidencias\IncidenciasCalendarioController;
 use App\Http\Controllers\Api\Comunicacion360\PlantillasController;
 use App\Http\Controllers\Api\Empleado\AuthController;
 use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
@@ -710,6 +711,17 @@ Route::prefix('comunicacion360')->group(function () {
         '/accesos/empleados/{id}/reportes/checadas/vista-previa',
         [AccesosChecadorReportesController::class, 'vistaPrevia']
     );
+
+    Route::prefix('incidencias')->group(function () {
+        Route::get(
+            '/calendario',
+            [IncidenciasCalendarioController::class, 'index']
+        );
+        Route::get(
+            '/{id}/evidencia',
+            [IncidenciasCalendarioController::class, 'evidencia']
+        );
+    });
 
 });
 

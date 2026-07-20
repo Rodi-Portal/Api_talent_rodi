@@ -321,7 +321,7 @@ class IncidenciasController extends Controller
             $incidencias = [];
 
             // 1) Expandir "otros" (no-retardos)
-// 1) Registrar "otros" (no-retardos) SIN expandir por día
+     // 1) Registrar "otros" (no-retardos) SIN expandir por día
             foreach ($otros as $ev) {
                 // Fechas del evento (rango original)
                 $ini = substr((string) $ev->inicio, 0, 10);
