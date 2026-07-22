@@ -36,14 +36,18 @@ return [
     */
 
     'guards'           => [
-        'web'      => [
+        'web'           => [
             'driver'   => 'session',
             'provider' => 'users',
         ],
-        
-        'empleado' => [
+
+        'empleado'      => [
             'driver'   => 'sanctum',
             'provider' => 'empleados',
+        ],
+        'administrador' => [
+            'driver'   => 'sanctum',
+            'provider' => 'administradores',
         ],
     ],
 
@@ -65,7 +69,7 @@ return [
     */
 
     'providers'        => [
-        'users'     => [
+        'users'           => [
             'driver' => 'eloquent',
             'model'  => App\Models\User::class,
         ],
@@ -74,9 +78,13 @@ return [
         //     'driver' => 'database',
         //     'table' => 'users',
         // ],
-        'empleados' => [
+        'empleados'       => [
             'driver' => 'eloquent',
             'model'  => App\Models\Auth\EmpleadoAuth::class,
+        ],
+        'administradores' => [
+            'driver' => 'eloquent',
+            'model'  => App\Models\Auth\AdministradorAuth::class,
         ],
     ],
 

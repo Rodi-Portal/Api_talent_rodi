@@ -14,31 +14,45 @@ return [
     |
      */
 
-    'mailgun'  => [
+    'mailgun'    => [
         'domain'   => env('MAILGUN_DOMAIN'),
         'secret'   => env('MAILGUN_SECRET'),
         'endpoint' => env('MAILGUN_ENDPOINT', 'api.mailgun.net'),
         'scheme'   => 'https',
     ],
 
-    'postmark' => [
+    'postmark'   => [
         'token' => env('POSTMARK_TOKEN'),
     ],
 
-    'ses'      => [
+    'ses'        => [
         'key'    => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
-    'facebook' => [
+    'facebook'   => [
         'access_token'    => env('FACEBOOK_ACCESS_TOKEN'),
         'phone_number_id' => env('FACEBOOK_PHONE_NUMBER_ID'),
         'base_url'        => env('BASE_URL_APIWHASTAPP'),
     ],
-    'whatsapp' => [
+    'whatsapp'   => [
         'token'           => env('FACEBOOK_ACCESS_TOKEN'),
         'phone_number_id' => env('FACEBOOK_PHONE_NUMBER_ID'),
-        'base_url'         => env('BASE_URL_APIWHASTAPP'),
+        'base_url'        => env('BASE_URL_APIWHASTAPP'),
+    ],
+    'ci3_bridge' => [
+        'secret'              => env('CI3_BRIDGE_SECRET'),
+        'issuer'              => env('CI3_BRIDGE_ISSUER', 'ci3-portal'),
+
+        'token_ttl'           => (int) env(
+            'CI3_BRIDGE_TOKEN_TTL',
+            15
+        ),
+
+        'timestamp_tolerance' => (int) env(
+            'CI3_BRIDGE_TIMESTAMP_TOLERANCE',
+            60
+        ),
     ],
 
 ];

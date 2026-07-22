@@ -6,6 +6,7 @@ use App\Http\Controllers\ApiGetArea;
 use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
+use App\Http\Controllers\Api\Admin\AdminAuthBridgeController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorGestionController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorReportesController;
@@ -101,6 +102,15 @@ Route::prefix('empleado/auth')->group(function () {
 });
 
 Route::prefix('admin/auth')->group(function () {
+    Route::post(
+        '/exchange',
+        [AdminAuthBridgeController::class, 'exchange']
+    )->middleware('throttle:20,1');
+
+    Route::post(
+        '/logout',
+        [AdminAuthBridgeController::class, 'logout']
+    )->middleware('auth:sanctum');
     Route::post('/recovery/check-user', [AdminRecoveryController::class, 'checkUser']);
     Route::post('/recovery/send', [AdminRecoveryController::class, 'sendOtp']);
     Route::post('/recovery/verify-phone', [AdminRecoveryController::class, 'verifyPhone']);
