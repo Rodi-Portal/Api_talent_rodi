@@ -118,19 +118,6 @@ Route::prefix('admin/auth')->group(function () {
     Route::post('/recovery/reset', [AdminRecoveryController::class, 'resetPassword']);
 });
 
-Route::get('/api/test-status', function () {
-    $id_portal  = 5;
-    $id_cliente = 1003;
-    try {
-        $data = App\Models\Empleado::where('id_portal', $id_portal)
-            ->where('id_cliente', $id_cliente)
-            ->get();
-        return response()->json($data);
-    } catch (\Throwable $e) {
-        \Log::error('Test status error', ['exception' => $e]);
-        return response()->json(['error' => $e->getMessage()], 500);
-    }
-});
 Route::middleware(['api'])->group(function () {
     Route::get(
         '/usuarios/{idUsuario}/sucursales-permitidas',
@@ -722,19 +709,90 @@ Route::prefix('comunicacion360')->group(function () {
         [AccesosChecadorReportesController::class, 'vistaPrevia']
     );
 
-    Route::prefix('incidencias')->group(function () {
-        Route::get(
-            '/calendario',
-            [IncidenciasCalendarioController::class, 'index']
-        );
-        Route::get(
-            '/{id}/evidencia',
-            [IncidenciasCalendarioController::class, 'evidencia']
-        );
-    });
+    Route::prefix('incidencias')
+        ->middleware(['auth:sanctum', 'admin.session'])
+        ->group(function () {
+            Route::get(
+                '/calendario',
+                [IncidenciasCalendarioController::class, 'index']
+            );
+
+            Route::get(
+                '/{id}/evidencia',
+                [IncidenciasCalendarioController::class, 'evidencia']
+            );
+        });
 
 });
+Route::prefix('checador')->group(function () {
+    //CRUD  Cat Ubicaciones
+    Route::middleware(['auth:sanctum', 'admin.session'])
+        ->group(function () {
+            Route::get('/ubicaciones', [ChecadorUbicacionesController::class, 'index']);
+            Route::post('/ubicaciones', [ChecadorUbicacionesController::class, 'store']);
+            Route::put('/ubicaciones/{id}', [ChecadorUbicacionesController::class, 'update']);
+            Route::delete('/ubicaciones/{id}', [ChecadorUbicacionesController::class, 'destroy']);
 
+            Route::post('/qr/generar', [ChecadorQrController::class, 'generar']);
+            Route::get(
+                '/qr/fijo/{ubicacionId}',
+                [ChecadorQrController::class, 'mostrarFijo']
+            );
+        });
+
+    //validate Ubications
+    Route::post('/validar-ubicacion', [ChecadorValidacionController::class, 'validarUbicacion']);
+
+    // QR routes
+    Route::post('/qr/validar', [ChecadorQrController::class, 'validar']);
+
+    // Plantillas  para  el checador
+    Route::get('/plantillas-checada', [ChecadorChecadaPlantillaController::class, 'index']);
+    Route::post('/plantillas-checada', [ChecadorChecadaPlantillaController::class, 'store']);
+    Route::post('/plantillas-checada/{id}/metodos', [ChecadorChecadaPlantillaController::class, 'guardarMetodos']);
+    Route::put('/plantillas-checada/{id}', [ChecadorChecadaPlantillaController::class, 'update']);
+    Route::post('/plantillas-checada/{id}/estado', [ChecadorChecadaPlantillaController::class, 'cambiarEstado']);
+
+    // endoints  de horarios
+    Route::prefix('/horarios')->group(function () {
+        Route::get('/', [ChecadorHorarioPlantillaController::class, 'index']);
+        Route::post('/', [ChecadorHorarioPlantillaController::class, 'store']);
+        Route::put('/{id}', [ChecadorHorarioPlantillaController::class, 'update']);
+        Route::post('/{id}/estado', [ChecadorHorarioPlantillaController::class, 'cambiarEstado']);
+    });
+
+    // Importaciones / Exportaciones STC
+    Route::prefix('/importaciones')->group(function () {
+        Route::get('/horarios/exportar', [ChecadorImportExportController::class, 'exportarHorarios']);
+        Route::post('/horarios/importar', [ChecadorImportExportController::class, 'importarHorarios']);
+
+    });
+
+    // Checadas Masivas
+    Route::prefix('/checadas-masivas')->group(function () {
+        Route::post('/exportar-plantilla', [ChecadorChecadasMasivasController::class, 'exportarPlantilla']);
+        Route::post('/importar-preview', [ChecadorChecadasMasivasController::class, 'importarPreview']);
+        Route::post('/importar-confirmar', [ChecadorChecadasMasivasController::class, 'importarConfirmar']);
+
+    });
+    // Incidencias Masivas
+    Route::prefix('/incidencias-masivas')->group(function () {
+        Route::post('/exportar-plantilla', [ChecadorIncidenciasMasivasController::class, 'exportarPlantilla']);
+        Route::post('/importar-preview', [ChecadorIncidenciasMasivasController::class, 'importarPreview']);
+        Route::post('/importar-confirmar', [ChecadorIncidenciasMasivasController::class, 'importarConfirmar']);
+    });
+
+    Route::get('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'plantillaEmpleado']);
+    Route::post('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'guardarPlantillaEmpleado']);
+    // Metodos
+    Route::get('/metodos', [ChecadorMetodoController::class, 'index']);
+    // aprovadores
+    Route::get('/aprobadores-disponibles', [ChecadorAsignacionController::class, 'aprobadoresDisponibles']);
+    // Asignaciones de plantillas a empleados
+    Route::get('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'index']);
+    Route::post('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'store']);
+    Route::get('/empleados-acceso', [ChecadorAsignacionController::class, 'empleadosConAcceso']);
+});
 Route::prefix('comunicacion360/tasks')->group(function () {
 
     // Obtener todas las tareas
@@ -778,67 +836,6 @@ Route::prefix('comunicacion360/plantillas')->group(function () {
 
 });
 
-Route::prefix('checador')->group(function () {
-    //CRUD  Cat Ubicaciones
-    Route::get('/ubicaciones', [ChecadorUbicacionesController::class, 'index']);
-    Route::post('/ubicaciones', [ChecadorUbicacionesController::class, 'store']);
-    Route::put('/ubicaciones/{id}', [ChecadorUbicacionesController::class, 'update']);
-    Route::delete('/ubicaciones/{id}', [ChecadorUbicacionesController::class, 'destroy']);
-
-    //validate Ubications
-    Route::post('/validar-ubicacion', [ChecadorValidacionController::class, 'validarUbicacion']);
-
-    // QR routes
-    Route::post('/qr/generar', [ChecadorQrController::class, 'generar']);
-    Route::post('/qr/validar', [ChecadorQrController::class, 'validar']);
-
-    // Plantillas  para  el checador
-    Route::get('/plantillas-checada', [ChecadorChecadaPlantillaController::class, 'index']);
-    Route::post('/plantillas-checada', [ChecadorChecadaPlantillaController::class, 'store']);
-    Route::post('/plantillas-checada/{id}/metodos', [ChecadorChecadaPlantillaController::class, 'guardarMetodos']);
-    Route::put('/plantillas-checada/{id}', [ChecadorChecadaPlantillaController::class, 'update']);
-    Route::post('/plantillas-checada/{id}/estado', [ChecadorChecadaPlantillaController::class, 'cambiarEstado']);
-
-    // endoints  de horarios
-    Route::prefix('/horarios')->group(function () {
-        Route::get('/', [ChecadorHorarioPlantillaController::class, 'index']);
-        Route::post('/', [ChecadorHorarioPlantillaController::class, 'store']);
-        Route::put('/{id}', [ChecadorHorarioPlantillaController::class, 'update']);
-        Route::post('/{id}/estado', [ChecadorHorarioPlantillaController::class, 'cambiarEstado']);
-    });
-
-    // Importaciones / Exportaciones STC
-    Route::prefix('/importaciones')->group(function () {
-        Route::get('/horarios/exportar', [ChecadorImportExportController::class, 'exportarHorarios']);
-        Route::post('/horarios/importar', [ChecadorImportExportController::class, 'importarHorarios']);
-
-    });
-
-    // Checadas Masivas
-    Route::prefix('/checadas-masivas')->group(function () {
-        Route::post('/exportar-plantilla', [ChecadorChecadasMasivasController::class, 'exportarPlantilla']);
-        Route::post('/importar-preview', [ChecadorChecadasMasivasController::class, 'importarPreview']);
-        Route::post('/importar-confirmar', [ChecadorChecadasMasivasController::class, 'importarConfirmar']);
-
-    });
-// Incidencias Masivas
-    Route::prefix('/incidencias-masivas')->group(function () {
-        Route::post('/exportar-plantilla', [ChecadorIncidenciasMasivasController::class, 'exportarPlantilla']);
-        Route::post('/importar-preview', [ChecadorIncidenciasMasivasController::class, 'importarPreview']);
-        Route::post('/importar-confirmar', [ChecadorIncidenciasMasivasController::class, 'importarConfirmar']);
-    });
-
-    Route::get('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'plantillaEmpleado']);
-    Route::post('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'guardarPlantillaEmpleado']);
-    // Metodos
-    Route::get('/metodos', [ChecadorMetodoController::class, 'index']);
-    // aprovadores
-    Route::get('/aprobadores-disponibles', [ChecadorAsignacionController::class, 'aprobadoresDisponibles']);
-    // Asignaciones de plantillas a empleados
-    Route::get('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'index']);
-    Route::post('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'store']);
-    Route::get('/empleados-acceso', [ChecadorAsignacionController::class, 'empleadosConAcceso']);
-});
 Route::post(
     '/checador/dispositivo/registrar',
     [ChecadaDispositivoController::class, 'store']
