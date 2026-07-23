@@ -23,20 +23,25 @@ class ChecadorUbicacion extends Model
         'referencia',
         'activa',
         'qr_modo',
-        'qr_token_fijo',
+        'qr_token_fijo_hash',
+        'qr_token_fijo_encrypted',
         'qr_expira_segundos',
         'qr_actualizado_en',
     ];
-
-    protected $casts = [
-        'id_portal'          => 'integer',
-        'id_cliente'         => 'integer',
-        'latitud'            => 'decimal:7',
-        'longitud'           => 'decimal:7',
-        'radio_metros'       => 'integer',
-        'polygon_json'       => 'array',
-        'activa'             => 'integer',
-        'qr_expira_segundos' => 'integer',
-        'qr_actualizado_en'  => 'datetime',
+    protected $hidden = [
+        'qr_token_fijo_encrypted',
     ];
+    protected $casts = [
+        'id_portal'               => 'integer',
+        'id_cliente'              => 'integer',
+        'latitud'                 => 'decimal:7',
+        'longitud'                => 'decimal:7',
+        'radio_metros'            => 'integer',
+        'polygon_json'            => 'array',
+        'activa'                  => 'integer',
+        'qr_expira_segundos'      => 'integer',
+        'qr_actualizado_en'       => 'datetime',
+        'qr_token_fijo_encrypted' => 'encrypted',
+    ];
+
 }

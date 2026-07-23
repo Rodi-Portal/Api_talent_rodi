@@ -71,8 +71,8 @@ class ChecadorUbicacionesController extends Controller
             'activa'             => $request->activa ?? 1,
             'qr_modo'            => $request->qr_modo ?? 'ninguno',
             'qr_expira_segundos' => $request->qr_expira_segundos ?? 60,
-            'qr_token_fijo'      => $request->qr_token_fijo,
-            'qr_actualizado_en'  => $request->qr_token_fijo ? now() : null,
+            'qr_token_fijo_hash' => null,
+            'qr_actualizado_en'  => null,
         ]);
 
         return response()->json([
@@ -130,8 +130,7 @@ class ChecadorUbicacionesController extends Controller
             'activa'             => $request->activa ?? 1,
             'qr_modo'            => $request->qr_modo ?? 'ninguno',
             'qr_expira_segundos' => $request->qr_expira_segundos ?? 60,
-            'qr_token_fijo'      => $request->qr_token_fijo,
-            'qr_actualizado_en'  => $request->qr_token_fijo ? now() : null,
+          
         ]);
 
         return response()->json([
