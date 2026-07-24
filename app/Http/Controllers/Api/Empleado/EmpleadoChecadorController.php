@@ -5,6 +5,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Comunicacion360\Checador\Checada;
 use App\Services\Checador\ChecadaRegistroService;
 use App\Services\Checador\ChecadaValidationService;
+use App\Services\Checador\ChecadorQrValidationService;
 use App\Services\Checador\ChecadorRegularizacionService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -358,6 +359,7 @@ class EmpleadoChecadorController extends Controller
         ]);
         $validationService     = app(ChecadaValidationService::class);
         $registroService       = app(ChecadaRegistroService::class);
+        $qrValidationService   = app(ChecadorQrValidationService::class);
         $regularizacionService = app(ChecadorRegularizacionService::class);
 
         if ($validator->fails()) {
@@ -638,7 +640,38 @@ class EmpleadoChecadorController extends Controller
 
             'metodo'           => $request->metodo,
         ];
+        $resultadoQr = null;
+
+        if ($request->metodo === 'qr') {
+            $resultadoQr = $qrValidationService->validarParaRegistroEmpleado(
+                (string) $request->qr_token,
+                $idPortal,
+                $idCliente,
+                (int) $plantilla->id,
+                $request->latitud,
+                $request->longitud,
+                $request->precision_metros
+            );
+
+            if (! $resultadoQr['ok']) {
+                return response()->json([
+                    'ok'                 => false,
+                    'code'               => $resultadoQr['code'],
+                    'message'            => $resultadoQr['message'],
+                    'estatus_validacion' => 'rechazada',
+
+                    'data'               => [
+                        'id_ubicacion'     => $resultadoQr['id_ubicacion'] ?? null,
+                        'distancia_metros' => $resultadoQr['distancia_metros'] ?? null,
+                        'radio_metros'     => $resultadoQr['radio_metros'] ?? null,
+                        'precision_metros' => $resultadoQr['precision_metros'] ?? null,
+                    ],
+                ], $resultadoQr['status'] ?? 422);
+            }
+        }
+
         $resultadoValidacion = $validationService->validar($payloadValidacion);
+       
 
         if (! $resultadoValidacion['ok']) {
             return response()->json(array_merge([
@@ -647,6 +680,26 @@ class EmpleadoChecadorController extends Controller
                 'message'            => $resultadoValidacion['motivo'],
                 'estatus_validacion' => $resultadoValidacion['estatus_validacion'] ?? 'rechazada',
             ], $resultadoValidacion['extra'] ?? []), 422);
+        }
+        if ($resultadoQr !== null) {
+            $resultadoValidacion['id_ubicacion'] =
+                $resultadoQr['id_ubicacion'];
+
+            $resultadoValidacion['distancia_metros'] =
+                $resultadoQr['distancia_metros'];
+
+            $resultadoValidacion['precision_metros'] =
+                $resultadoQr['precision_metros'];
+
+            $resultadoValidacion['latitud'] =
+                $resultadoQr['latitud'];
+
+            $resultadoValidacion['longitud'] =
+                $resultadoQr['longitud'];
+
+            $resultadoValidacion['estatus_validacion'] = 'valida';
+            $resultadoValidacion['motivo']             =
+                'valid_qr_for_employee';
         }
 
         $minutosRetardo = 0;
@@ -738,14 +791,178 @@ class EmpleadoChecadorController extends Controller
         $payloadValidacion['origen']            = 'geoloc';
         $payloadValidacion['metodo_validacion'] = $request->metodo;
         $payloadValidacion['foto_path']         = $evidenciaFoto;
-        $payloadValidacion['qr_token']          = $request->qr_token;
-        $payloadValidacion['device_info']       = $request->device_info;
+        if ($request->metodo === 'qr' && $resultadoQr !== null) {
+            /*
+     * No almacenamos el token QR completo.
+     * Guardamos únicamente su huella SHA-256.
+     */
+            $payloadValidacion['qr_token'] = $resultadoQr['token_hash'];
 
-        $idChecada = $registroService->insertar(
-            $payloadValidacion,
-            $resultadoValidacion,
-            $metadata
+            $metadata['qr'] = [
+                'modo'         => $resultadoQr['payload']['modo'],
+                'ubicacion_id' => $resultadoQr['id_ubicacion'],
+                'generated_at' => $resultadoQr['payload']['generated_at'],
+                'expires_at'   => $resultadoQr['payload']['expires_at'],
+                'token_hash'   => $resultadoQr['token_hash'],
+                'validado_en'  => now()->toIso8601String(),
+            ];
+        } else {
+            $payloadValidacion['qr_token'] = null;
+        }
+
+        $payloadValidacion['device_info'] = $request->device_info;
+        $resultadoAtomico                 = DB::connection('portal_main')->transaction(
+            function () use (
+                $request,
+                $idPortal,
+                $idCliente,
+                $idEmpleado,
+                $asignacion,
+                $plantilla,
+                $validationService,
+                $qrValidationService,
+                $registroService,
+                $payloadValidacion,
+                $metadata
+            ) {
+                /*
+         * Bloqueamos la asignación del colaborador.
+         * Todas las checadas concurrentes de este empleado
+         * deberán esperar a que termine esta transacción.
+         */
+                $asignacionBloqueada = DB::connection('portal_main')
+                    ->table('checador_asignaciones')
+                    ->where('id', (int) $asignacion->id)
+                    ->where('id_portal', $idPortal)
+                    ->where('id_cliente', $idCliente)
+                    ->where('id_empleado', $idEmpleado)
+                    ->where('activa', 1)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $asignacionBloqueada) {
+                    return [
+                        'ok'      => false,
+                        'code'    => 'attendance_assignment_changed',
+                        'message' => 'attendance_assignment_changed',
+                        'status'  => 422,
+                    ];
+                }
+
+                $resultadoQrAtomico = null;
+
+                /*
+         * Volvemos a validar el QR dentro de la transacción.
+         * La ubicación queda bloqueada hasta insertar la checada.
+         */
+                if ($request->metodo === 'qr') {
+                    $resultadoQrAtomico =
+                    $qrValidationService->validarParaRegistroEmpleado(
+                        (string) $request->qr_token,
+                        $idPortal,
+                        $idCliente,
+                        (int) $plantilla->id,
+                        $request->latitud,
+                        $request->longitud,
+                        $request->precision_metros,
+                        true
+                    );
+
+                    if (! $resultadoQrAtomico['ok']) {
+                        return [
+                            'ok'                 => false,
+                            'code'               => $resultadoQrAtomico['code'],
+                            'message'            => $resultadoQrAtomico['message'],
+                            'status'             => $resultadoQrAtomico['status'] ?? 422,
+                            'estatus_validacion' => 'rechazada',
+                            'extra'              => [
+                                'id_ubicacion'     =>
+                                $resultadoQrAtomico['id_ubicacion'] ?? null,
+                                'distancia_metros' =>
+                                $resultadoQrAtomico['distancia_metros'] ?? null,
+                                'radio_metros'     =>
+                                $resultadoQrAtomico['radio_metros'] ?? null,
+                                'precision_metros' =>
+                                $resultadoQrAtomico['precision_metros'] ?? null,
+                            ],
+                        ];
+                    }
+                }
+
+                /*
+         * Repetimos la validación de secuencia mientras la
+         * asignación permanece bloqueada.
+         */
+                $resultadoValidacionAtomica =
+                $validationService->validar($payloadValidacion);
+
+                if (! $resultadoValidacionAtomica['ok']) {
+                    return [
+                        'ok'                 => false,
+                        'code'               =>
+                        $resultadoValidacionAtomica['code'] ?? null,
+                        'message'            =>
+                        $resultadoValidacionAtomica['motivo'],
+                        'status'             => 422,
+                        'estatus_validacion' =>
+                        $resultadoValidacionAtomica['estatus_validacion'] ?? 'rechazada',
+                        'extra'              =>
+                        $resultadoValidacionAtomica['extra'] ?? [],
+                    ];
+                }
+
+                /*
+         * Para QR, la ubicación válida es la contenida en el QR,
+         * no cualquiera de las ubicaciones cercanas.
+         */
+                if ($resultadoQrAtomico !== null) {
+                    $resultadoValidacionAtomica['id_ubicacion'] =
+                        $resultadoQrAtomico['id_ubicacion'];
+
+                    $resultadoValidacionAtomica['distancia_metros'] =
+                        $resultadoQrAtomico['distancia_metros'];
+
+                    $resultadoValidacionAtomica['precision_metros'] =
+                        $resultadoQrAtomico['precision_metros'];
+
+                    $resultadoValidacionAtomica['latitud'] =
+                        $resultadoQrAtomico['latitud'];
+
+                    $resultadoValidacionAtomica['longitud'] =
+                        $resultadoQrAtomico['longitud'];
+
+                    $resultadoValidacionAtomica['estatus_validacion'] = 'valida';
+                    $resultadoValidacionAtomica['motivo']             =
+                        'valid_qr_for_employee';
+                }
+
+                $idChecada = $registroService->insertar(
+                    $payloadValidacion,
+                    $resultadoValidacionAtomica,
+                    $metadata
+                );
+
+                return [
+                    'ok'         => true,
+                    'id_checada' => $idChecada,
+                ];
+            },
+            3
         );
+        if (! $resultadoAtomico['ok']) {
+            return response()->json(
+                array_merge([
+                    'ok'                 => false,
+                    'code'               => $resultadoAtomico['code'],
+                    'message'            => $resultadoAtomico['message'],
+                    'estatus_validacion' =>
+                    $resultadoAtomico['estatus_validacion'] ?? 'rechazada',
+                ], $resultadoAtomico['extra'] ?? []),
+                $resultadoAtomico['status'] ?? 422
+            );
+        }
+
+        $idChecada = (int) $resultadoAtomico['id_checada'];
 
         $checada         = Checada::find($idChecada);
         $eventoRetardoId = null;
