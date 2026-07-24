@@ -422,9 +422,10 @@ class ChecadaValidationService
 
         $metodosPermitidos = $metodos->pluck('clave')->values()->all();
 
-        $origen = $data['origen'] ?? 'geoloc';
+        $origen           = $data['origen'] ?? 'geoloc';
+        $metodoSolicitado = $data['metodo'] ?? null;
 
-        $metodoClave = match ($origen) {
+        $metodoClave = $metodoSolicitado ?: match ($origen) {
             'geoloc'     => 'gps',
             'biometrico' => 'biometrico',
             'reloj'      => 'biometrico',
@@ -433,7 +434,6 @@ class ChecadaValidationService
             'libre'      => 'libre',
             default      => $origen,
         };
-
         $metodo = $metodos->firstWhere('clave', $metodoClave);
 
         if ($metodoClave === 'libre') {
