@@ -10,11 +10,16 @@ class AttendanceDayContextService
     public function resolver(
         int $idPortal,
         int $idEmpleado,
-        string $fecha
+        string $fecha,
+        ?int $idCliente = null
     ): array {
         $asignacion = ChecadorAsignacion::query()
             ->where('id_portal', $idPortal)
             ->where('id_empleado', $idEmpleado)
+            ->when(
+                $idCliente !== null,
+                fn($query) => $query->where('id_cliente', $idCliente)
+            )
             ->where('activa', 1)
             ->whereDate('fecha_inicio', '<=', $fecha)
             ->where(function ($query) use ($fecha) {
@@ -53,6 +58,10 @@ class AttendanceDayContextService
             $checadas = Checada::query()
                 ->where('id_portal', $idPortal)
                 ->where('id_empleado', $idEmpleado)
+                ->when(
+                    $idCliente !== null,
+                    fn($query) => $query->where('id_cliente', $idCliente)
+                )
                 ->whereBetween('check_time', [
                     $ventanaOperativa['ventana']['inicio'],
                     $ventanaOperativa['ventana']['fin'],
@@ -63,6 +72,10 @@ class AttendanceDayContextService
             $checadas = Checada::query()
                 ->where('id_portal', $idPortal)
                 ->where('id_empleado', $idEmpleado)
+                ->when(
+                    $idCliente !== null,
+                    fn($query) => $query->where('id_cliente', $idCliente)
+                )
                 ->whereDate('fecha', $fecha)
                 ->orderBy('check_time')
                 ->get();

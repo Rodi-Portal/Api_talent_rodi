@@ -3,6 +3,7 @@ namespace App\Http\Controllers\Api\Empleado;
 
 use App\Http\Controllers\Controller;
 use App\Models\Comunicacion360\Checador\Checada;
+use App\Services\Checador\AttendanceAbsenceBackfillService;
 use App\Services\Checador\ChecadaRegistroService;
 use App\Services\Checador\ChecadaValidationService;
 use App\Services\Checador\ChecadorQrValidationService;
@@ -357,10 +358,11 @@ class EmpleadoChecadorController extends Controller
             'timezone'         => 'nullable|string',
             'device_info'      => 'nullable|string',
         ]);
-        $validationService     = app(ChecadaValidationService::class);
-        $registroService       = app(ChecadaRegistroService::class);
-        $qrValidationService   = app(ChecadorQrValidationService::class);
-        $regularizacionService = app(ChecadorRegularizacionService::class);
+        $validationService      = app(ChecadaValidationService::class);
+        $registroService        = app(ChecadaRegistroService::class);
+        $qrValidationService    = app(ChecadorQrValidationService::class);
+        $regularizacionService  = app(ChecadorRegularizacionService::class);
+        $absenceBackfillService = app(AttendanceAbsenceBackfillService::class);
 
         if ($validator->fails()) {
             return response()->json([
@@ -474,14 +476,14 @@ class EmpleadoChecadorController extends Controller
             $idEmpleado,
             $fechaHora
         );
-        */
+
         $this->registrarFaltaSiAplica(
             $idPortal,
             $idCliente,
             $idEmpleado,
             $fechaHora->copy()->subDay()
         );
-
+     */
         $ultimaChecada = Checada::where('id_portal', $idPortal)
             ->where('id_cliente', $idCliente)
             ->where('id_empleado', $idEmpleado)
@@ -671,7 +673,6 @@ class EmpleadoChecadorController extends Controller
         }
 
         $resultadoValidacion = $validationService->validar($payloadValidacion);
-       
 
         if (! $resultadoValidacion['ok']) {
             return response()->json(array_merge([
@@ -819,9 +820,11 @@ class EmpleadoChecadorController extends Controller
                 $idEmpleado,
                 $asignacion,
                 $plantilla,
+                $fechaHora,
                 $validationService,
                 $qrValidationService,
                 $registroService,
+                $absenceBackfillService,
                 $payloadValidacion,
                 $metadata
             ) {
@@ -941,11 +944,19 @@ class EmpleadoChecadorController extends Controller
                     $resultadoValidacionAtomica,
                     $metadata
                 );
+                $faltasCreadas = $absenceBackfillService->registrarPendientes(
+                    $idPortal,
+                    $idCliente,
+                    $idEmpleado,
+                    $fechaHora
+                );
 
-                return [
-                    'ok'         => true,
-                    'id_checada' => $idChecada,
-                ];
+                $faltasCreadas = $absenceBackfillService->registrarPendientes(
+                    $idPortal,
+                    $idCliente,
+                    $idEmpleado,
+                    $fechaHora
+                );
             },
             3
         );
