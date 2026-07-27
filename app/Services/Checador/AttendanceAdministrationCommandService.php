@@ -1,6 +1,8 @@
 <?php
 namespace App\Services\Checador;
+
 use App\Models\Comunicacion360\Checador\Checada;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class AttendanceAdministrationCommandService
@@ -9,6 +11,7 @@ class AttendanceAdministrationCommandService
         protected AttendanceDayContextService $dayContextService,
         protected AttendanceAdministrationService $administrationService,
         protected AttendanceCheckWriterService $checkWriterService,
+        protected AttendanceEventSynchronizationService $eventSynchronizationService,
     ) {
     }
 
@@ -16,27 +19,103 @@ class AttendanceAdministrationCommandService
     {
         $this->validatePayload($payload);
 
-        $context = $this->dayContextService->resolver(
-            (int) $payload['id_portal'],
-            (int) $payload['id_empleado'],
-            $payload['fecha']
+        return DB::connection('portal_main')->transaction(
+            function () use ($payload) {
+                /*
+             * Bloqueamos al empleado durante toda la operación.
+             * Las acciones administrativas concurrentes deberán esperar.
+             */
+                $empleado = DB::connection('portal_main')
+                    ->table('empleados')
+                    ->where('id', (int) $payload['id_empleado'])
+                    ->where('id_portal', (int) $payload['id_portal'])
+                    ->where('id_cliente', (int) $payload['id_cliente'])
+                    ->where(function ($query) {
+                        $query->where('eliminado', 0)
+                            ->orWhereNull('eliminado');
+                    })
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $empleado) {
+                    throw new InvalidArgumentException(
+                        'EMPLOYEE_NOT_FOUND'
+                    );
+                }
+
+                /*
+             * El contexto se vuelve a consultar dentro de la transacción.
+             */
+                $context = $this->dayContextService->resolver(
+                    (int) $payload['id_portal'],
+                    (int) $payload['id_empleado'],
+                    $payload['fecha'],
+                    (int) $payload['id_cliente']
+                );
+
+                $adminActions =
+                $this->administrationService->resolveActions(
+                    $context
+                );
+
+                $action = $payload['action'];
+
+                $this->validateActionAllowed(
+                    $action,
+                    $adminActions
+                );
+
+                $updatedContext = match ($action) {
+                    'registrar_entrada_jornada' =>
+                    $this->registrarEntradaJornada(
+                        $payload,
+                        $context,
+                        $adminActions
+                    ),
+
+                    'registrar_par_jornada'     =>
+                    $this->registrarParJornada(
+                        $payload,
+                        $context,
+                        $adminActions
+                    ),
+
+                    'registrar_par_intermedio'  =>
+                    $this->registrarParIntermedio(
+                        $payload,
+                        $context,
+                        $adminActions
+                    ),
+
+                    'cerrar_movimiento_abierto' =>
+                    $this->cerrarMovimientoAbierto(
+                        $payload,
+                        $context,
+                        $adminActions
+                    ),
+
+                    'editar_checada'            =>
+                    $this->editarChecada(
+                        $payload,
+                        $context,
+                        $adminActions
+                    ),
+
+                    default                     => throw new InvalidArgumentException(
+                        'ADMIN_ACTION_NOT_SUPPORTED'
+                    ),
+                };
+
+
+                $this->eventSynchronizationService->sincronizar(
+                    $payload,
+                    $updatedContext
+                );
+
+                return $updatedContext;
+            },
+            3
         );
-
-        $adminActions = $this->administrationService->resolveActions($context);
-
-        $action = $payload['action'];
-
-        $this->validateActionAllowed($action, $adminActions);
-
-        return match ($action) {
-            'registrar_entrada_jornada' => $this->registrarEntradaJornada($payload, $context, $adminActions),
-            'registrar_par_jornada'     => $this->registrarParJornada($payload, $context, $adminActions),
-            'registrar_par_intermedio'  => $this->registrarParIntermedio($payload, $context, $adminActions),
-            'cerrar_movimiento_abierto' => $this->cerrarMovimientoAbierto($payload, $context, $adminActions),
-            'editar_checada'            => $this->editarChecada($payload, $context, $adminActions),
-
-            default                     => throw new InvalidArgumentException('Acción administrativa no soportada.'),
-        };
     }
 
     protected function validatePayload(array $payload): void
@@ -190,7 +269,8 @@ class AttendanceAdministrationCommandService
         return $this->dayContextService->resolver(
             (int) $payload['id_portal'],
             (int) $payload['id_empleado'],
-            $payload['fecha']
+            $payload['fecha'],
+            (int) $payload['id_cliente']
         );
     }
 }

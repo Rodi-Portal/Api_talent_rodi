@@ -7,26 +7,43 @@ use App\Services\Checador\AttendanceAdministrationService;
 use App\Services\Checador\AttendanceDayContextService;
 use App\Services\Checador\JornadaCalculoService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Throwable;
 
 class AccesosChecadorGestionController extends Controller
 {
     public function contextoDia(Request $request, $id)
     {
-        $idPortal = $request->input('id_portal');
-        $fecha    = $request->input('fecha', now()->toDateString());
+        $validated = $request->validate([
+            'fecha' => ['nullable', 'date_format:Y-m-d'],
+        ]);
 
-        if (! $idPortal) {
+        $administrador = $request->user();
+
+        $empleado = $this->findAuthorizedEmployee(
+            $request,
+            (int) $id
+        );
+
+        if (! $empleado) {
             return response()->json([
                 'ok'      => false,
-                'message' => 'id_portal es requerido',
-            ], 422);
+                'code'    => 'EMPLOYEE_NOT_FOUND',
+                'message' => 'Empleado no encontrado.',
+            ], 404);
         }
 
+        $idPortal  = (int) $administrador->id_portal;
+        $idCliente = (int) $empleado->id_cliente;
+        $fecha     = $validated['fecha'] ?? now()->toDateString();
+
         $contexto = app(AttendanceDayContextService::class)->resolver(
-            (int) $idPortal,
-            (int) $id,
-            $fecha
+            $idPortal,
+            (int) $empleado->id,
+            $fecha,
+            $idCliente
         );
         $asignacion       = $contexto['asignacion'];
         $plantillaHorario = $contexto['plantillaHorario'];
@@ -234,26 +251,58 @@ class AccesosChecadorGestionController extends Controller
         int $id,
         AttendanceAdministrationCommandService $commandService
     ) {
+        $payload = $request->validate([
+            'action' => [
+                'required',
+                'string',
+                'in:registrar_entrada_jornada,registrar_par_jornada,registrar_par_intermedio,cerrar_movimiento_abierto,editar_checada',
+            ],
+            'fecha'  => ['required', 'date_format:Y-m-d'],
+            'motivo' => ['required', 'string', 'min:3', 'max:1000'],
+            'data'   => ['required', 'array'],
+        ]);
+
+        $administrador = $request->user();
+
+        $empleado = $this->findAuthorizedEmployee(
+            $request,
+            $id
+        );
+
+        if (! $empleado) {
+            return response()->json([
+                'success' => false,
+                'code'    => 'EMPLOYEE_NOT_FOUND',
+                'message' => 'Empleado no encontrado.',
+            ], 404);
+        }
+
+        /*
+     * Estos valores provienen del token y del empleado autorizado.
+     * Ignoramos los IDs enviados por el frontend.
+     */
+        $payload['id_portal']   = (int) $administrador->id_portal;
+        $payload['id_cliente']  = (int) $empleado->id_cliente;
+        $payload['id_usuario']  = (int) $administrador->id;
+        $payload['id_empleado'] = (int) $empleado->id;
+
+        /*
+     * La identidad de auditoría también se obtiene del token.
+     */
+        $payload['data']['admin_user_name'] =
+        $administrador->nombre ?: 'Administrador';
+
         try {
-            $payload = $request->validate([
-                'id_portal'  => ['required', 'integer'],
-                'id_cliente' => ['required', 'integer'],
-                'id_usuario' => ['required', 'integer'],
-                'action'     => ['required', 'string'],
-                'fecha'      => ['required', 'date_format:Y-m-d'],
-                'motivo'     => ['required', 'string', 'min:3'],
-                'data'       => ['required', 'array'],
-            ]);
-
-            $payload['id_empleado'] = $id;
-
             $commandService->execute($payload);
 
             /*
-         * Después de ejecutar el comando, volvemos a construir el contexto
-         * usando el mismo método empleado por el GET.
+         * contextoDia vuelve a obtener portal y cliente
+         * desde la autenticación, no desde el request.
          */
-            $contextResponse = $this->contextoDia($request, $id);
+            $contextResponse = $this->contextoDia(
+                $request,
+                (int) $empleado->id
+            );
 
             $contextData = $contextResponse->getData(true);
 
@@ -265,11 +314,44 @@ class AccesosChecadorGestionController extends Controller
                 'success' => true,
                 'data'    => $contextData['data'],
             ]);
-        } catch (Throwable $e) {
+        } catch (InvalidArgumentException $e) {
             return response()->json([
                 'success' => false,
+                'code'    => $e->getMessage(),
                 'message' => $e->getMessage(),
             ], 422);
+        } catch (Throwable $e) {
+            Log::error('Error ejecutando acción administrativa de checadas', [
+                'id_portal'        => (int) $administrador->id_portal,
+                'id_cliente'       => (int) $empleado->id_cliente,
+                'id_empleado'      => (int) $empleado->id,
+                'id_administrador' => (int) $administrador->id,
+                'action'           => $payload['action'],
+                'fecha'            => $payload['fecha'],
+                'error'            => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'code'    => 'ADMIN_ATTENDANCE_ACTION_FAILED',
+                'message' => 'No fue posible completar la acción administrativa.',
+            ], 500);
         }
+    }
+    private function findAuthorizedEmployee(
+        Request $request,
+        int $idEmpleado
+    ): ?object {
+        $administrador = $request->user();
+
+        return DB::connection('portal_main')
+            ->table('empleados')
+            ->where('id', $idEmpleado)
+            ->where('id_portal', (int) $administrador->id_portal)
+            ->where(function ($query) {
+                $query->where('eliminado', 0)
+                    ->orWhereNull('eliminado');
+            })
+            ->first();
     }
 }

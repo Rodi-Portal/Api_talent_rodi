@@ -639,12 +639,55 @@ Route::middleware(['auth:empleado', 'force.password.change'])
 //********************** INICIO Rutas Comunicacion 360  ****************************//
 
 Route::prefix('comunicacion360')->group(function () {
-    Route::get('/accesos', [AccesosController::class, 'index']);
-    Route::post('/accesos/generar', [AccesosController::class, 'generar']);
-    Route::post('/accesos/actualizar', [AccesosController::class, 'actualizar']);
-    Route::post('/accesos/generar-individual', [AccesosController::class, 'generarIndividual']);
-    Route::post('/accesos/actualizar-individual', [AccesosController::class, 'actualizarIndividual']);
-    Route::post('/accesos/{id}/cerrar-sesion', [AccesosChecadorController::class, 'cerrarSesion']);
+    Route::middleware(['auth:sanctum', 'admin.session'])
+        ->group(function () {
+            Route::get(
+                '/accesos',
+                [AccesosController::class, 'index']
+            );
+
+            Route::post(
+                '/accesos/generar',
+                [AccesosController::class, 'generar']
+            );
+
+            Route::post(
+                '/accesos/actualizar',
+                [AccesosController::class, 'actualizar']
+            );
+
+            Route::post(
+                '/accesos/generar-individual',
+                [AccesosController::class, 'generarIndividual']
+            );
+
+            Route::post(
+                '/accesos/actualizar-individual',
+                [AccesosController::class, 'actualizarIndividual']
+            );
+
+            Route::post(
+                '/accesos/{id}/cerrar-sesion',
+                [AccesosChecadorController::class, 'cerrarSesion']
+            );
+
+            Route::get(
+                '/accesos/empleados/{id}/gestion-checadas/contexto',
+                [AccesosChecadorGestionController::class, 'contextoDia']
+            );
+
+            Route::post(
+                '/accesos/empleados/{id}/gestion-checadas/ejecutar',
+                [
+                    AccesosChecadorGestionController::class,
+                    'ejecutarAccionAdministrativa',
+                ]
+            );
+            Route::post(
+                '/accesos/empleados/{id}/eliminar-acceso',
+                [AccesosController::class, 'eliminarAcceso']
+            );
+        });
 
     Route::get('/accesos/empleados/{id}/ips', [AccesosIpController::class, 'index']);
     Route::post('/accesos/empleados/{id}/ips', [AccesosIpController::class, 'guardarIp']);
@@ -696,14 +739,6 @@ Route::prefix('comunicacion360')->group(function () {
         [ChecadorEventosController::class, 'eventosEmpleado']
     );
 
-    Route::get(
-        '/accesos/empleados/{id}/gestion-checadas/contexto',
-        [AccesosChecadorGestionController::class, 'contextoDia']
-    );
-    Route::post(
-        '/accesos/empleados/{id}/gestion-checadas/ejecutar',
-        [AccesosChecadorGestionController::class, 'ejecutarAccionAdministrativa']
-    );
     Route::get(
         '/accesos/empleados/{id}/reportes/checadas/vista-previa',
         [AccesosChecadorReportesController::class, 'vistaPrevia']

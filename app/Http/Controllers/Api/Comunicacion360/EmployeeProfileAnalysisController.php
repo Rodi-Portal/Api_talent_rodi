@@ -156,15 +156,33 @@ class EmployeeProfileAnalysisController extends Controller
             ->pluck('fecha')
             ->unique()
             ->count();
-
-        $employeeEvents = DB::connection('portal_main')
+        $justifiedEventTypeIds = [1, 2, 3, 10];
+        $employeeEvents        = DB::connection('portal_main')
             ->table('calendario_eventos')
-            ->where('id_portal', $employee->id_portal)
             ->where('id_empleado', $employee->id)
+            ->whereIn('id_tipo', $justifiedEventTypeIds)
             ->where('estado', 2)
             ->where('eliminado', 0)
             ->whereDate('inicio', '<=', $fechaFin)
             ->whereDate('fin', '>=', $fechaInicio)
+            ->where(function ($query) use ($employee) {
+                $query->where(function ($contextQuery) use ($employee) {
+                    $contextQuery
+                        ->where('id_portal', $employee->id_portal)
+                        ->where('id_cliente', $employee->id_cliente);
+                })->orWhere(function ($legacyQuery) {
+                    $legacyQuery
+                        ->whereNull('id_portal')
+                        ->whereNull('id_cliente');
+                });
+            })
+            ->where(function ($query) {
+                $query->where('requiere_aprobacion', 0)
+                    ->orWhereIn(
+                        'estado_aprobacion',
+                        ['no_requiere', 'aprobado']
+                    );
+            })
             ->get();
         $employeeExtraEvents = DB::connection('portal_main')
             ->table('checador_evento_detalles as ced')
@@ -200,7 +218,6 @@ class EmployeeProfileAnalysisController extends Controller
         $justifiedDays     = 0;
         $workedDays        = 0;
 
-        $justifiedEventTypeIds = [1, 2, 3, 10];
 
         foreach (CarbonPeriod::create($fechaInicio, $fechaFin) as $date) {
             $currentDate = $date->toDateString();
