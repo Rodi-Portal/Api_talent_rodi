@@ -1,10 +1,10 @@
 <?php
 namespace App\Imports;
 
+use App\Models\Departamento;
+use App\Models\DomicilioEmpleado;
 use App\Models\Empleado;
 use App\Models\EmpleadoCampoExtra;
-use App\Models\DomicilioEmpleado;
-use App\Models\Departamento;
 use App\Models\PuestoEmpleado;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -14,10 +14,12 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
 class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
 {
-    protected int|string|null $idCliente;
+    protected int $idPortal;
+    protected int $idCliente;
 
-    public function __construct($idCliente)
+    public function __construct(int $idPortal, int $idCliente)
     {
+        $this->idPortal  = $idPortal;
         $this->idCliente = $idCliente;
     }
 
@@ -56,7 +58,10 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
 
     protected function esValorParaEliminar($valor): bool
     {
-        if ($valor === null) return true;
+        if ($valor === null) {
+            return true;
+        }
+
         $str  = trim((string) $valor);
         $norm = strtoupper(preg_replace('/\s+/', '', $str));
         return in_array($norm, ['', '--', 'BORRAR'], true);
@@ -71,7 +76,7 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
 
         foreach ($cabecerasObligatorias as $campoEsperado) {
             $campoEsperadoNorm = $this->normalizarCampo($campoEsperado);
-            if (!in_array($campoEsperadoNorm, $cabecerasArchivo, true)) {
+            if (! in_array($campoEsperadoNorm, $cabecerasArchivo, true)) {
                 throw new \Exception(
                     "El archivo no es válido. Faltan columnas clave (por ejemplo: ID, Nombre, Paterno)."
                 );
@@ -79,17 +84,125 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
         }
 
         // Validación previa: IDs pertenecen al cliente actual
+        // Validación previa:
+// - Con ID: debe existir y pertenecer al portal/cliente actual.
+// - Sin ID: se considerará un colaborador nuevo.
         $idsInvalidos = [];
-        foreach ($rows as $row) {
-            $id = $row['id'] ?? null;
-            if (!$id) { $idsInvalidos[] = '[sin ID]'; continue; }
-            $emp = Empleado::find($id);
-            if (!$emp || ($this->idCliente !== null && (string)$emp->id_cliente !== (string)$this->idCliente)) {
-                $idsInvalidos[] = $id;
+
+        foreach ($rows as $numeroFila => $row) {
+            $id = trim((string) ($row['id'] ?? ''));
+
+            // Una fila sin ID es válida: posteriormente se registrará como nueva.
+            if ($id === '') {
+                continue;
+            }
+
+            $empleado = Empleado::on('portal_main')
+                ->where('id', $id)
+                ->where('id_portal', $this->idPortal)
+                ->where('id_cliente', $this->idCliente)
+                ->first();
+
+            if (! $empleado) {
+                // +2 porque Excel comienza en 1 y la primera fila contiene encabezados.
+                $idsInvalidos[] = [
+                    'fila' => $numeroFila + 2,
+                    'id'   => $id,
+                ];
             }
         }
-        if ($idsInvalidos) {
-            throw new \Exception("Hay empleados que no pertenecen a la sucursal/cliente activo. Verifique el archivo.");
+
+        if (! empty($idsInvalidos)) {
+            $detalle = collect($idsInvalidos)
+                ->map(fn($item) => "fila {$item['fila']} (ID {$item['id']})")
+                ->implode(', ');
+
+            throw new \Exception(
+                "Hay empleados con ID inexistente o que no pertenecen al portal y sucursal actuales: {$detalle}."
+            );
+        }
+        // Validar datos obligatorios y códigos de empleado duplicados
+        $erroresFilas         = [];
+        $codigosDentroArchivo = [];
+
+        foreach ($rows as $indice => $row) {
+            $numeroFila = $indice + 2;
+
+            $id         = trim((string) ($row['id'] ?? ''));
+            $codigo     = trim((string) ($row['id_empleado'] ?? ''));
+            $nombre     = trim((string) ($row['nombre'] ?? ''));
+            $paterno    = trim((string) ($row['paterno'] ?? ''));
+            $codigoNorm = mb_strtolower($codigo, 'UTF-8');
+
+            // Ignorar filas completamente vacías.
+            if (
+                $id === '' &&
+                $codigo === '' &&
+                $nombre === '' &&
+                $paterno === ''
+            ) {
+                continue;
+            }
+
+            /*
+     * Para crear un colaborador nuevo requerimos:
+     * - Código asignado por el cliente.
+     * - Nombre.
+     * - Apellido paterno.
+     */
+            if ($id === '') {
+                if ($codigo === '') {
+                    $erroresFilas[] = "Fila {$numeroFila}: falta ID Empleado";
+                }
+
+                if ($nombre === '') {
+                    $erroresFilas[] = "Fila {$numeroFila}: falta Nombre";
+                }
+
+                if ($paterno === '') {
+                    $erroresFilas[] = "Fila {$numeroFila}: falta Apellido Paterno";
+                }
+            }
+
+            if ($codigo === '') {
+                continue;
+            }
+
+            // Detectar el mismo código repetido dentro del Excel.
+            if (isset($codigosDentroArchivo[$codigoNorm])) {
+                $primeraFila = $codigosDentroArchivo[$codigoNorm];
+
+                $erroresFilas[] =
+                    "Fila {$numeroFila}: el ID Empleado '{$codigo}' también aparece en la fila {$primeraFila}";
+            } else {
+                $codigosDentroArchivo[$codigoNorm] = $numeroFila;
+            }
+
+            // Detectar si el código ya pertenece a otro empleado en la BD.
+            $codigoExistente = Empleado::on('portal_main')
+                ->where('id_portal', $this->idPortal)
+                ->where('id_cliente', $this->idCliente)
+                ->whereRaw(
+                    'LOWER(TRIM(id_empleado)) = ?',
+                    [$codigoNorm]
+                )
+                ->when(
+                    $id !== '',
+                    fn($query) => $query->where('id', '<>', $id)
+                )
+                ->first(['id', 'id_empleado']);
+
+            if ($codigoExistente) {
+                $erroresFilas[] =
+                    "Fila {$numeroFila}: el ID Empleado '{$codigo}' ya está asignado al empleado con ID {$codigoExistente->id}";
+            }
+        }
+
+        if (! empty($erroresFilas)) {
+            throw new \Exception(
+                "El archivo contiene datos que deben corregirse:\n- " .
+                implode("\n- ", array_unique($erroresFilas))
+            );
         }
 
         // Import fila x fila (con transacción por fila para robustez)
@@ -100,31 +213,50 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                     $filaNorm = [];
                     $original = [];
                     foreach ($row as $campo => $valor) {
-                        $original[$campo] = $valor;
+                        $original[$campo]                         = $valor;
                         $filaNorm[$this->normalizarCampo($campo)] = $valor;
                     }
+                    // Ignorar filas completamente vacías
+                    $valoresConContenido = collect($filaNorm)->filter(function ($valor) {
+                        return $valor !== null && trim((string) $valor) !== '';
+                    });
 
-                    // ID
-                    $empleadoId = $filaNorm['id'] ?? null;
-                    if (!$empleadoId) return;
+                    if ($valoresConContenido->isEmpty()) {
+                        return;
+                    }
 
-                    /** @var Empleado $empleado */
-                    $empleado = Empleado::with('domicilioEmpleado')->find($empleadoId);
-                    if (!$empleado) return;
+                    // Determinar si se actualizará o se creará
+                    $empleadoId = trim((string) ($filaNorm['id'] ?? ''));
+                    $esNuevo    = $empleadoId === '';
 
-                    // ===== Resolver Departamento/Puesto según (Selección/Otro)
-                    // Tomamos ámbito del empleado (fuente de verdad)
-                    $portalId  = (int)($empleado->id_portal ?? 0);
-                    $clienteId = (int)($empleado->id_cliente ?? 0);
+                    if ($esNuevo) {
+                        /** @var Empleado $empleado */
+                        $empleado = new Empleado();
 
+                        // El ámbito proviene del controlador, no del Excel.
+                        $portalId  = $this->idPortal;
+                        $clienteId = $this->idCliente;
+                    } else {
+                        /** @var Empleado $empleado */
+                        $empleado = Empleado::on('portal_main')
+                            ->with('domicilioEmpleado')
+                            ->where('id', $empleadoId)
+                            ->where('id_portal', $this->idPortal)
+                            ->where('id_cliente', $this->idCliente)
+                            ->firstOrFail();
+
+                        // Para actualizaciones, el empleado sigue siendo la fuente de verdad.
+                        $portalId  = (int) $empleado->id_portal;
+                        $clienteId = (int) $empleado->id_cliente;
+                    }
                     // Departamento
-                    $depSelect = trim((string)($filaNorm['departamento_seleccion'] ?? ''));
-                    $depOtro   = trim((string)($filaNorm['departamento_otro'] ?? ''));
+                    $depSelect      = trim((string) ($filaNorm['departamento_seleccion'] ?? ''));
+                    $depOtro        = trim((string) ($filaNorm['departamento_otro'] ?? ''));
                     $depNombreFinal = $this->resolverCatalogoNombre($depSelect, $depOtro);
 
                     // Puesto
-                    $ptoSelect = trim((string)($filaNorm['puesto_seleccion'] ?? ''));
-                    $ptoOtro   = trim((string)($filaNorm['puesto_otro'] ?? ''));
+                    $ptoSelect      = trim((string) ($filaNorm['puesto_seleccion'] ?? ''));
+                    $ptoOtro        = trim((string) ($filaNorm['puesto_otro'] ?? ''));
                     $ptoNombreFinal = $this->resolverCatalogoNombre($ptoSelect, $ptoOtro);
 
                     // Buscar/crear IDs
@@ -146,13 +278,13 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                         $columnaDb = $this->aliasDb[$campoFijo] ?? $campoFijo;
 
                         if ($campoFijo === 'fecha_nacimiento' || $campoFijo === 'fecha_ingreso') {
-                            $fechaRaw = $filaNorm[$campoFijo] ?? null;
+                            $fechaRaw                    = $filaNorm[$campoFijo] ?? null;
                             $datosActualizar[$columnaDb] = $this->parseFechaNullable($fechaRaw);
                             continue;
                         }
 
-                        $valor = $filaNorm[$campoFijo] ?? null;
-                        $datosActualizar[$columnaDb] = $this->esValorParaEliminar($valor) ? null : trim((string)$valor);
+                        $valor                       = $filaNorm[$campoFijo] ?? null;
+                        $datosActualizar[$columnaDb] = $this->esValorParaEliminar($valor) ? null : trim((string) $valor);
                     }
 
                     // Inyectar catálogo resuelto
@@ -166,34 +298,69 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
 
                     if ($ptoNombre !== '') {
                         $datosActualizar['id_puesto'] = $ptoId ?: null;
-                        $datosActualizar['puesto']     = $ptoNombre; // legacy visible
+                        $datosActualizar['puesto']    = $ptoNombre; // legacy visible
                     } else {
                         $datosActualizar['id_puesto'] = null;
-                        $datosActualizar['puesto']     = null;
+                        $datosActualizar['puesto']    = null;
+                    }
+// Crear o actualizar empleado
+                    if ($esNuevo) {
+                        $datosActualizar = array_merge([
+                            'creacion'   => now()->toDateString(),
+                            'id_portal'  => $portalId,
+                            'id_cliente' => $clienteId,
+                            'status'     => 1,
+                            'eliminado'  => 0,
+                        ], $datosActualizar);
                     }
 
-                    // Actualizar empleado (revisa fillable)
-                    if ($datosActualizar) {
-                        $empleado->update($datosActualizar);
+                    $empleado->fill($datosActualizar);
+                    $empleado->save();
+
+                    // ===== Crear o actualizar domicilio
+                    $datosDom = [];
+
+                    foreach ([
+                        'pais',
+                        'estado',
+                        'ciudad',
+                        'colonia',
+                        'calle',
+                        'num_int',
+                        'num_ext',
+                        'cp',
+                    ] as $campoDomicilio) {
+                        $valor = $filaNorm[$campoDomicilio] ?? null;
+
+                        $datosDom[$campoDomicilio] = $this->esValorParaEliminar($valor)
+                            ? null
+                            : trim((string) $valor);
                     }
 
-                    // ===== Domicilio (si existe relación)
+                    $tieneDatosDomicilio = collect($datosDom)->contains(
+                        fn($valor) => $valor !== null && $valor !== ''
+                    );
+
                     if ($empleado->domicilioEmpleado) {
-                        $datosDom = [];
-                        foreach (['pais','estado','ciudad','colonia','calle','num_int','num_ext','cp'] as $c) {
-                            $v = $filaNorm[$c] ?? null;
-                            $datosDom[$c] = $this->esValorParaEliminar($v) ? null : trim((string)$v);
-                        }
+                        // El empleado ya tiene domicilio.
                         $empleado->domicilioEmpleado->update($datosDom);
+                    } elseif ($tieneDatosDomicilio) {
+                        // Nuevo empleado o empleado existente sin domicilio.
+                        $domicilio = DomicilioEmpleado::on('portal_main')->create($datosDom);
+
+                        $empleado->id_domicilio_empleado = $domicilio->id;
+                        $empleado->save();
                     }
 
                     // ===== Campos extra (solo los que vienen; no borres todo lo demás automáticamente)
                     $columnasFijasSet = array_flip($columnasFijasNorm);
                     foreach ($original as $nombreOriginal => $valorOriginal) {
                         $norm = $this->normalizarCampo($nombreOriginal);
-                        if (isset($columnasFijasSet[$norm])) continue;
+                        if (isset($columnasFijasSet[$norm])) {
+                            continue;
+                        }
 
-                        $valor = $this->esValorParaEliminar($valorOriginal) ? null : trim((string)$valorOriginal);
+                        $valor = $this->esValorParaEliminar($valorOriginal) ? null : trim((string) $valorOriginal);
 
                         // Busca por nombre normalizado
                         $existente = EmpleadoCampoExtra::where('id_empleado', $empleado->id)->get()
@@ -202,7 +369,10 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                             });
 
                         if ($valor === null) {
-                            if ($existente) $existente->delete();
+                            if ($existente) {
+                                $existente->delete();
+                            }
+
                         } else {
                             if ($existente) {
                                 $existente->valor = $valor;
@@ -217,7 +387,7 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                         }
                     }
                 } catch (\Throwable $e) {
-                    Log::error("Error importando fila ID ".($row['id'] ?? 'N/A').": ".$e->getMessage());
+                    Log::error("Error importando fila ID " . ($row['id'] ?? 'N/A') . ": " . $e->getMessage());
                     throw $e; // para que la transacción de la fila haga rollback
                 }
             });
@@ -241,7 +411,9 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
     protected function buscarOCrearDepartamento(int $portalId, int $clienteId, string $nombre): array
     {
         $n = trim($nombre);
-        if ($n === '') return [null, ''];
+        if ($n === '') {
+            return [null, ''];
+        }
 
         $dep = Departamento::on('portal_main')->firstOrCreate(
             ['id_portal' => $portalId, 'id_cliente' => $clienteId, 'nombre' => $n],
@@ -254,7 +426,9 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
     protected function buscarOCrearPuesto(int $portalId, int $clienteId, string $nombre): array
     {
         $n = trim($nombre);
-        if ($n === '') return [null, ''];
+        if ($n === '') {
+            return [null, ''];
+        }
 
         $pto = PuestoEmpleado::on('portal_main')->firstOrCreate(
             ['id_portal' => $portalId, 'id_cliente' => $clienteId, 'nombre' => $n],
@@ -266,25 +440,30 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
 
     protected function parseFechaNullable($raw): ?string
     {
-        if ($this->esValorParaEliminar($raw)) return null;
+        if ($this->esValorParaEliminar($raw)) {
+            return null;
+        }
 
         try {
             if (is_numeric($raw)) {
                 $dt = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($raw);
                 return \Carbon\Carbon::instance($dt)->format('Y-m-d');
             }
-            $formatos = ['Y-m-d','d/m/Y','d-m-Y','Y/m/d','m/d/Y','m-d-Y','d M Y','d-M-Y','d F Y','Ymd','d.m.Y','Y.m.d'];
+            $formatos = ['Y-m-d', 'd/m/Y', 'd-m-Y', 'Y/m/d', 'm/d/Y', 'm-d-Y', 'd M Y', 'd-M-Y', 'd F Y', 'Ymd', 'd.m.Y', 'Y.m.d'];
             foreach ($formatos as $f) {
                 try {
-                    $fecha = \Carbon\Carbon::createFromFormat($f, trim((string)$raw));
-                    if ($fecha) return $fecha->format('Y-m-d');
+                    $fecha = \Carbon\Carbon::createFromFormat($f, trim((string) $raw));
+                    if ($fecha) {
+                        return $fecha->format('Y-m-d');
+                    }
+
                 } catch (\Throwable) {}
             }
             // último recurso: si viene ISO con tiempo
-            $iso = \Carbon\Carbon::parse((string)$raw);
+            $iso = \Carbon\Carbon::parse((string) $raw);
             return $iso?->format('Y-m-d');
         } catch (\Throwable $e) {
-            Log::warning("Fecha inválida '{$raw}': ".$e->getMessage());
+            Log::warning("Fecha inválida '{$raw}': " . $e->getMessage());
             return null;
         }
     }

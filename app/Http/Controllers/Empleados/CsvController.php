@@ -19,8 +19,8 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Maatwebsite\Excel\Facades\Excel;
 use Maatwebsite\Excel\Excel as ExcelExcel;
+use Maatwebsite\Excel\Facades\Excel;
 
 // Importa correctamente el controlador base
 
@@ -313,20 +313,44 @@ class CsvController extends Controller
 
     public function importGeneralInfo(Request $request)
     {
-        if (! $request->hasFile('file')) {
-            return response()->json(['error' => 'No se proporcionó un archivo'], 400);
-        }
-        if (! $request->has('id_cliente')) {
-            return response()->json(['error' => 'No esta  asociado a una sucursal refresque la  pagina  e intentelo nuevamente'], 400);
+        $request->validate([
+            'file'       => 'required|file|mimes:xlsx,xls,csv',
+            'id_cliente' => 'required|integer',
+        ]);
+
+        $idCliente = (int) $request->input('id_cliente');
+
+        $idPortal = Empleado::on('portal_main')
+            ->where('id_cliente', $idCliente)
+            ->whereNotNull('id_portal')
+            ->value('id_portal');
+
+        if (! $idPortal) {
+            return response()->json([
+                'error' => 'No fue posible identificar el portal asociado a la sucursal.',
+            ], 422);
         }
 
-        $id_cliente = $request->input('id_cliente');
         try {
-            Excel::import(new EmpleadosGeneralImport($id_cliente), $request->file('file'));
-            return response()->json(['success' => 'Información actualizada correctamente']);
-        } catch (\Exception $e) {
-            Log::error('Error al importar archivo Excel: ' . $e->getMessage());
-            return response()->json(['error' => 'Error al procesar el archivo: ' . $e->getMessage()], 500);
+            Excel::import(
+                new EmpleadosGeneralImport((int) $idPortal, $idCliente),
+                $request->file('file')
+            );
+
+            return response()->json([
+                'success' => 'Información actualizada e importada correctamente',
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Error al importar información general', [
+                'id_portal'  => $idPortal,
+                'id_cliente' => $idCliente,
+                'mensaje'    => $e->getMessage(),
+                'trace'      => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'error' => 'Error al procesar el archivo: ' . $e->getMessage(),
+            ], 500);
         }
     }
 
