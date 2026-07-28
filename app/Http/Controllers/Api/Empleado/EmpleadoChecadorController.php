@@ -464,11 +464,46 @@ class EmpleadoChecadorController extends Controller
                 'message' => 'attendance_timezone_not_configured',
             ], 422);
         }
-
         $timezone = $horario->timezone;
 
-        $fechaHora = Carbon::parse($request->check_time)
+        /*
+        * La hora oficial la determina el servidor usando
+        * la zona horaria configurada en la plantilla.
+        */
+        $fechaHoraServidor = Carbon::now($timezone);
+
+        /*
+        * La hora del dispositivo se utiliza solamente para detectar
+        * una configuración incorrecta o un intento de manipulación.
+        */
+        $fechaHoraDispositivo = Carbon::parse($request->check_time)
             ->setTimezone($timezone);
+
+        $desfaseSegundos = abs(
+            $fechaHoraServidor->diffInSeconds(
+                $fechaHoraDispositivo,
+                false
+            )
+        );
+
+        if ($desfaseSegundos > 300) {
+            return response()->json([
+                'ok'      => false,
+                'code'    => 'device_time_not_synchronized',
+                'message' => 'device_time_not_synchronized',
+                'data'    => [
+                    'server_time'          => $fechaHoraServidor->toIso8601String(),
+                    'device_time'          => $fechaHoraDispositivo->toIso8601String(),
+                    'operational_timezone' => $timezone,
+                    'difference_seconds'   => $desfaseSegundos,
+                ],
+            ], 422);
+        }
+
+/*
+ * Toda la validación y el registro utilizan la hora del servidor.
+ */
+        $fechaHora = $fechaHoraServidor;
         /*
         $this->cerrarJornadaPendienteSiAplica(
             $idPortal,
@@ -787,6 +822,13 @@ class EmpleadoChecadorController extends Controller
         $metadata['check_time_iso_operativo'] = $fechaHora->toIso8601String();
         $metadata['check_time_utc_recibido']  = $request->check_time;
         $metadata['timezone_dispositivo']     = $request->timezone;
+        $metadata['check_time_dispositivo']   =
+        $fechaHoraDispositivo->toIso8601String();
+
+        $metadata['check_time_servidor'] =
+        $fechaHoraServidor->toIso8601String();
+
+        $metadata['desfase_segundos'] = $desfaseSegundos;
 
         $payloadValidacion['dispositivo']       = 'web';
         $payloadValidacion['origen']            = 'geoloc';
