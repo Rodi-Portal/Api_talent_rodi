@@ -938,18 +938,11 @@ class EmpleadoChecadorController extends Controller
                     $resultadoValidacionAtomica['motivo']             =
                         'valid_qr_for_employee';
                 }
-
                 $idChecada = $registroService->insertar(
                     $payloadValidacion,
                     $resultadoValidacionAtomica,
                     $metadata
                 );
-                $faltasCreadas = $absenceBackfillService->registrarPendientes(
-                    $idPortal,
-                    $idCliente,
-                    $idEmpleado,
-                    $fechaHora
-                );
 
                 $faltasCreadas = $absenceBackfillService->registrarPendientes(
                     $idPortal,
@@ -957,6 +950,12 @@ class EmpleadoChecadorController extends Controller
                     $idEmpleado,
                     $fechaHora
                 );
+
+                return [
+                    'ok'             => true,
+                    'id_checada'     => $idChecada,
+                    'faltas_creadas' => $faltasCreadas,
+                ];
             },
             3
         );
