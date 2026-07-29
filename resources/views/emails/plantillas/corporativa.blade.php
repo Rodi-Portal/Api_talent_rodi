@@ -52,15 +52,24 @@
 
 <body>
   <div class="containerPlantilla">
-    {{-- Logo inline --}}
-    @if (!empty($logo_src))
+    {{-- Logo --}}
+    @php
+    $logoRenderSrc = $logo_src ?? null;
+
+    if (!empty($logo_path) && isset($message)) {
+    $logoRenderSrc = $message->embed($logo_path);
+    }
+    @endphp
+
+    @if (!empty($logoRenderSrc))
     <table width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr>
         <td align="center" style="padding-bottom: 20px;">
-          <img src="{{ $logo_src }}" alt="Logo" width="200" style="display:block; height:auto; border:0;" />
+          <img src="{{ $logoRenderSrc }}" alt="Logo" width="200" style="display:block; height:auto; border:0;" />
         </td>
       </tr>
-    </table> @endif
+    </table>
+    @endif
     <div class="headerPlantilla">
       <h1>{{ $titulo ?? 'Título corporativo' }}</h1>
     </div>
