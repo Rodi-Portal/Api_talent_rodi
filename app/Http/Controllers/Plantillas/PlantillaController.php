@@ -60,21 +60,56 @@ class PlantillaController extends Controller
 
     public function vistaPrevia(Request $request)
     {
-        $nombre = $request->input('plantilla');
+        $request->validate([
+            'plantilla' => ['required', 'string'],
+            'titulo'    => ['nullable', 'string'],
+            'cuerpo'    => ['nullable', 'string'],
+            'saludo'    => ['nullable', 'string'],
+            'logo_url'  => ['nullable', 'string'],
+            'logo'      => [
+                'nullable',
+                'file',
+                'image',
+                'mimes:jpeg,jpg,png,webp',
+                'max:2048',
+            ],
+        ]);
 
-        $vista = "emails.plantillas.$nombre";
+        $nombre = $request->input('plantilla');
+        $vista  = "emails.plantillas.$nombre";
+
         if (! View::exists($vista)) {
-            return response()->json(['error' => 'Plantilla no encontrada'], 404);
+            return response()->json([
+                'error' => 'Plantilla no encontrada',
+            ], 404);
+        }
+
+        $logoSrc = $request->input('logo_url', '');
+
+        if ($request->hasFile('logo')) {
+            $archivo = $request->file('logo');
+
+            $contenido = file_get_contents(
+                $archivo->getRealPath()
+            );
+
+            $logoSrc = sprintf(
+                'data:%s;base64,%s',
+                $archivo->getMimeType(),
+                base64_encode($contenido)
+            );
         }
 
         $html = view($vista, [
             'titulo'   => $request->input('titulo', ''),
             'cuerpo'   => $request->input('cuerpo', ''),
             'saludo'   => $request->input('saludo', ''),
-            'logo_src' => $request->input('logo_url', ''),
+            'logo_src' => $logoSrc,
         ])->render();
 
-        return response()->json(['html' => $html]);
+        return response()->json([
+            'html' => $html,
+        ]);
     }
 /*
     public function store(Request $request)
@@ -240,12 +275,12 @@ class PlantillaController extends Controller
         ]);
 
         // 3) Paths por ambiente
-            $root = rtrim(
-                app()->environment('production')
-                    ? (config('paths.prod_images') ?: '')
-                    : (config('paths.local_images') ?: ''),
-                DIRECTORY_SEPARATOR
-            );
+        $root = rtrim(
+            app()->environment('production')
+                ? (config('paths.prod_images') ?: '')
+                : (config('paths.local_images') ?: ''),
+            DIRECTORY_SEPARATOR
+        );
         $basePath = $root . DIRECTORY_SEPARATOR . '_plantillas';
         $logosDir = $basePath . DIRECTORY_SEPARATOR . '_logos';
         $adjDir   = $basePath . DIRECTORY_SEPARATOR . '_adjuntos';
@@ -474,12 +509,12 @@ class PlantillaController extends Controller
         }
 
         // Mismo root que usas en store()
-            $root = rtrim(
-                app()->environment('production')
-                    ? (config('paths.prod_images') ?: '')
-                    : (config('paths.local_images') ?: ''),
-                DIRECTORY_SEPARATOR
-            );
+        $root = rtrim(
+            app()->environment('production')
+                ? (config('paths.prod_images') ?: '')
+                : (config('paths.local_images') ?: ''),
+            DIRECTORY_SEPARATOR
+        );
 
         $path = $root
         . DIRECTORY_SEPARATOR . '_plantillas'
