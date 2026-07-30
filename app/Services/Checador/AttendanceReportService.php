@@ -2,6 +2,7 @@
 namespace App\Services\Checador;
 
 use App\Services\ChecadorHorasExtraService;
+use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 
 class AttendanceReportService
@@ -10,7 +11,8 @@ class AttendanceReportService
         private AttendanceDayContextService $dayContextService,
         private JornadaCalculoService $jornadaCalculoService,
         private ChecadorHorasExtraService $horasExtraService,
-        private AttendanceAuthorizedOvertimeService $authorizedOvertimeService
+        private AttendanceAuthorizedOvertimeService $authorizedOvertimeService,
+        private AttendanceReportEventService $reportEventService
     ) {
     }
 
@@ -40,7 +42,12 @@ class AttendanceReportService
                 'sin_salida'          => 0,
             ],
         ];
-
+        $eventosReporte = $this->reportEventService->resolverPeriodo(
+            $idPortal,
+            $idEmpleado,
+            $fechaInicio,
+            $fechaFin
+        );
         $periodo = CarbonPeriod::create($fechaInicio, $fechaFin);
 
         foreach ($periodo as $fecha) {
@@ -55,6 +62,7 @@ class AttendanceReportService
             $plantillaHorario    = $contexto['plantillaHorario'];
             $detalleHorario      = $contexto['detalleHorario'];
             $checadas            = $contexto['checadas'];
+            $eventoReporte       = $eventosReporte[$fechaString] ?? null;
             $calculoJornada      = null;
             $horasExtraAprobadas = $this->horasExtraService
                 ->obtenerAprobadasPorFecha(
@@ -63,6 +71,7 @@ class AttendanceReportService
                     $fechaString
                 );
             if (
+                ! $eventoReporte &&
                 $asignacion &&
                 $plantillaHorario &&
                 $detalleHorario &&
@@ -109,7 +118,9 @@ class AttendanceReportService
             $resumenMovimientos = $this->construirResumenMovimientos(
                 $movimientosRegistrados
             );
-            $incidencias = $this->construirIncidencias(
+            $incidencias = $eventoReporte
+                ? []
+                : $this->construirIncidencias(
                 $calculoJornada,
                 (bool) ($detalleHorario?->labora ?? false),
                 $checadas->count()
@@ -131,10 +142,20 @@ class AttendanceReportService
                     $resumen['incidencias']['sin_salida']++;
                 }
             }
-            $estadoReporte = $this->construirEstadoReporte(
+            $estadoReporte = $eventoReporte
+                ? [
+                'codigo'      => $eventoReporte['codigo'],
+                'descripcion' => $eventoReporte['nombre'],
+            ]
+                : $this->construirEstadoReporte(
                 $calculoJornada,
                 (bool) ($detalleHorario?->labora ?? false),
                 $checadas->count()
+            );
+            $minutosEventoPagables = $this->calcularMinutosEventoPagable(
+                $fechaString,
+                $detalleHorario,
+                $eventoReporte
             );
             $filaReporte = $this->construirFilaReporte(
                 $fechaString,
@@ -142,12 +163,20 @@ class AttendanceReportService
                 $resumenMovimientos,
                 $estadoReporte,
                 $calculoJornada,
-                $tiempoExtraAutorizado
+                $tiempoExtraAutorizado,
+                $minutosEventoPagables
+
             );
             if ($detalleHorario?->labora) {
                 $resumen['dias']['laborables']++;
 
-                if ($checadas->isNotEmpty()) {
+                if ($eventoReporte) {
+                    if ($eventoReporte['pagable']) {
+                        $resumen['dias']['con_asistencia']++;
+                    } else {
+                        $resumen['dias']['sin_asistencia']++;
+                    }
+                } elseif ($checadas->isNotEmpty()) {
                     $resumen['dias']['con_asistencia']++;
                 } else {
                     $resumen['dias']['sin_asistencia']++;
@@ -162,7 +191,11 @@ class AttendanceReportService
                 true
             );
 
-            if ($esJornadaContabilizable) {
+            if ($minutosEventoPagables > 0) {
+                $resumen['horas']['normales']        += $minutosEventoPagables;
+                $resumen['horas']['contabilizables'] +=
+                    $minutosEventoPagables;
+            } elseif ($esJornadaContabilizable) {
                 $minutosNormales =
                 $calculoJornada['normal']['minutos_detectados'] ?? 0;
 
@@ -179,6 +212,7 @@ class AttendanceReportService
                 'tiene_asignacion'        => ! empty($asignacion),
                 'tiene_horario'           => ! empty($plantillaHorario),
                 'labora'                  => (bool) ($detalleHorario?->labora ?? false),
+                'evento_reporte'          => $eventoReporte,
 
                 'horario'                 => [
                     'entrada' => $detalleHorario?->hora_entrada,
@@ -208,18 +242,26 @@ class AttendanceReportService
                     ->all(),
                 'tiempo_extra_autorizado' => $tiempoExtraAutorizado,
                 'jornada'                 => [
-                    'estado'                    => $calculoJornada['estado_jornada'] ?? null,
+                    'estado'                    => $eventoReporte
+                        ? $eventoReporte['codigo']
+                        : ($calculoJornada['estado_jornada'] ?? null),
                     'entrada'                   => $calculoJornada['real']['entrada'] ?? null,
                     'salida'                    => $calculoJornada['real']['salida'] ?? null,
                     'salida_virtual'            => $calculoJornada['real']['salida_virtual'] ?? false,
-                    'minutos_trabajados'        => $calculoJornada['normal']['minutos_detectados'] ?? 0,
+                    'minutos_trabajados'        => $eventoReporte
+                        ? $minutosEventoPagables
+                        : ($calculoJornada['normal']['minutos_detectados'] ?? 0),
                     'minutos_extra_reconocidos' => $tiempoExtraAutorizado['minutos_reconocidos'] ?? 0,
-                    'minutos_contabilizables'   => $esJornadaContabilizable
-                        ? (
-                        ($calculoJornada['normal']['minutos_detectados'] ?? 0)
-                         + ($tiempoExtraAutorizado['minutos_reconocidos'] ?? 0)
-                    )
-                        : 0,
+                    'minutos_contabilizables'   => $eventoReporte
+                        ? $minutosEventoPagables
+                        : (
+                        $esJornadaContabilizable
+                            ? (
+                            ($calculoJornada['normal']['minutos_detectados'] ?? 0)
+                             + ($tiempoExtraAutorizado['minutos_reconocidos'] ?? 0)
+                        )
+                            : 0
+                    ),
                 ],
             ];
         }
@@ -390,7 +432,8 @@ class AttendanceReportService
         array $movimientos,
         array $estadoReporte,
         ?array $calculoJornada,
-        array $tiempoExtra
+        array $tiempoExtra,
+        int $minutosEventoPagables
     ): array {
         $esJornadaContabilizable =
         $calculoJornada &&
@@ -406,9 +449,13 @@ class AttendanceReportService
             true
         );
 
-        $minutosNormales = $esJornadaContabilizable
-            ? ($calculoJornada['normal']['minutos_detectados'] ?? 0)
-            : 0;
+        $minutosNormales = $minutosEventoPagables > 0
+            ? $minutosEventoPagables
+            : (
+            $esJornadaContabilizable
+                ? ($calculoJornada['normal']['minutos_detectados'] ?? 0)
+                : 0
+        );
 
         $minutosExtra = $esJornadaContabilizable
             ? ($tiempoExtra['minutos_reconocidos'] ?? 0)
@@ -505,6 +552,36 @@ class AttendanceReportService
         );
 
         return $detalles;
+    }
+    private function calcularMinutosEventoPagable(
+        string $fecha,
+        $detalleHorario,
+        ?array $eventoReporte
+    ): int {
+        if (
+            ! $eventoReporte ||
+            ! ($eventoReporte['pagable'] ?? false) ||
+            ! $detalleHorario ||
+            ! $detalleHorario->labora ||
+            empty($detalleHorario->hora_entrada) ||
+            empty($detalleHorario->hora_salida)
+        ) {
+            return 0;
+        }
+
+        $inicio = Carbon::parse(
+            $fecha . ' ' . $detalleHorario->hora_entrada
+        );
+
+        $fin = Carbon::parse(
+            $fecha . ' ' . $detalleHorario->hora_salida
+        );
+
+        if ($fin->lessThanOrEqualTo($inicio)) {
+            $fin->addDay();
+        }
+
+        return $inicio->diffInMinutes($fin);
     }
     private function formatearMinutos(int $minutos): string
     {

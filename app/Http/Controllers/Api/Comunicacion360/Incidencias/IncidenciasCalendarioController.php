@@ -49,9 +49,9 @@ class IncidenciasCalendarioController extends Controller
         $consulta = DB::connection('portal_main')
             ->table('calendario_eventos as ce')
             ->join('eventos_option as eo', 'eo.id', '=', 'ce.id_tipo')
-            ->join('empleados as e', function ($join) {
+            ->join('empleados as e', function ($join) use ($idPortal) {
                 $join->on('e.id', '=', 'ce.id_empleado')
-                    ->on('e.id_portal', '=', 'ce.id_portal')
+                    ->where('e.id_portal', $idPortal)
                     ->where('e.status', 1)
                     ->where('e.eliminado', 0);
             })
@@ -86,7 +86,14 @@ class IncidenciasCalendarioController extends Controller
                 'e.puesto as empleado_puesto',
                 'e.foto as empleado_foto',
             ])
-            ->where('ce.id_portal', $idPortal)
+            ->where(function ($query) use ($idPortal) {
+                $query->where('ce.id_portal', $idPortal)
+                    ->orWhere(function ($legacyQuery) {
+                        $legacyQuery
+                            ->whereNull('ce.id_portal')
+                            ->whereNull('ce.id_cliente');
+                    });
+            })
             ->where('ce.eliminado', 0)
             ->whereDate('ce.inicio', '<=', $datos['fecha_fin'])
             ->whereDate('ce.fin', '>=', $datos['fecha_inicio'])
@@ -351,5 +358,5 @@ class IncidenciasCalendarioController extends Controller
                 'private, no-store, max-age=0',
             ]
         );
-    }   
+    }
 }

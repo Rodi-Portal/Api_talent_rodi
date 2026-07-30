@@ -18,12 +18,13 @@ use Illuminate\Support\Facades\Schema;
  */
 final class AsistenciaServicio
 {
-    public const EV_VACACIONES  = 'Vacaciones';
-    public const EV_INCAPACIDAD = 'Incapacidad';
-    public const EV_PERMISO     = 'Permiso';
-    public const EV_FALTA       = 'Falta';
-    public const EV_RETARDO     = 'Retardo';
-    public const EV_SALIDA_ANT  = 'Salida anticipada';
+    public const EV_VACACIONES       = 'Vacaciones';
+    public const EV_INCAPACIDAD      = 'Incapacidad';
+    public const EV_PERMISO_CON_GOCE = 'Permiso con goce';
+    public const EV_PERMISO_SIN_GOCE = 'Permiso sin goce';
+    public const EV_FALTA            = 'Falta';
+    public const EV_RETARDO          = 'Retardo';
+    public const EV_SALIDA_ANT       = 'Salida anticipada';
 
     public function __construct(
         private ResolverPolitica $resolver,
@@ -57,7 +58,10 @@ final class AsistenciaServicio
 
         // 2) Bloqueos de calendario (vacaciones/incapacidad/permiso).
         if ($this->hasBlockingEvent($empleadoId, $fechaYmd, [
-            self::EV_VACACIONES, self::EV_INCAPACIDAD, self::EV_PERMISO,
+            self::EV_VACACIONES,
+            self::EV_INCAPACIDAD,
+            self::EV_PERMISO_CON_GOCE,
+            self::EV_PERMISO_SIN_GOCE,
         ])) {
             $this->syncSystemEvents($empleadoId, $fechaYmd, []);
             return ['status' => 'blocked_by_calendar'];

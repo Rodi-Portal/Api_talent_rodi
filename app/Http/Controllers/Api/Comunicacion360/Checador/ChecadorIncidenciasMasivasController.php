@@ -194,7 +194,8 @@ class ChecadorIncidenciasMasivasController extends Controller
         return match ($name) {
             'Vacaciones'        => 'Vacation',
             'Incapacidad'       => 'Disability',
-            'Permiso'           => 'Permission',
+            'Permiso con goce'  => 'Paid leave',
+            'Permiso sin goce'  => 'Unpaid leave',
             'Falta'             => 'Absence',
             'Retardo'           => 'Late arrival',
             'Salida anticipada' => 'Early departure',
@@ -545,7 +546,9 @@ class ChecadorIncidenciasMasivasController extends Controller
         return match ($eventType) {
             'Vacation'        => 'Vacaciones',
             'Disability'      => 'Incapacidad',
-            'Permission'      => 'Permiso',
+            'Paid leave'      => 'Permiso con goce',
+            'Unpaid leave'    => 'Permiso sin goce',
+            'Permission'      => 'Permiso con goce', // Compatibilidad con archivos anteriores
             'Absence'         => 'Falta',
             'Late arrival'    => 'Retardo',
             'Early departure' => 'Salida anticipada',

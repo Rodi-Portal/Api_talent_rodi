@@ -359,7 +359,7 @@ class EmployeeProfileAnalysisController extends Controller
             $riskLevel = 'high';
         } elseif (
             $absencesCount >= 1 ||
-            $lateCount >= 2 ||
+            $lateCount >= 3 ||
             $pendingTasks >= 3 ||
             $missingEvidence >= 2 ||
             ($attendanceScore !== null && $attendanceScore < 85) ||
@@ -482,7 +482,7 @@ class EmployeeProfileAnalysisController extends Controller
                 ];
             }
 
-            if ($lateCount >= 2) {
+            if ($lateCount >= 3) {
                 $insights[] = [
                     'code'     => 'recurrent_lateness',
                     'severity' => $lateCount >= 5 ? 'high' : 'medium',
