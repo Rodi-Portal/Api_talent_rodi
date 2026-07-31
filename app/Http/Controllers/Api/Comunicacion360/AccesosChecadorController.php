@@ -5,6 +5,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Comunicacion360\Checador\Checada;
 use App\Models\Comunicacion360\Checador\ChecadorAsignacion;
 use App\Services\Checador\AttendanceDayContextService;
+use App\Services\Checador\AttendanceReportEventService;
 use App\Services\Checador\JornadaCalculoService;
 use App\Services\Checador\VentanaOperativaService;
 use Carbon\Carbon;
@@ -101,7 +102,13 @@ class AccesosChecadorController extends Controller
         $detalleHorario   = $contexto['detalleHorario'];
         $ventanaOperativa = $contexto['ventanaOperativa'];
         $checadas         = $contexto['checadas'];
-
+        $eventoReporte    = app(AttendanceReportEventService::class)
+            ->resolverPeriodo(
+                (int) $idPortal,
+                (int) $id,
+                $fecha,
+                $fecha
+            )[$fecha] ?? null;
         if (! $asignacion || ! $plantillaHorario) {
             return response()->json([
                 'ok'   => true,
@@ -196,8 +203,50 @@ class AccesosChecadorController extends Controller
             'break',
             $plantillaHorario->timezone
         );
+        $timezoneOperativo = $plantillaHorario->timezone ?? config('app.timezone', 'UTC');
 
-        if ($calculoJornada['estado_jornada'] === 'sin_checadas') {
+        $ahoraOperativo = now($timezoneOperativo);
+
+        $limiteSalida = Carbon::parse(
+            $calculoJornada['programado']['fin'],
+            $timezoneOperativo
+        )->addMinutes(
+            (int) ($plantillaHorario->tolerancia_salida_min ?? 0)
+        );
+
+        $fechaOperativa = Carbon::parse(
+            $fecha,
+            $timezoneOperativo
+        )->startOfDay();
+
+        $periodoJornadaAbierto =
+        $fechaOperativa->greaterThan(
+            $ahoraOperativo->copy()->startOfDay()
+        )
+            || (
+            $fechaOperativa->isSameDay($ahoraOperativo)
+            && $ahoraOperativo->lessThanOrEqualTo($limiteSalida)
+        );
+
+        if ($eventoReporte) {
+            $minutosTrabajo = $eventoReporte['pagable']
+                ? $minutosProgramados
+                : 0;
+
+            $minutosRetardoDetectado                = 0;
+            $minutosRetardoFueraTolerancia          = 0;
+            $minutosSalidaAnticipadaDetectada       = 0;
+            $minutosSalidaAnticipadaFueraTolerancia = 0;
+            $minutosExtraDetectados                 = 0;
+            $minutosComida                          = 0;
+            $minutosBreak                           = 0;
+        }
+
+        if (
+            ! $eventoReporte
+            && $calculoJornada['estado_jornada'] === 'sin_checadas'
+            && ! $periodoJornadaAbierto
+        ) {
             $alertas[] = [
                 'tipo'    => 'ausencia',
                 'nivel'   => 'danger',
@@ -205,7 +254,10 @@ class AccesosChecadorController extends Controller
             ];
         }
 
-        if ($calculoJornada['estado_jornada'] === 'sin_entrada') {
+        if (
+            ! $eventoReporte
+            && $calculoJornada['estado_jornada'] === 'sin_entrada'
+        ) {
             $alertas[] = [
                 'tipo'    => 'sin_entrada',
                 'nivel'   => 'danger',
@@ -213,7 +265,11 @@ class AccesosChecadorController extends Controller
             ];
         }
 
-        if ($calculoJornada['estado_jornada'] === 'sin_salida') {
+        if (
+            ! $eventoReporte
+            && $calculoJornada['estado_jornada'] === 'sin_salida'
+            && ! $periodoJornadaAbierto
+        ) {
             $alertas[] = [
                 'tipo'    => 'sin_salida',
                 'nivel'   => 'danger',
@@ -248,15 +304,56 @@ class AccesosChecadorController extends Controller
                 'mensaje' => "Tiempo extra detectado de {$minutosExtraDetectados} minutos pendiente de aprobación.",
             ];
         }
+        $tieneEntradaLaboral = $checadas->contains(function ($checada) {
+            return $checada->tipo === 'in'
+            && $checada->clase === 'work';
+        });
+        $puntualidadPct = (
+            $eventoReporte
+            || ! $tieneEntradaLaboral
+        )
+            ? null
+            : (
+            $minutosProgramados > 0
+                ? max(
+                0,
+                round(
+                    (
+                        (
+                            $minutosProgramados
+                             - $minutosRetardoFueraTolerancia
+                        )
+                        / $minutosProgramados
+                    ) * 100,
+                    2
+                )
+            )
+                : null
+        );
 
-        $puntualidadPct = $minutosProgramados > 0
-            ? max(0, round((($minutosProgramados - $minutosRetardoFueraTolerancia) / $minutosProgramados) * 100, 2))
-            : null;
-
-        $productividadPct = $minutosProgramados > 0
-            ? min(100, round(($minutosTrabajo / $minutosProgramados) * 100, 2))
-            : null;
-
+        if ($eventoReporte) {
+            $productividadPct = $eventoReporte['pagable']
+                ? 100
+                : 0;
+        } elseif (
+            $periodoJornadaAbierto
+            && $calculoJornada['estado_jornada'] !== 'completa'
+        ) {
+            $productividadPct = null;
+        } else {
+            $productividadPct = $minutosProgramados > 0
+                ? min(
+                100,
+                round(
+                    (
+                        $minutosTrabajo
+                        / $minutosProgramados
+                    ) * 100,
+                    2
+                )
+            )
+                : null;
+        }
         $estadoOperativo = 'normal';
 
         if (collect($alertas)->where('nivel', 'danger')->count() > 0) {
@@ -271,6 +368,14 @@ class AccesosChecadorController extends Controller
                 'fecha'             => $fecha,
                 'tiene_horario'     => true,
                 'estado_operativo'  => $estadoOperativo,
+                'evento_operativo'  => $eventoReporte
+                    ? [
+                    'id'      => $eventoReporte['evento_id'],
+                    'codigo'  => $eventoReporte['codigo'],
+                    'nombre'  => $eventoReporte['nombre'],
+                    'pagable' => (bool) $eventoReporte['pagable'],
+                ]
+                    : null,
                 'ventana_operativa' => $ventanaOperativa,
                 'horario'           => [
                     'id_asignacion'          => $asignacion->id,
@@ -351,8 +456,9 @@ class AccesosChecadorController extends Controller
             ->orderBy('check_time')
             ->get();
 
-        $minutosProgramados = 0;
-        $minutosTrabajados  = 0;
+        $minutosProgramados           = 0;
+        $minutosProgramadosEvaluables = 0;
+        $minutosTrabajados            = 0;
 
         $minutosRetardoDetectado       = 0;
         $minutosRetardoFueraTolerancia = 0;
@@ -362,25 +468,35 @@ class AccesosChecadorController extends Controller
 
         $minutosExtraDetectados = 0;
 
-        $minutosComida               = 0;
-        $minutosBreak                = 0;
-        $minutosPersonal             = 0;
-        $diasCalendario              = 0;
-        $diasLaborables              = 0;
-        $diasTrabajados              = 0;
-        $diasSinChecadas             = 0;
-        $diasSinHorario              = 0;
-        $diasNoLaborablesConChecadas = 0;
+        $minutosComida                 = 0;
+        $minutosBreak                  = 0;
+        $minutosPersonal               = 0;
+        $diasCalendario                = 0;
+        $diasLaborables                = 0;
+        $diasTrabajados                = 0;
+        $minutosProgramadosPuntualidad = 0;
+        $diasSinChecadas               = 0;
+        $diasSinHorario                = 0;
+        $diasNoLaborablesConChecadas   = 0;
 
-        $alertas = [];
+        $alertas        = [];
+        $eventosPeriodo = app(AttendanceReportEventService::class)
+            ->resolverPeriodo(
+                (int) $idPortal,
+                (int) $id,
+                $fechaInicio,
+                $fechaFin
+            );
 
+        $eventosOperativos  = [];
         $checadasProcesadas = [];
         $cursor             = $inicio->copy();
 
         while ($cursor->lessThanOrEqualTo($fin)) {
 
-            $fecha     = $cursor->toDateString();
-            $diaSemana = (int) $cursor->dayOfWeek;
+            $fecha         = $cursor->toDateString();
+            $eventoReporte = $eventosPeriodo[$fecha] ?? null;
+            $diaSemana     = (int) $cursor->dayOfWeek;
 
             $diasCalendario++;
 
@@ -478,10 +594,78 @@ class AccesosChecadorController extends Controller
                 $fecha
             );
 
-            $minutosProgramados +=
+            $minutosProgramadosDia =
             $calculoJornada['programado']['minutos'] ?? 0;
 
+            $minutosProgramados += $minutosProgramadosDia;
+
+            $timezoneOperativo = $plantillaHorario->timezone ?? config('app.timezone', 'UTC');
+
+            $ahoraOperativo = now($timezoneOperativo);
+
+            $limiteSalida = Carbon::parse(
+                $calculoJornada['programado']['fin'],
+                $timezoneOperativo
+            )->addMinutes(
+                (int) ($plantillaHorario->tolerancia_salida_min ?? 0)
+            );
+
+            $fechaOperativa = Carbon::parse(
+                $fecha,
+                $timezoneOperativo
+            )->startOfDay();
+
+            $periodoJornadaAbierto =
+            $fechaOperativa->greaterThan(
+                $ahoraOperativo->copy()->startOfDay()
+            )
+                || (
+                $fechaOperativa->isSameDay($ahoraOperativo)
+                && $ahoraOperativo->lessThanOrEqualTo($limiteSalida)
+            );
+
+            if ($eventoReporte) {
+                $minutosProgramadosEvaluables += $minutosProgramadosDia;
+
+                $eventosOperativos[] = [
+                    'fecha'     => $fecha,
+                    'codigo'    => $eventoReporte['codigo'],
+                    'nombre'    => $eventoReporte['nombre'],
+                    'pagable'   => (bool) $eventoReporte['pagable'],
+                    'evento_id' => $eventoReporte['evento_id'],
+                ];
+
+                if ($eventoReporte['pagable']) {
+                    $diasTrabajados++;
+                    $minutosTrabajados += $minutosProgramadosDia;
+                } else {
+                    $diasSinChecadas++;
+                }
+
+                $cursor->addDay();
+
+                continue;
+            }
+            $tieneEntradaLaboral = $checadasDia->contains(function ($checada) {
+                return $checada->tipo === 'in'
+                && $checada->clase === 'work';
+            });
+
+            if ($tieneEntradaLaboral) {
+                $minutosProgramadosPuntualidad += $minutosProgramadosDia;
+            }
+            if (
+                ! $periodoJornadaAbierto
+                || $calculoJornada['estado_jornada'] === 'completa'
+            ) {
+                $minutosProgramadosEvaluables += $minutosProgramadosDia;
+            }
             if ($calculoJornada['estado_jornada'] === 'sin_checadas') {
+                if ($periodoJornadaAbierto) {
+                    $cursor->addDay();
+
+                    continue;
+                }
 
                 $diasSinChecadas++;
 
@@ -497,7 +681,6 @@ class AccesosChecadorController extends Controller
 
                 continue;
             }
-
             $diasTrabajados++;
 
             $minutosTrabajados +=
@@ -538,8 +721,10 @@ class AccesosChecadorController extends Controller
                 ];
             }
 
-            if ($calculoJornada['estado_jornada'] === 'sin_salida') {
-
+            if (
+                $calculoJornada['estado_jornada'] === 'sin_salida'
+                && ! $periodoJornadaAbierto
+            ) {
                 $alertas[] = [
                     'tipo'   => 'sin_salida',
                     'nivel'  => 'warning',
@@ -585,24 +770,30 @@ class AccesosChecadorController extends Controller
             ];
         }
 
-        $puntualidadPct = $minutosProgramados > 0
+        $puntualidadPct = $minutosProgramadosPuntualidad > 0
             ? max(
             0,
             round(
                 (
-                    ($minutosProgramados - $minutosRetardoFueraTolerancia)
-                    / $minutosProgramados
+                    (
+                        $minutosProgramadosPuntualidad
+                         - $minutosRetardoFueraTolerancia
+                    )
+                    / $minutosProgramadosPuntualidad
                 ) * 100,
                 2
             )
         )
             : null;
 
-        $productividadPct = $minutosProgramados > 0
+        $productividadPct = $minutosProgramadosEvaluables > 0
             ? min(
             100,
             round(
-                ($minutosTrabajados / $minutosProgramados) * 100,
+                (
+                    $minutosTrabajados
+                    / $minutosProgramadosEvaluables
+                ) * 100,
                 2
             )
         )
@@ -622,15 +813,15 @@ class AccesosChecadorController extends Controller
         return response()->json([
             'ok'   => true,
             'data' => [
-                'periodo'          => [
+                'periodo'            => [
                     'fecha_inicio' => $inicio->toDateString(),
                     'fecha_fin'    => $fin->toDateString(),
                     'es_un_dia'    => $inicio->isSameDay($fin),
                 ],
 
-                'estado_operativo' => $estadoOperativo,
-
-                'metricas'         => [
+                'estado_operativo'   => $estadoOperativo,
+                'eventos_operativos' => $eventosOperativos,
+                'metricas'           => [
 
                     'dias_calendario'                            => $diasCalendario,
                     'dias_laborables'                            => $diasLaborables,
@@ -658,7 +849,7 @@ class AccesosChecadorController extends Controller
                     'productividad_pct'                          => $productividadPct,
                 ],
 
-                'alertas'          => $alertas,
+                'alertas'            => $alertas,
             ],
         ]);
     }
