@@ -1,8 +1,9 @@
 <?php
 namespace App\Models\Comunicacion360\Checador;
 
-use Illuminate\Database\Eloquent\Model;
 use App\Models\Comunicacion360\Checador\ChecadorHorarioDetalle;
+use Illuminate\Database\Eloquent\Model;
+
 class ChecadorHorarioPlantilla extends Model
 {
     protected $connection = 'portal_main';
@@ -19,14 +20,16 @@ class ChecadorHorarioPlantilla extends Model
         'tolerancia_entrada_min',
         'tolerancia_salida_min',
         'permite_descanso',
+        'minutos_descanso_permitidos',
         'activo',
     ];
 
     protected $casts = [
-        'permite_descanso'       => 'boolean',
-        'activo'                 => 'boolean',
-        'tolerancia_entrada_min' => 'integer',
-        'tolerancia_salida_min'  => 'integer',
+        'permite_descanso'            => 'boolean',
+        'minutos_descanso_permitidos' => 'integer',
+        'activo'                      => 'boolean',
+        'tolerancia_entrada_min'      => 'integer',
+        'tolerancia_salida_min'       => 'integer',
     ];
 
     /*

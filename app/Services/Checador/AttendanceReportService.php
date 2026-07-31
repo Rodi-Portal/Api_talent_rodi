@@ -32,6 +32,7 @@ class AttendanceReportService
 
             'horas'       => [
                 'normales'        => 0,
+                'descanso'        => 0,
                 'extra'           => 0,
                 'contabilizables' => 0,
             ],
@@ -157,6 +158,19 @@ class AttendanceReportService
                 $detalleHorario,
                 $eventoReporte
             );
+            $minutosBrutosReporte = $minutosEventoPagables > 0
+                ? $minutosEventoPagables
+                : (
+                $calculoJornada['normal']['minutos_detectados'] ?? 0
+            );
+
+            $descansoReporte = $this->calcularDescansoReporte(
+                $fechaString,
+                $plantillaHorario,
+                $detalleHorario,
+                $calculoJornada,
+                $minutosBrutosReporte
+            );
             $filaReporte = $this->construirFilaReporte(
                 $fechaString,
                 $detalleHorario,
@@ -164,7 +178,8 @@ class AttendanceReportService
                 $estadoReporte,
                 $calculoJornada,
                 $tiempoExtraAutorizado,
-                $minutosEventoPagables
+                $minutosEventoPagables,
+                $descansoReporte
 
             );
             if ($detalleHorario?->labora) {
@@ -192,18 +207,32 @@ class AttendanceReportService
             );
 
             if ($minutosEventoPagables > 0) {
-                $resumen['horas']['normales']        += $minutosEventoPagables;
+                $minutosNormales = (int) (
+                    $descansoReporte['netos'] ?? 0
+                );
+
+                $resumen['horas']['normales'] += $minutosNormales;
+
+                $resumen['horas']['descanso'] += (int) (
+                    $descansoReporte['descontados'] ?? 0
+                );
                 $resumen['horas']['contabilizables'] +=
-                    $minutosEventoPagables;
+                    $minutosNormales;
             } elseif ($esJornadaContabilizable) {
-                $minutosNormales =
-                $calculoJornada['normal']['minutos_detectados'] ?? 0;
+                $minutosNormales = (int) (
+                    $descansoReporte['netos'] ?? 0
+                );
 
-                $minutosExtra =
-                $tiempoExtraAutorizado['minutos_reconocidos'] ?? 0;
+                $minutosExtra = (int) (
+                    $tiempoExtraAutorizado['minutos_reconocidos'] ?? 0
+                );
 
-                $resumen['horas']['normales']        += $minutosNormales;
-                $resumen['horas']['extra']           += $minutosExtra;
+                $resumen['horas']['normales'] += $minutosNormales;
+                $resumen['horas']['descanso'] += (int) (
+                    $descansoReporte['descontados'] ?? 0
+                );
+                $resumen['horas']['extra'] += $minutosExtra;
+
                 $resumen['horas']['contabilizables'] +=
                     $minutosNormales + $minutosExtra;
             }
@@ -249,16 +278,45 @@ class AttendanceReportService
                     'salida'                    => $calculoJornada['real']['salida'] ?? null,
                     'salida_virtual'            => $calculoJornada['real']['salida_virtual'] ?? false,
                     'minutos_trabajados'        => $eventoReporte
-                        ? $minutosEventoPagables
-                        : ($calculoJornada['normal']['minutos_detectados'] ?? 0),
-                    'minutos_extra_reconocidos' => $tiempoExtraAutorizado['minutos_reconocidos'] ?? 0,
+                        ? (int) ($descansoReporte['netos'] ?? 0)
+                        : (
+                        $esJornadaContabilizable
+                            ? (int) ($descansoReporte['netos'] ?? 0)
+                            : 0
+                    ),
+
+                    'minutos_descanso'          => (int) (
+                        $descansoReporte['descontados'] ?? 0
+                    ),
+
+                    'descanso_detalle'          => [
+                        'permitidos'  => (int) (
+                            $descansoReporte['permitidos'] ?? 0
+                        ),
+                        'intermedios' => (int) (
+                            $descansoReporte['intermedios'] ?? 0
+                        ),
+                        'exceso'      => (int) (
+                            $descansoReporte['exceso'] ?? 0
+                        ),
+                        'descontados' => (int) (
+                            $descansoReporte['descontados'] ?? 0
+                        ),
+                    ],
+
+                    'minutos_extra_reconocidos' => (int) (
+                        $tiempoExtraAutorizado['minutos_reconocidos'] ?? 0
+                    ),
+
                     'minutos_contabilizables'   => $eventoReporte
-                        ? $minutosEventoPagables
+                        ? (int) ($descansoReporte['netos'] ?? 0)
                         : (
                         $esJornadaContabilizable
                             ? (
-                            ($calculoJornada['normal']['minutos_detectados'] ?? 0)
-                             + ($tiempoExtraAutorizado['minutos_reconocidos'] ?? 0)
+                            (int) ($descansoReporte['netos'] ?? 0)
+                             + (int) (
+                                $tiempoExtraAutorizado['minutos_reconocidos'] ?? 0
+                            )
                         )
                             : 0
                     ),
@@ -433,7 +491,8 @@ class AttendanceReportService
         array $estadoReporte,
         ?array $calculoJornada,
         array $tiempoExtra,
-        int $minutosEventoPagables
+        int $minutosEventoPagables,
+        array $descansoReporte
     ): array {
         $esJornadaContabilizable =
         $calculoJornada &&
@@ -450,10 +509,10 @@ class AttendanceReportService
         );
 
         $minutosNormales = $minutosEventoPagables > 0
-            ? $minutosEventoPagables
+            ? (int) ($descansoReporte['netos'] ?? 0)
             : (
             $esJornadaContabilizable
-                ? ($calculoJornada['normal']['minutos_detectados'] ?? 0)
+                ? (int) ($descansoReporte['netos'] ?? 0)
                 : 0
         );
 
@@ -482,6 +541,16 @@ class AttendanceReportService
                 ? substr($movimientos['salida']['hora'], 0, 5)
                 : '-',
             'estado'              => $estadoReporte['descripcion'],
+            'break'               => $this->formatearMinutos(
+                (int) ($descansoReporte['descontados'] ?? 0)
+            ),
+
+            'break_detalle'       => [
+                'permitidos'  => (int) ($descansoReporte['permitidos'] ?? 0),
+                'intermedios' => (int) ($descansoReporte['intermedios'] ?? 0),
+                'exceso'      => (int) ($descansoReporte['exceso'] ?? 0),
+                'descontados' => (int) ($descansoReporte['descontados'] ?? 0),
+            ],
 
             'horas_normales'      => $this->formatearMinutos(
                 $minutosNormales
@@ -582,6 +651,94 @@ class AttendanceReportService
         }
 
         return $inicio->diffInMinutes($fin);
+    }
+
+    private function calcularDescansoReporte(
+        string $fecha,
+        $plantillaHorario,
+        $detalleHorario,
+        ?array $calculoJornada,
+        int $minutosBrutos
+    ): array {
+        $permiteDescanso = (bool) (
+            $plantillaHorario?->permite_descanso ?? false
+        );
+
+        $minutosPermitidos = $permiteDescanso
+            ? max(
+            0,
+            (int) (
+                $plantillaHorario?->minutos_descanso_permitidos ?? 60
+            )
+        )
+            : 0;
+
+        $inicioProgramado = Carbon::parse(
+            $calculoJornada['programado']['inicio'] ?? ($fecha . ' ' . $detalleHorario?->hora_entrada)
+        );
+
+        $finProgramado = Carbon::parse(
+            $calculoJornada['programado']['fin'] ?? ($fecha . ' ' . $detalleHorario?->hora_salida)
+        );
+
+        if ($finProgramado->lessThanOrEqualTo($inicioProgramado)) {
+            $finProgramado->addDay();
+        }
+
+        $minutosIntermedios = 0;
+
+        foreach (['meal', 'break', 'personal'] as $clase) {
+            foreach (
+                ($calculoJornada['segmentos'][$clase] ?? []) as $segmento
+            ) {
+                if (
+                    ($segmento['incompleto'] ?? true) ||
+                    empty($segmento['inicio']) ||
+                    empty($segmento['fin'])
+                ) {
+                    continue;
+                }
+
+                $inicioSegmento = Carbon::parse($segmento['inicio']);
+                $finSegmento    = Carbon::parse($segmento['fin']);
+
+                $inicioEfectivo = $inicioSegmento->greaterThan(
+                    $inicioProgramado
+                )
+                    ? $inicioSegmento
+                    : $inicioProgramado;
+
+                $finEfectivo = $finSegmento->lessThan($finProgramado)
+                    ? $finSegmento
+                    : $finProgramado;
+
+                if ($finEfectivo->greaterThan($inicioEfectivo)) {
+                    $minutosIntermedios += $inicioEfectivo
+                        ->diffInMinutes($finEfectivo);
+                }
+            }
+        }
+
+        $minutosExceso = max(
+            0,
+            $minutosIntermedios - $minutosPermitidos
+        );
+
+        $minutosDescontados = min(
+            max(0, $minutosBrutos),
+            $minutosPermitidos + $minutosExceso
+        );
+
+        return [
+            'permitidos'  => $minutosPermitidos,
+            'intermedios' => $minutosIntermedios,
+            'exceso'      => $minutosExceso,
+            'descontados' => $minutosDescontados,
+            'netos'       => max(
+                0,
+                $minutosBrutos - $minutosDescontados
+            ),
+        ];
     }
     private function formatearMinutos(int $minutos): string
     {

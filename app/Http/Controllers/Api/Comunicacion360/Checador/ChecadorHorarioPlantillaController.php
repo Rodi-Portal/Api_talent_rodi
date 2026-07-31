@@ -36,15 +36,17 @@ class ChecadorHorarioPlantillaController extends Controller
 
         $horario = DB::connection('portal_main')->transaction(function () use ($data) {
             $horario = ChecadorHorarioPlantilla::create([
-                'id_portal'              => $data['id_portal'],
-                'id_cliente'             => $data['id_cliente'],
-                'nombre'                 => $data['nombre'],
-                'descripcion'            => $data['descripcion'] ?? null,
-                'timezone'               => $data['timezone'] ?? 'America/Mexico_City',
-                'tolerancia_entrada_min' => $data['tolerancia_entrada_min'] ?? 0,
-                'tolerancia_salida_min'  => $data['tolerancia_salida_min'] ?? 0,
-                'permite_descanso'       => $data['permite_descanso'] ?? false,
-                'activo'                 => 1,
+                'id_portal'                   => $data['id_portal'],
+                'id_cliente'                  => $data['id_cliente'],
+                'nombre'                      => $data['nombre'],
+                'descripcion'                 => $data['descripcion'] ?? null,
+                'timezone'                    => $data['timezone'] ?? 'America/Mexico_City',
+                'tolerancia_entrada_min'      => $data['tolerancia_entrada_min'] ?? 0,
+                'tolerancia_salida_min'       => $data['tolerancia_salida_min'] ?? 0,
+                'permite_descanso'            => $data['permite_descanso'] ?? false,
+                'minutos_descanso_permitidos' =>
+                $data['minutos_descanso_permitidos'] ?? 60,
+                'activo'                      => 1,
             ]);
             if (empty($horario->codigo)) {
                 $horario->update([
@@ -80,14 +82,16 @@ class ChecadorHorarioPlantillaController extends Controller
 
         DB::connection('portal_main')->transaction(function () use ($horario, $data) {
             $horario->update([
-                'id_portal'              => $data['id_portal'],
-                'id_cliente'             => $data['id_cliente'],
-                'nombre'                 => $data['nombre'],
-                'descripcion'            => $data['descripcion'] ?? null,
-                'timezone'               => $data['timezone'] ?? 'America/Mexico_City',
-                'tolerancia_entrada_min' => $data['tolerancia_entrada_min'] ?? 0,
-                'tolerancia_salida_min'  => $data['tolerancia_salida_min'] ?? 0,
-                'permite_descanso'       => $data['permite_descanso'] ?? false,
+                'id_portal'                   => $data['id_portal'],
+                'id_cliente'                  => $data['id_cliente'],
+                'nombre'                      => $data['nombre'],
+                'descripcion'                 => $data['descripcion'] ?? null,
+                'timezone'                    => $data['timezone'] ?? 'America/Mexico_City',
+                'tolerancia_entrada_min'      => $data['tolerancia_entrada_min'] ?? 0,
+                'tolerancia_salida_min'       => $data['tolerancia_salida_min'] ?? 0,
+                'permite_descanso'            => $data['permite_descanso'] ?? false,
+                'minutos_descanso_permitidos' =>
+                $data['minutos_descanso_permitidos'] ?? 60,
             ]);
 
             $horario->detalles()->delete();
@@ -137,23 +141,28 @@ class ChecadorHorarioPlantillaController extends Controller
     private function validar(Request $request): array
     {
         return $request->validate([
-            'id_portal'                  => ['required', 'integer'],
-            'id_cliente'                 => ['required', 'integer'],
-            'nombre'                     => ['required', 'string', 'max:150'],
-            'descripcion'                => ['nullable', 'string'],
-            'timezone'                   => ['nullable', 'string', 'max:80'],
-            'tolerancia_entrada_min'     => ['nullable', 'integer', 'min:0'],
-            'tolerancia_salida_min'      => ['nullable', 'integer', 'min:0'],
-            'permite_descanso'           => ['nullable', 'boolean'],
-
-            'detalles'                   => ['required', 'array'],
-            'detalles.*.dia_semana'      => ['required', 'integer', 'between:0,6'],
-            'detalles.*.labora'          => ['required', 'boolean'],
-            'detalles.*.hora_entrada'    => ['nullable', 'date_format:H:i'],
-            'detalles.*.hora_salida'     => ['nullable', 'date_format:H:i'],
-            'detalles.*.descanso_inicio' => ['nullable', 'date_format:H:i'],
-            'detalles.*.descanso_fin'    => ['nullable', 'date_format:H:i'],
-            'detalles.*.orden'           => ['nullable', 'integer', 'min:0'],
+            'id_portal'                   => ['required', 'integer'],
+            'id_cliente'                  => ['required', 'integer'],
+            'nombre'                      => ['required', 'string', 'max:150'],
+            'descripcion'                 => ['nullable', 'string'],
+            'timezone'                    => ['nullable', 'string', 'max:80'],
+            'tolerancia_entrada_min'      => ['nullable', 'integer', 'min:0'],
+            'tolerancia_salida_min'       => ['nullable', 'integer', 'min:0'],
+            'permite_descanso'            => ['nullable', 'boolean'],
+            'minutos_descanso_permitidos' => [
+                'nullable',
+                'integer',
+                'min:0',
+                'max:1440',
+            ],
+            'detalles'                    => ['required', 'array'],
+            'detalles.*.dia_semana'       => ['required', 'integer', 'between:0,6'],
+            'detalles.*.labora'           => ['required', 'boolean'],
+            'detalles.*.hora_entrada'     => ['nullable', 'date_format:H:i'],
+            'detalles.*.hora_salida'      => ['nullable', 'date_format:H:i'],
+            'detalles.*.descanso_inicio'  => ['nullable', 'date_format:H:i'],
+            'detalles.*.descanso_fin'     => ['nullable', 'date_format:H:i'],
+            'detalles.*.orden'            => ['nullable', 'integer', 'min:0'],
         ]);
     }
 
