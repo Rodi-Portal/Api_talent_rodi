@@ -146,13 +146,31 @@ class JornadaCalculoService
         $minutosSalidaAnticipadaFueraTolerancia  = 0;
 
         if ($salidaReal && $salidaReal->lessThan($finProgramado)) {
-            $minutosSalidaAnticipadaDetectada = $salidaReal->diffInMinutes($finProgramado);
+            $minutosSalidaAnticipadaDetectada = $salidaReal->diffInMinutes(
+                $finProgramado
+            );
 
             $minutosSalidaAnticipadaFueraTolerancia = max(
                 0,
                 $minutosSalidaAnticipadaDetectada - $toleranciaSalida
             );
         }
+
+        $minutosProgramados = $inicioProgramado->diffInMinutes(
+            $finProgramado
+        );
+
+        $minutosNormalesPagables = (
+            $entradaReal &&
+            $salidaReal
+        )
+            ? max(
+            0,
+            $minutosProgramados
+             - $minutosRetardoFueraTolerancia
+             - $minutosSalidaAnticipadaFueraTolerancia
+        )
+            : $minutosNormales;
 
         return [
             'fecha'          => $fecha,
@@ -162,8 +180,8 @@ class JornadaCalculoService
             'programado'     => [
                 'inicio'  => $inicioProgramado->format('Y-m-d H:i:s'),
                 'fin'     => $finProgramado->format('Y-m-d H:i:s'),
-                'minutos' => $inicioProgramado->diffInMinutes($finProgramado),
-            ],
+                'minutos' => $minutosProgramados
+                ],
 
             'real'           => [
                 'entrada'        => $entradaReal
@@ -181,7 +199,7 @@ class JornadaCalculoService
 
             'normal'         => [
                 'minutos_detectados' => $minutosNormales,
-                'minutos_pagables'   => null,
+                'minutos_pagables'   => $minutosNormalesPagables,
             ],
 
             'incidencias'    => [

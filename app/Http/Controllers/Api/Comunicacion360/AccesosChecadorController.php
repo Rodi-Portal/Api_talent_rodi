@@ -182,7 +182,7 @@ class AccesosChecadorController extends Controller
         );
 
         $minutosProgramados = $calculoJornada['programado']['minutos'] ?? 0;
-        $minutosTrabajo     = $calculoJornada['normal']['minutos_detectados'] ?? 0;
+        $minutosTrabajo     = $calculoJornada['normal']['minutos_pagables'] ?? $calculoJornada['normal']['minutos_detectados'] ?? 0;
 
         $minutosRetardoDetectado       = $calculoJornada['incidencias']['retardo']['detectado_minutos'] ?? 0;
         $minutosRetardoFueraTolerancia = $calculoJornada['incidencias']['retardo']['fuera_tolerancia_minutos'] ?? 0;
@@ -684,7 +684,7 @@ class AccesosChecadorController extends Controller
             $diasTrabajados++;
 
             $minutosTrabajados +=
-            $calculoJornada['normal']['minutos_detectados'] ?? 0;
+            $calculoJornada['normal']['minutos_pagables'] ?? $calculoJornada['normal']['minutos_detectados'] ?? 0;
 
             $minutosRetardoDetectado +=
             $calculoJornada['incidencias']['retardo']['detectado_minutos'] ?? 0;

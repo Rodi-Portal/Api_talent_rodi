@@ -161,7 +161,9 @@ class AttendanceReportService
             $minutosBrutosReporte = $minutosEventoPagables > 0
                 ? $minutosEventoPagables
                 : (
-                $calculoJornada['normal']['minutos_detectados'] ?? 0
+                $calculoJornada['normal']['minutos_pagables']
+    ?? $calculoJornada['normal']['minutos_detectados']
+    ?? 0
             );
 
             $descansoReporte = $this->calcularDescansoReporte(
