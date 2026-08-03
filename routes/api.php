@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorMetodoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorQrController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorUbicacionesController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorValidacionController;
+use App\Http\Controllers\Api\Comunicacion360\Checador\HikvisionEventController;
 use App\Http\Controllers\Api\Comunicacion360\EmployeeProfileAnalysisController;
 use App\Http\Controllers\Api\Comunicacion360\Incidencias\IncidenciasCalendarioController;
 use App\Http\Controllers\Api\Comunicacion360\PlantillasController;
@@ -828,7 +829,9 @@ Route::prefix('checador')->group(function () {
     Route::post('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'store']);
     Route::get('/empleados-acceso', [ChecadorAsignacionController::class, 'empleadosConAcceso']);
 });
-Route::prefix('comunicacion360/tasks')->group(function () {
+Route::prefix('comunicacion360/tasks')
+    ->middleware(['auth:sanctum', 'admin.session'])
+    ->group(function () {
 
     // Obtener todas las tareas
     Route::get('/', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'index']);
@@ -853,7 +856,9 @@ Route::prefix('comunicacion360/tasks')->group(function () {
 
 use Illuminate\Http\Request;
 
-Route::prefix('comunicacion360/plantillas')->group(function () {
+Route::prefix('comunicacion360/plantillas')
+    ->middleware(['auth:sanctum', 'admin.session'])
+    ->group(function () {
 
     // Obtener todas las plantillas
     Route::get('/', [PlantillasController::class, 'index']);
@@ -870,6 +875,14 @@ Route::prefix('comunicacion360/plantillas')->group(function () {
     );
 
 });
+
+Route::post(
+    '/checador/hikvision/eventos/{token}',
+    [HikvisionEventController::class, 'store']
+)
+    ->where('token', '[A-Fa-f0-9]{64}')
+    ->withoutMiddleware('throttle:api')
+    ->middleware('throttle:hikvision-device');
 
 Route::post(
     '/checador/dispositivo/registrar',
