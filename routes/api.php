@@ -690,10 +690,29 @@ Route::prefix('comunicacion360')->group(function () {
             );
         });
 
-    Route::get('/accesos/empleados/{id}/ips', [AccesosIpController::class, 'index']);
-    Route::post('/accesos/empleados/{id}/ips', [AccesosIpController::class, 'guardarIp']);
-    Route::put('/accesos/empleados/{id}/ips/{ipId}', [AccesosIpController::class, 'actualizarIp']);
-    Route::delete('/accesos/empleados/{id}/ips/{ipId}', [AccesosIpController::class, 'eliminarIp']);
+    Route::prefix('accesos/empleados/{id}/ips')
+        ->middleware(['auth:sanctum', 'admin.session'])
+        ->group(function () {
+            Route::get(
+                '/',
+                [AccesosIpController::class, 'index']
+            );
+
+            Route::post(
+                '/',
+                [AccesosIpController::class, 'guardarIp']
+            );
+
+            Route::put(
+                '/{ipId}',
+                [AccesosIpController::class, 'actualizarIp']
+            );
+
+            Route::delete(
+                '/{ipId}',
+                [AccesosIpController::class, 'eliminarIp']
+            );
+        });
 
     Route::get('/accesos/empleados/{id}/checadas-dia', [AccesosChecadorController::class, 'checadasDia']);
     Route::get('/accesos/empleados/{id}/metricas-dia', [AccesosChecadorController::class, 'metricasDia']);
@@ -760,6 +779,7 @@ Route::prefix('comunicacion360')->group(function () {
         });
 
 });
+
 Route::prefix('checador')->group(function () {
     //CRUD  Cat Ubicaciones
     Route::middleware(['auth:sanctum', 'admin.session'])
@@ -783,19 +803,31 @@ Route::prefix('checador')->group(function () {
     Route::post('/qr/validar', [ChecadorQrController::class, 'validar']);
 
     // Plantillas  para  el checador
-    Route::get('/plantillas-checada', [ChecadorChecadaPlantillaController::class, 'index']);
-    Route::post('/plantillas-checada', [ChecadorChecadaPlantillaController::class, 'store']);
-    Route::post('/plantillas-checada/{id}/metodos', [ChecadorChecadaPlantillaController::class, 'guardarMetodos']);
-    Route::put('/plantillas-checada/{id}', [ChecadorChecadaPlantillaController::class, 'update']);
-    Route::post('/plantillas-checada/{id}/estado', [ChecadorChecadaPlantillaController::class, 'cambiarEstado']);
 
     // endoints  de horarios
-    Route::prefix('/horarios')->group(function () {
-        Route::get('/', [ChecadorHorarioPlantillaController::class, 'index']);
-        Route::post('/', [ChecadorHorarioPlantillaController::class, 'store']);
-        Route::put('/{id}', [ChecadorHorarioPlantillaController::class, 'update']);
-        Route::post('/{id}/estado', [ChecadorHorarioPlantillaController::class, 'cambiarEstado']);
-    });
+    Route::prefix('horarios')
+        ->middleware(['auth:sanctum', 'admin.session'])
+        ->group(function () {
+            Route::get(
+                '/',
+                [ChecadorHorarioPlantillaController::class, 'index']
+            );
+
+            Route::post(
+                '/',
+                [ChecadorHorarioPlantillaController::class, 'store']
+            );
+
+            Route::put(
+                '/{id}',
+                [ChecadorHorarioPlantillaController::class, 'update']
+            );
+
+            Route::post(
+                '/{id}/estado',
+                [ChecadorHorarioPlantillaController::class, 'cambiarEstado']
+            );
+        });
 
     // Importaciones / Exportaciones STC
     Route::prefix('/importaciones')->group(function () {
@@ -804,55 +836,135 @@ Route::prefix('checador')->group(function () {
 
     });
 
-    // Checadas Masivas
-    Route::prefix('/checadas-masivas')->group(function () {
-        Route::post('/exportar-plantilla', [ChecadorChecadasMasivasController::class, 'exportarPlantilla']);
-        Route::post('/importar-preview', [ChecadorChecadasMasivasController::class, 'importarPreview']);
-        Route::post('/importar-confirmar', [ChecadorChecadasMasivasController::class, 'importarConfirmar']);
+    // Checadas masivas administrativas
+    Route::prefix('checadas-masivas')
+        ->middleware(['auth:sanctum', 'admin.session'])
+        ->group(function () {
+            Route::post(
+                '/exportar-plantilla',
+                [ChecadorChecadasMasivasController::class, 'exportarPlantilla']
+            );
 
-    });
-    // Incidencias Masivas
-    Route::prefix('/incidencias-masivas')->group(function () {
-        Route::post('/exportar-plantilla', [ChecadorIncidenciasMasivasController::class, 'exportarPlantilla']);
-        Route::post('/importar-preview', [ChecadorIncidenciasMasivasController::class, 'importarPreview']);
-        Route::post('/importar-confirmar', [ChecadorIncidenciasMasivasController::class, 'importarConfirmar']);
-    });
+            Route::post(
+                '/importar-preview',
+                [ChecadorChecadasMasivasController::class, 'importarPreview']
+            );
 
-    Route::get('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'plantillaEmpleado']);
-    Route::post('/empleados/{id}/plantilla', [ChecadorAsignacionController::class, 'guardarPlantillaEmpleado']);
-    // Metodos
-    Route::get('/metodos', [ChecadorMetodoController::class, 'index']);
-    // aprovadores
-    Route::get('/aprobadores-disponibles', [ChecadorAsignacionController::class, 'aprobadoresDisponibles']);
-    // Asignaciones de plantillas a empleados
-    Route::get('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'index']);
-    Route::post('/plantillas-checada/{id}/asignaciones', [ChecadorAsignacionController::class, 'store']);
-    Route::get('/empleados-acceso', [ChecadorAsignacionController::class, 'empleadosConAcceso']);
+            Route::post(
+                '/importar-confirmar',
+                [ChecadorChecadasMasivasController::class, 'importarConfirmar']
+            );
+        });
+
+// Incidencias masivas administrativas
+    Route::prefix('incidencias-masivas')
+        ->middleware(['auth:sanctum', 'admin.session'])
+        ->group(function () {
+            Route::post(
+                '/exportar-plantilla',
+                [ChecadorIncidenciasMasivasController::class, 'exportarPlantilla']
+            );
+
+            Route::post(
+                '/importar-preview',
+                [ChecadorIncidenciasMasivasController::class, 'importarPreview']
+            );
+
+            Route::post(
+                '/importar-confirmar',
+                [ChecadorIncidenciasMasivasController::class, 'importarConfirmar']
+            );
+        });
+
+    Route::get('/empleados/{id}/plantilla', [
+        ChecadorAsignacionController::class,
+        'plantillaEmpleado',
+    ]);
+
+    Route::post('/empleados/{id}/plantilla', [
+        ChecadorAsignacionController::class,
+        'guardarPlantillaEmpleado',
+    ]);
+
+// Métodos
+    Route::get('/metodos', [
+        ChecadorMetodoController::class,
+        'index',
+    ]);
+
+// Plantillas para el checador
+    Route::get('/plantillas-checada', [
+        ChecadorChecadaPlantillaController::class,
+        'index',
+    ]);
+
+    Route::post('/plantillas-checada', [
+        ChecadorChecadaPlantillaController::class,
+        'store',
+    ]);
+
+    Route::post('/plantillas-checada/{id}/metodos', [
+        ChecadorChecadaPlantillaController::class,
+        'guardarMetodos',
+    ]);
+
+    Route::put('/plantillas-checada/{id}', [
+        ChecadorChecadaPlantillaController::class,
+        'update',
+    ]);
+
+    Route::post('/plantillas-checada/{id}/estado', [
+        ChecadorChecadaPlantillaController::class,
+        'cambiarEstado',
+    ]);
+
+// Aprobadores
+    Route::get('/aprobadores-disponibles', [
+        ChecadorAsignacionController::class,
+        'aprobadoresDisponibles',
+    ]);
+
+// Asignaciones de plantillas a empleados
+    Route::get('/plantillas-checada/{id}/asignaciones', [
+        ChecadorAsignacionController::class,
+        'index',
+    ]);
+
+    Route::post('/plantillas-checada/{id}/asignaciones', [
+        ChecadorAsignacionController::class,
+        'store',
+    ]);
+
+    Route::get('/empleados-acceso', [
+        ChecadorAsignacionController::class,
+        'empleadosConAcceso',
+    ]);
+
 });
 Route::prefix('comunicacion360/tasks')
     ->middleware(['auth:sanctum', 'admin.session'])
     ->group(function () {
 
-    // Obtener todas las tareas
-    Route::get('/', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'index']);
+        // Obtener todas las tareas
+        Route::get('/', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'index']);
 
-    // Crear tarea
-    Route::post('/', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'store']);
-    //ver tarea  de empleado
-    Route::get('/empleado/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'empleado']);
-    Route::post('/empleado-tarea/{id}/comentarios', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'storeComentarioEmpleado']);
-    Route::post('/empleado-tarea/{id}/reabrir', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'reabrirTareaEmpleado']);
-    Route::delete('/comentarios/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'deleteComentarioEmpleado']);
-    // Obtener una tarea por ID
-    Route::get('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'show']);
+        // Crear tarea
+        Route::post('/', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'store']);
+        //ver tarea  de empleado
+        Route::get('/empleado/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'empleado']);
+        Route::post('/empleado-tarea/{id}/comentarios', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'storeComentarioEmpleado']);
+        Route::post('/empleado-tarea/{id}/reabrir', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'reabrirTareaEmpleado']);
+        Route::delete('/comentarios/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'deleteComentarioEmpleado']);
+        // Obtener una tarea por ID
+        Route::get('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'show']);
 
-    // Actualizar tarea
-    Route::put('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'update']);
+        // Actualizar tarea
+        Route::put('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'update']);
 
-    // Eliminar (opcional)
-    Route::delete('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'destroy']);
+        // Eliminar (opcional)
+        Route::delete('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'destroy']);
 
-});
+    });
 
 use Illuminate\Http\Request;
 
@@ -860,21 +972,21 @@ Route::prefix('comunicacion360/plantillas')
     ->middleware(['auth:sanctum', 'admin.session'])
     ->group(function () {
 
-    // Obtener todas las plantillas
-    Route::get('/', [PlantillasController::class, 'index']);
-    // Crear plantilla
-    Route::post('/', [PlantillasController::class, 'store']);
-    // Actualizar plantilla
-    Route::put('/{id}', [PlantillasController::class, 'update']);
-    // Eliminado Suave
-    Route::delete('/{id}', [PlantillasController::class, 'destroy']);
-    Route::post('/{id}/asignar', [PlantillasController::class, 'asignar']);
+        // Obtener todas las plantillas
+        Route::get('/', [PlantillasController::class, 'index']);
+        // Crear plantilla
+        Route::post('/', [PlantillasController::class, 'store']);
+        // Actualizar plantilla
+        Route::put('/{id}', [PlantillasController::class, 'update']);
+        // Eliminado Suave
+        Route::delete('/{id}', [PlantillasController::class, 'destroy']);
+        Route::post('/{id}/asignar', [PlantillasController::class, 'asignar']);
 
-    Route::get('/empleados/{id}/plantillas', [PlantillasController::class, 'empleadoPlantillas']);
-    Route::post('/{id}/desasignar', [PlantillasController::class, 'desasignarEmpleado']
-    );
+        Route::get('/empleados/{id}/plantillas', [PlantillasController::class, 'empleadoPlantillas']);
+        Route::post('/{id}/desasignar', [PlantillasController::class, 'desasignarEmpleado']
+        );
 
-});
+    });
 
 Route::post(
     '/checador/hikvision/eventos/{token}',

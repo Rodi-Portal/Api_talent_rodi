@@ -126,32 +126,35 @@ class EmpleadoDashboardController extends Controller
         /* =========================
            RESPUESTA
         ========================= */
+        return response()
+            ->json([
+                'profile'            => [
+                    'id'             => $empleado->id,
+                    'nombreCompleto' => trim(
+                        $empleado->nombre . ' ' .
+                        $empleado->paterno . ' ' .
+                        $empleado->materno
+                    ),
+                    'photo'          => $empleado->foto,
+                ],
 
-        return response()->json([
+                'laboral'            => [
+                    'puesto'       => $empleado->puesto,
+                    'departamento' => $empleado->departamento,
+                    'fechaIngreso' => $empleado->fecha_ingreso ?? $empleado->creacion,
+                ],
 
-            'profile'            => [
-                'id'             => $empleado->id,
-                'nombreCompleto' => trim(
-                    $empleado->nombre . ' ' .
-                    $empleado->paterno . ' ' .
-                    $empleado->materno
-                ),
-                'photo'          => $empleado->foto,
-            ],
-
-            'laboral'            => [
-                'puesto'       => $empleado->puesto,
-                'departamento' => $empleado->departamento,
-                'fechaIngreso' => $empleado->fecha_ingreso ?? $empleado->creacion,
-            ],
-
-            'documents_empleado' => $documents,
-            'cursos_empleado'    => $cursos,
-            'examenes_empleado'  => $examenes,
-
-            'incidencias'        => $incidencias,
-
-        ]);
+                'documents_empleado' => $documents,
+                'cursos_empleado'    => $cursos,
+                'examenes_empleado'  => $examenes,
+                'incidencias'        => $incidencias,
+            ])
+            ->header(
+                'Cache-Control',
+                'private, no-store, no-cache, must-revalidate, max-age=0'
+            )
+            ->header('Pragma', 'no-cache')
+            ->header('Expires', '0');
     }
 
     public function verCompliance(Request $request, $tipo, $id)

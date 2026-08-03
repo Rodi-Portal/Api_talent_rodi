@@ -200,7 +200,8 @@ class ApiEmpleadoController extends Controller
 
         return response()->file($filePath, [
             'Content-Type'  => mime_content_type($filePath),
-            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Cache-Control' => 'private, max-age=604800, immutable',
+            'Vary'          => 'Authorization',
         ]);
     }
 

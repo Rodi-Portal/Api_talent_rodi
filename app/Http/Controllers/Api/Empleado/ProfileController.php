@@ -28,7 +28,14 @@ class ProfileController extends Controller
             ], 404);
         }
 
-        return response()->json($this->transformProfile($empleado));
+        return response()
+            ->json($this->transformProfile($empleado))
+            ->header(
+                'Cache-Control',
+                'private, no-store, no-cache, must-revalidate, max-age=0'
+            )
+            ->header('Pragma', 'no-cache')
+            ->header('Expires', '0');
     }
 
     private function transformProfile($empleado)
@@ -73,29 +80,29 @@ class ProfileController extends Controller
                 'cp'     => optional($empleado->domicilioEmpleado)->cp,
             ],
 
-            'laboral' => [
-                'puesto'       => $empleado->puesto,
-                'departamento' => $empleado->departamento,
+            'laboral'   => [
+                'puesto'                 => $empleado->puesto,
+                'departamento'           => $empleado->departamento,
 
-                'fecha_ingreso' => $fechaIngreso
+                'fecha_ingreso'          => $fechaIngreso
                     ? Carbon::parse($fechaIngreso)->format('Y-m-d')
                     : null,
 
-                'antiguedad'        => $antiguedad,
-                'antiguedad_years'  => $antiguedadYears,
-                'antiguedad_months' => $antiguedadMonths,
+                'antiguedad'             => $antiguedad,
+                'antiguedad_years'       => $antiguedadYears,
+                'antiguedad_months'      => $antiguedadMonths,
 
                 // Valor legado
-                'tipo_contrato' => optional(
+                'tipo_contrato'          => optional(
                     $empleado->laborales
                 )->tipo_contrato,
 
                 // Código SAT usado para i18n
-                'tipo_contrato_sat' => optional(
+                'tipo_contrato_sat'      => optional(
                     $empleado->laborales
                 )->tipo_contrato_sat,
 
-                'periodicidad_pago' => optional(
+                'periodicidad_pago'      => optional(
                     $empleado->laborales
                 )->periodicidad_pago,
 
