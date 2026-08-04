@@ -493,13 +493,22 @@ class EmpleadoController extends Controller
                 ->where('status', '!=', 999)
                 ->get();
 
-            // Estados “visibles” por módulo
+            $examenes = ExamEmpleado::where('employee_id', $empleado->id)
+                ->where('status', '!=', 999)
+                ->get();
+
+            // Estados visibles por módulo
             $eDocs  = $this->obtenerEstado($documentos);
             $eCurso = $this->obtenerEstado($cursos);
+            $eExam  = $this->obtenerEstado($examenes);
 
-            if ($eDocs === 'rojo') {
+            // Expediente incluye documentos y exámenes
+            if ($eDocs === 'rojo' || $eExam === 'rojo') {
                 $estadoDocumentos = 'rojo';
-            } elseif ($eDocs === 'amarillo' && $estadoDocumentos !== 'rojo') {
+            } elseif (
+                ($eDocs === 'amarillo' || $eExam === 'amarillo') &&
+                $estadoDocumentos !== 'rojo'
+            ) {
                 $estadoDocumentos = 'amarillo';
             }
 
@@ -509,13 +518,18 @@ class EmpleadoController extends Controller
                 $estadoCursos = 'amarillo';
             }
 
-            // Estados agregados “status*”
+            // Estados por vencimiento
             $sDocs  = $this->checkDocumentStatus($documentos);
             $sCurso = $this->checkDocumentStatus($cursos);
+            $sExam  = $this->checkDocumentStatus($examenes);
 
-            if ($sDocs === 'rojo') {
+            // Expediente incluye documentos y exámenes
+            if ($sDocs === 'rojo' || $sExam === 'rojo') {
                 $statusDocuments = 'rojo';
-            } elseif ($sDocs === 'amarillo' && $statusDocuments !== 'rojo') {
+            } elseif (
+                ($sDocs === 'amarillo' || $sExam === 'amarillo') &&
+                $statusDocuments !== 'rojo'
+            ) {
                 $statusDocuments = 'amarillo';
             }
 

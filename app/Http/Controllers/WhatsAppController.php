@@ -675,7 +675,7 @@ class WhatsAppController extends Controller
             Log::error("[WA][{$rid}] Error", ['error' => $error]);
             return response()->json(['status' => 'error', 'error' => $error], $response->status());
 
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             Log::error("[WA][{$rid}] Excepción", ['msg' => $e->getMessage()]);
             return response()->json(['status' => 'error', 'msg' => $e->getMessage()], 500);
         }
