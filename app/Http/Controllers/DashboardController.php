@@ -680,8 +680,8 @@ class DashboardController extends Controller
             // =========================
             // 💰 PRENÓMINA (gráfica)
             // =========================
-// 💰 PRENÓMINA (gráfica)
-// 💰 PRENÓMINA (gráfica + KPI)
+            // 💰 PRENÓMINA (gráfica)
+            // 💰 PRENÓMINA (gráfica + KPI)
             if ($modulesUser['com']) {
 
                 $charts['prenominapayments'] =

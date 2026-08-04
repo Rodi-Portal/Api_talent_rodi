@@ -101,11 +101,19 @@ class EmpleadoController extends Controller
             foreach ($empleados as $empleado) {
                 // Obtener documentos del empleado
                 $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
-                    ->whereNot('status', 999)
+                    ->where('status', '!=', 999)
                     ->get();
-                $cursos     = CursoEmpleado::where('employee_id', $empleado->id)->get();
-                $examenes   = ExamEmpleado::where('employee_id', $empleado->id)->get();
-                $medico     = MedicalInfo::where('id_empleado', $empleado->id)->get();
+
+                $cursos = CursoEmpleado::where('employee_id', $empleado->id)
+                    ->where('status', '!=', 999)
+                    ->get();
+
+                $examenes = ExamEmpleado::where('employee_id', $empleado->id)
+                    ->where('status', '!=', 999)
+                    ->get();
+
+                $medico = MedicalInfo::where('id_empleado', $empleado->id)->get();
+
                 $campoExtra = EmpleadoCampoExtra::where('id_empleado', $empleado->id)->get();
 
                 $statusExam = $this->checkDocumentStatus($examenes);
@@ -248,45 +256,43 @@ class EmpleadoController extends Controller
     }
     private function checkDocumentStatus($documentos)
     {
-        // Si $documentos es un solo documento, conviene usarlo directamente
-        if (! is_array($documentos) && ! $documentos instanceof \Illuminate\Support\Collection) {
-            $documentos = [$documentos]; // Convertir a un array para la iteración
+        if (
+            ! $documentos ||
+            ($documentos instanceof \Illuminate\Support\Collection  && $documentos->isEmpty())
+        ) {
+            return 'verde';
         }
 
-        if (empty($documentos)) {
-            return 'verde'; // Sin documentos, consideramos como verde
-        }
-
-        $tieneRojo     = false;
         $tieneAmarillo = false;
+        $hoy           = Carbon::today();
 
         foreach ($documentos as $documento) {
-            // Calcular diferencia de días con respecto a la fecha actual
-            $diasDiferencia = $this->calcularDiferenciaDias(now(), $documento->expiry_date);
+            // Sin fecha o recordatorio no participa en vencimientos
+            if (
+                empty($documento->expiry_date) ||
+                empty($documento->expiry_reminder) ||
+                (int) $documento->expiry_reminder <= 0
+            ) {
+                continue;
+            }
 
-            // Comprobamos el estado del documento
-            if ($documento->expiry_reminder == 0) {
-                continue; // No se requiere cálculo, se considera verde
-            } elseif ($diasDiferencia <= $documento->expiry_reminder || $diasDiferencia < 0) {
-                // Vencido o exactamente al límite
-                $tieneRojo = true;
-                break; // Prioridad alta, salimos del bucle
-            } elseif ($diasDiferencia > $documento->expiry_reminder && $diasDiferencia <= ($documento->expiry_reminder + 5)) {
-                // Se requiere atención, se considera amarillo
+            $fechaVencimiento = Carbon::parse($documento->expiry_date)->startOfDay();
+            $diasRecordatorio = (int) $documento->expiry_reminder;
+
+            // Fecha anterior a hoy: vencido
+            if ($fechaVencimiento->lt($hoy)) {
+                return 'rojo';
+            }
+
+            $diasRestantes = $hoy->diffInDays($fechaVencimiento);
+
+            // Vigente, pero dentro del periodo de aviso
+            if ($diasRestantes <= $diasRecordatorio) {
                 $tieneAmarillo = true;
             }
         }
 
-        // Determinamos el estado basado en las prioridades
-        if ($tieneRojo) {
-            return 'rojo';
-        }
-
-        if ($tieneAmarillo) {
-            return 'amarillo';
-        }
-
-        return 'verde'; // Si no hay documentos en rojo o amarillo
+        return $tieneAmarillo ? 'amarillo' : 'verde';
     }
     private function calcularDiferenciaDias($fechaActual, $fechaExpiracion)
     {
@@ -479,8 +485,13 @@ class EmpleadoController extends Controller
 
         // === EMPLEADOS ACTIVOS (status=1) ===
         foreach ($empleados as $empleado) {
-            $documentos = DocumentEmpleado::where('employee_id', $empleado->id)->get();
-            $cursos     = CursoEmpleado::where('employee_id', $empleado->id)->get();
+            $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
+                ->where('status', '!=', 999)
+                ->get();
+
+            $cursos = CursoEmpleado::where('employee_id', $empleado->id)
+                ->where('status', '!=', 999)
+                ->get();
 
             // Estados “visibles” por módulo
             $eDocs  = $this->obtenerEstado($documentos);

@@ -270,14 +270,22 @@ class CursosController extends Controller
         $empleados = Empleado::where('id_portal', $id_portal)
             ->where('id_cliente', $id_cliente)
             ->where('status', $status)
+
             ->get();
 
         $resultados = [];
 
         foreach ($empleados as $empleado) {
             // Obtener documentos del empleado filtrando por origen
-            $cursosOrigen1 = CursoEmpleado::where('employee_id', $empleado->id)->where('origen', 1)->get();
-            $cursosOrigen2 = CursoEmpleado::where('employee_id', $empleado->id)->where('origen', 2)->get();
+            $cursosOrigen1 = CursoEmpleado::where('employee_id', $empleado->id)
+                ->where('origen', 1)
+                ->where('status', '!=', 999)
+                ->get();
+
+            $cursosOrigen2 = CursoEmpleado::where('employee_id', $empleado->id)
+                ->where('origen', 2)
+                ->where('status', '!=', 999)
+                ->get();
 
             // Determinar estado final
             $estadoFinal  = $this->determinarEstado($cursosOrigen1);
