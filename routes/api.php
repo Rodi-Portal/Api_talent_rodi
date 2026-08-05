@@ -79,6 +79,8 @@ use App\Http\Controllers\TestController;
 use App\Http\Controllers\WhatsAppController;
 use App\Modules\AuthCore\Controllers\AdminRecoveryController;
 use App\Modules\AuthCore\Controllers\EmpleadoRecoveryController;
+use Illuminate\Http\Request;
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -639,146 +641,175 @@ Route::middleware(['auth:empleado', 'force.password.change'])
 
 //********************** INICIO Rutas Comunicacion 360  ****************************//
 
-Route::prefix('comunicacion360')->group(function () {
-    Route::middleware(['auth:sanctum', 'admin.session'])
-        ->group(function () {
-            Route::get(
-                '/accesos',
-                [AccesosController::class, 'index']
-            );
+Route::prefix('comunicacion360')
+    ->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:module.comunicacion360.ver',
+    ])
+    ->group(function () {
+        Route::get(
+            '/accesos',
+            [AccesosController::class, 'index']
+        )->middleware('admin.permission:comunicacion360.accesos.ver');
 
-            Route::post(
-                '/accesos/generar',
-                [AccesosController::class, 'generar']
-            );
+        Route::post(
+            '/accesos/generar',
+            [AccesosController::class, 'generar']
+        )->middleware('admin.permission:comunicacion360.accesos.generar');
 
-            Route::post(
-                '/accesos/actualizar',
-                [AccesosController::class, 'actualizar']
-            );
+        Route::post(
+            '/accesos/actualizar',
+            [AccesosController::class, 'actualizar']
+        )->middleware('admin.permission:comunicacion360.accesos.actualizar');
 
-            Route::post(
-                '/accesos/generar-individual',
-                [AccesosController::class, 'generarIndividual']
-            );
+        Route::post(
+            '/accesos/generar-individual',
+            [AccesosController::class, 'generarIndividual']
+        )->middleware('admin.permission:comunicacion360.accesos.generar');
 
-            Route::post(
-                '/accesos/actualizar-individual',
-                [AccesosController::class, 'actualizarIndividual']
-            );
+        Route::post(
+            '/accesos/actualizar-individual',
+            [AccesosController::class, 'actualizarIndividual']
+        )->middleware('admin.permission:comunicacion360.accesos.actualizar');
 
-            Route::post(
-                '/accesos/{id}/cerrar-sesion',
-                [AccesosChecadorController::class, 'cerrarSesion']
-            );
+        Route::post(
+            '/accesos/{id}/cerrar-sesion',
+            [AccesosChecadorController::class, 'cerrarSesion']
+        )->middleware('admin.permission:comunicacion360.accesos.cerrar_sesion');
 
-            Route::get(
-                '/accesos/empleados/{id}/gestion-checadas/contexto',
-                [AccesosChecadorGestionController::class, 'contextoDia']
-            );
+        Route::get(
+            '/accesos/empleados/{id}/gestion-checadas/contexto',
+            [AccesosChecadorGestionController::class, 'contextoDia']
+        )->middleware(
+            'admin.permission:comunicacion360.accesos.checadas.gestionar'
+        );
 
-            Route::post(
-                '/accesos/empleados/{id}/gestion-checadas/ejecutar',
-                [
-                    AccesosChecadorGestionController::class,
-                    'ejecutarAccionAdministrativa',
-                ]
-            );
-            Route::post(
-                '/accesos/empleados/{id}/eliminar-acceso',
-                [AccesosController::class, 'eliminarAcceso']
-            );
-        });
+        Route::post(
+            '/accesos/empleados/{id}/gestion-checadas/ejecutar',
+            [
+                AccesosChecadorGestionController::class,
+                'ejecutarAccionAdministrativa',
+            ]
+        )->middleware(
+            'admin.permission:comunicacion360.accesos.checadas.gestionar'
+        );
 
-    Route::prefix('accesos/empleados/{id}/ips')
-        ->middleware(['auth:sanctum', 'admin.session'])
-        ->group(function () {
-            Route::get(
-                '/',
-                [AccesosIpController::class, 'index']
-            );
+        Route::post(
+            '/accesos/empleados/{id}/eliminar-acceso',
+            [AccesosController::class, 'eliminarAcceso']
+        )->middleware('admin.permission:comunicacion360.accesos.eliminar');
 
-            Route::post(
-                '/',
-                [AccesosIpController::class, 'guardarIp']
-            );
+        Route::prefix('accesos/empleados/{id}/ips')
+            ->group(function () {
+                Route::get(
+                    '/',
+                    [AccesosIpController::class, 'index']
+                )->middleware('admin.permission:comunicacion360.accesos.ips.ver');
 
-            Route::put(
-                '/{ipId}',
-                [AccesosIpController::class, 'actualizarIp']
-            );
+                Route::post(
+                    '/',
+                    [AccesosIpController::class, 'guardarIp']
+                )->middleware('admin.permission:comunicacion360.accesos.ips.crear');
 
-            Route::delete(
-                '/{ipId}',
-                [AccesosIpController::class, 'eliminarIp']
-            );
-        });
+                Route::put(
+                    '/{ipId}',
+                    [AccesosIpController::class, 'actualizarIp']
+                )->middleware('admin.permission:comunicacion360.accesos.ips.editar');
 
-    Route::get('/accesos/empleados/{id}/checadas-dia', [AccesosChecadorController::class, 'checadasDia']);
-    Route::get('/accesos/empleados/{id}/metricas-dia', [AccesosChecadorController::class, 'metricasDia']);
-    Route::get(
-        '/accesos/empleados/{id}/metricas-operativas',
-        [AccesosChecadorController::class, 'metricasOperativas']
-    );
-    Route::get(
-        '/accesos/empleados/{id}/checadas-historial',
-        [AccesosChecadorController::class, 'historialChecadas']
-    );
-    Route::get(
-        '/accesos/empleados/{id}/checadas/{idChecada}/evidencia',
-        [AccesosChecadorController::class, 'evidenciaChecada']
-    );
+                Route::delete(
+                    '/{ipId}',
+                    [AccesosIpController::class, 'eliminarIp']
+                )->middleware('admin.permission:comunicacion360.accesos.ips.eliminar');
+            });
+        Route::get(
+            '/accesos/empleados/{id}/checadas-dia',
+            [AccesosChecadorController::class, 'checadasDia']
+        )->middleware('admin.permission:comunicacion360.accesos.checadas.ver');
 
-    Route::get(
-        '/accesos/empleados/{id}/tareas-historial',
-        [AccesosTareasController::class, 'historialTareas']
-    );
+        Route::get(
+            '/accesos/empleados/{id}/metricas-dia',
+            [AccesosChecadorController::class, 'metricasDia']
+        )->middleware('admin.permission:comunicacion360.accesos.checadas.ver');
 
-    Route::get(
-        '/accesos/empleados/{id}/tareas-dia',
-        [AccesosTareasController::class, 'tareasDia']
-    );
-    Route::get(
-        '/accesos/empleados/{id}/tareas/{idTarea}/evidencias/{idEvidencia}',
-        [AccesosTareasController::class, 'evidenciaTarea']
-    );
-    Route::get(
-        '/accesos/empleados/{id}/analisis-operativo',
-        [EmployeeProfileAnalysisController::class, 'show']
-    );
-    Route::post(
-        '/accesos/empleados/{id}/eventos/horas-extra',
-        [ChecadorEventosController::class, 'registrarHorasExtra']
-    );
-    Route::post(
-        '/accesos/eventos/horas-extra',
-        [ChecadorEventosController::class, 'registrarHorasExtraMasivo']
-    );
-    Route::get(
-        '/accesos/empleados/{id}/eventos',
-        [ChecadorEventosController::class, 'eventosEmpleado']
-    );
+        Route::get(
+            '/accesos/empleados/{id}/metricas-operativas',
+            [AccesosChecadorController::class, 'metricasOperativas']
+        )->middleware('admin.permission:comunicacion360.accesos.checadas.ver');
 
-    Route::get(
-        '/accesos/empleados/{id}/reportes/checadas/vista-previa',
-        [AccesosChecadorReportesController::class, 'vistaPrevia']
-    );
+        Route::get(
+            '/accesos/empleados/{id}/checadas-historial',
+            [AccesosChecadorController::class, 'historialChecadas']
+        )->middleware('admin.permission:comunicacion360.accesos.checadas.ver');
 
-    Route::prefix('incidencias')
-        ->middleware(['auth:sanctum', 'admin.session'])
-        ->group(function () {
-            Route::get(
-                '/calendario',
-                [IncidenciasCalendarioController::class, 'index']
-            );
+        Route::get(
+            '/accesos/empleados/{id}/checadas/{idChecada}/evidencia',
+            [AccesosChecadorController::class, 'evidenciaChecada']
+        )->middleware('admin.permission:comunicacion360.accesos.checadas.ver');
 
-            Route::get(
-                '/{id}/evidencia',
-                [IncidenciasCalendarioController::class, 'evidencia']
-            );
-        });
+        Route::get(
+            '/accesos/empleados/{id}/tareas-historial',
+            [AccesosTareasController::class, 'historialTareas']
+        )->middleware('admin.permission:comunicacion360.accesos.tareas.ver');
 
-});
+        Route::get(
+            '/accesos/empleados/{id}/tareas-dia',
+            [AccesosTareasController::class, 'tareasDia']
+        )->middleware('admin.permission:comunicacion360.accesos.tareas.ver');
+
+        Route::get(
+            '/accesos/empleados/{id}/tareas/{idTarea}/evidencias/{idEvidencia}',
+            [AccesosTareasController::class, 'evidenciaTarea']
+        )->middleware('admin.permission:comunicacion360.accesos.tareas.ver');
+        Route::get(
+            '/accesos/empleados/{id}/analisis-operativo',
+            [EmployeeProfileAnalysisController::class, 'show']
+        )->middleware('admin.permission:comunicacion360.accesos.perfil.ver');
+        Route::post(
+            '/accesos/empleados/{id}/eventos/horas-extra',
+            [ChecadorEventosController::class, 'registrarHorasExtra']
+        )->middleware(
+            'admin.permission:comunicacion360.accesos.eventos.registrar_horas_extra'
+        );
+
+        Route::post(
+            '/accesos/eventos/horas-extra',
+            [ChecadorEventosController::class, 'registrarHorasExtraMasivo']
+        )->middleware(
+            'admin.permission:comunicacion360.accesos.eventos.registrar_horas_extra'
+        );
+
+        Route::get(
+            '/accesos/empleados/{id}/eventos',
+            [ChecadorEventosController::class, 'eventosEmpleado']
+        )->middleware(
+            'admin.permission:comunicacion360.accesos.eventos.ver'
+        );
+
+        Route::get(
+            '/accesos/empleados/{id}/reportes/checadas/vista-previa',
+            [AccesosChecadorReportesController::class, 'vistaPrevia']
+        )->middleware(
+            'admin.permission:comunicacion360.accesos.reportes.ver'
+        );
+        Route::prefix('incidencias')
+            ->group(function () {
+                Route::get(
+                    '/calendario',
+                    [IncidenciasCalendarioController::class, 'index']
+                )->middleware(
+                    'admin.permission:comunicacion360.incidencias.ver'
+                );
+
+                Route::get(
+                    '/{id}/evidencia',
+                    [IncidenciasCalendarioController::class, 'evidencia']
+                )->middleware(
+                    'admin.permission:comunicacion360.incidencias.ver_evidencia'
+                );
+            });
+
+    });
 
 Route::prefix('checador')->group(function () {
     //CRUD  Cat Ubicaciones
@@ -942,50 +973,100 @@ Route::prefix('checador')->group(function () {
 
 });
 Route::prefix('comunicacion360/tasks')
-    ->middleware(['auth:sanctum', 'admin.session'])
+    ->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:module.comunicacion360.ver',
+    ])
     ->group(function () {
+        Route::get(
+            '/',
+            [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'index']
+        )->middleware(
+            'admin.permission:comunicacion360.tareas.ver,comunicacion360.plantillas.ver'
+        );
+        Route::post(
+            '/',
+            [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'store']
+        )->middleware('admin.permission:comunicacion360.tareas.crear');
 
-        // Obtener todas las tareas
-        Route::get('/', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'index']);
+        Route::get(
+            '/empleado/{id}',
+            [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'empleado']
+        )->middleware('admin.permission:comunicacion360.accesos.tareas.ver');
 
-        // Crear tarea
-        Route::post('/', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'store']);
-        //ver tarea  de empleado
-        Route::get('/empleado/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'empleado']);
-        Route::post('/empleado-tarea/{id}/comentarios', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'storeComentarioEmpleado']);
-        Route::post('/empleado-tarea/{id}/reabrir', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'reabrirTareaEmpleado']);
-        Route::delete('/comentarios/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'deleteComentarioEmpleado']);
-        // Obtener una tarea por ID
-        Route::get('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'show']);
+        Route::post(
+            '/empleado-tarea/{id}/comentarios',
+            [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'storeComentarioEmpleado']
+        )->middleware('admin.permission:comunicacion360.accesos.tareas.comentar');
 
-        // Actualizar tarea
-        Route::put('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'update']);
+        Route::post(
+            '/empleado-tarea/{id}/reabrir',
+            [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'reabrirTareaEmpleado']
+        )->middleware('admin.permission:comunicacion360.accesos.tareas.reabrir');
 
-        // Eliminar (opcional)
-        Route::delete('/{id}', [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'destroy']);
+        Route::delete(
+            '/comentarios/{id}',
+            [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'deleteComentarioEmpleado']
+        )->middleware('admin.permission:comunicacion360.accesos.tareas.eliminar_comentario');
 
+        Route::get(
+            '/{id}',
+            [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'show']
+        )->middleware('admin.permission:comunicacion360.tareas.ver');
+
+        Route::put(
+            '/{id}',
+            [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'update']
+        )->middleware('admin.permission:comunicacion360.tareas.editar');
+
+        Route::delete(
+            '/{id}',
+            [App\Http\Controllers\Api\Comunicacion360\TasksController::class, 'destroy']
+        )->middleware('admin.permission:comunicacion360.tareas.eliminar');
     });
 
-use Illuminate\Http\Request;
-
 Route::prefix('comunicacion360/plantillas')
-    ->middleware(['auth:sanctum', 'admin.session'])
+    ->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:module.comunicacion360.ver',
+    ])
     ->group(function () {
+        Route::get(
+            '/',
+            [PlantillasController::class, 'index']
+        )->middleware('admin.permission:comunicacion360.plantillas.ver');
 
-        // Obtener todas las plantillas
-        Route::get('/', [PlantillasController::class, 'index']);
-        // Crear plantilla
-        Route::post('/', [PlantillasController::class, 'store']);
-        // Actualizar plantilla
-        Route::put('/{id}', [PlantillasController::class, 'update']);
-        // Eliminado Suave
-        Route::delete('/{id}', [PlantillasController::class, 'destroy']);
-        Route::post('/{id}/asignar', [PlantillasController::class, 'asignar']);
+        Route::post(
+            '/',
+            [PlantillasController::class, 'store']
+        )->middleware('admin.permission:comunicacion360.plantillas.crear');
 
-        Route::get('/empleados/{id}/plantillas', [PlantillasController::class, 'empleadoPlantillas']);
-        Route::post('/{id}/desasignar', [PlantillasController::class, 'desasignarEmpleado']
-        );
+        Route::put(
+            '/{id}',
+            [PlantillasController::class, 'update']
+        )->middleware('admin.permission:comunicacion360.plantillas.editar');
 
+        Route::delete(
+            '/{id}',
+            [PlantillasController::class, 'destroy']
+        )->middleware('admin.permission:comunicacion360.plantillas.eliminar');
+
+        Route::post(
+            '/{id}/asignar',
+            [PlantillasController::class, 'asignar']
+        )->middleware('admin.permission:comunicacion360.plantillas.asignar');
+
+        Route::get(
+            '/empleados/{id}/plantillas',
+            [PlantillasController::class, 'empleadoPlantillas']
+        )->middleware('admin.permission:comunicacion360.plantillas.ver');
+
+        Route::post(
+            '/{id}/desasignar',
+            [PlantillasController::class, 'desasignarEmpleado']
+        )->middleware('admin.permission:comunicacion360.plantillas.desasignar');
     });
 
 Route::post(

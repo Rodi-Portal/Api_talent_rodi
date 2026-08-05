@@ -66,5 +66,7 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'force.password.change' => \App\Http\Middleware\ForcePasswordChange::class,
         'admin.session' => \App\Http\Middleware\EnsureAdminSessionToken::class,
+        'admin.permission' => \App\Http\Middleware\EnsureAdminPermission::class,
+
     ];
 }

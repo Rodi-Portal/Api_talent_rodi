@@ -59,8 +59,8 @@ class IncidenciasCalendarioController extends Controller
                 'ce.id',
                 'ce.id_usuario',
                 'ce.id_empleado',
-                'ce.id_portal',
-                'ce.id_cliente',
+                'e.id_portal AS id_portal',
+                'e.id_cliente AS id_cliente',
                 'ce.inicio',
                 'ce.fin',
                 'ce.dias_evento',
@@ -86,14 +86,7 @@ class IncidenciasCalendarioController extends Controller
                 'e.puesto as empleado_puesto',
                 'e.foto as empleado_foto',
             ])
-            ->where(function ($query) use ($idPortal) {
-                $query->where('ce.id_portal', $idPortal)
-                    ->orWhere(function ($legacyQuery) {
-                        $legacyQuery
-                            ->whereNull('ce.id_portal')
-                            ->whereNull('ce.id_cliente');
-                    });
-            })
+
             ->where('ce.eliminado', 0)
             ->whereDate('ce.inicio', '<=', $datos['fecha_fin'])
             ->whereDate('ce.fin', '>=', $datos['fecha_inicio'])
@@ -105,7 +98,7 @@ class IncidenciasCalendarioController extends Controller
 
         if ($contexto === 'sucursal') {
             $consulta->where(
-                'ce.id_cliente',
+                'e.id_cliente',
                 (int) $datos['id_sucursal']
             );
         }
@@ -213,18 +206,20 @@ class IncidenciasCalendarioController extends Controller
 
         $idPortal = (int) $datos['id_portal'];
         $modo     = $datos['modo'] ?? 'ver';
-
-        $evento = DB::connection('portal_main')
-            ->table('calendario_eventos')
-            ->where('id', $id)
-            ->where('id_portal', $idPortal)
-            ->where('eliminado', 0)
+        $evento   = DB::connection('portal_main')
+            ->table('calendario_eventos as ce')
+            ->join('empleados as e', 'e.id', '=', 'ce.id_empleado')
+            ->where('ce.id', $id)
+            ->where('e.id_portal', $idPortal)
+            ->where('e.status', 1)
+            ->where('e.eliminado', 0)
+            ->where('ce.eliminado', 0)
             ->first([
-                'id',
-                'id_portal',
-                'id_cliente',
-                'id_empleado',
-                'archivo',
+                'ce.id',
+                'e.id_portal AS id_portal',
+                'e.id_cliente AS id_cliente',
+                'ce.id_empleado',
+                'ce.archivo',
             ]);
 
         if (! $evento) {
