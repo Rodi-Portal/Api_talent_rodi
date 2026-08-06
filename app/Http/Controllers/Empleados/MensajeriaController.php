@@ -3,8 +3,10 @@ namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller;
 use App\Mail\PlantillaCorreoMailable;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\Empleado;
 use App\Models\Plantilla;
+use App\Services\Auth\AdminClientScopeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -17,13 +19,30 @@ class MensajeriaController extends Controller
      * @param Request $request
      * @return \Illuminate\Http\JsonResponse
      */
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
+
     public function obtenerEmpleados(Request $request)
     {
-        $ids_cliente = $request->input('id_cliente');
+        $administrator = $request->user();
 
-        if (! is_array($ids_cliente) || empty($ids_cliente)) {
-            return response()->json(['error' => 'El parámetro id_cliente debe ser un arreglo con al menos un elemento.'], 400);
+        if (! $administrator instanceof AdministradorAuth) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Token administrativo no válido.',
+            ], 403);
         }
+
+        $validated = $request->validate([
+            'id_cliente'   => ['required', 'array', 'min:1'],
+            'id_cliente.*' => ['required', 'integer', 'distinct', 'min:1'],
+        ]);
+
+        $idsCliente = $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            $validated['id_cliente']
+        );
 
         // Cargar empleados con relaciones, incluyendo cliente
         $empleados = Empleado::with([
@@ -32,7 +51,8 @@ class MensajeriaController extends Controller
             'cliente', // Importante: para obtener el nombre del cliente
                        // 'informacionMedica' // Si se desea incluir
         ])
-            ->whereIn('id_cliente', $ids_cliente)
+            ->where('id_portal', (int) $administrator->id_portal)
+            ->whereIn('id_cliente', $idsCliente)
             ->where('eliminado', 0)
             ->get()
             ->map(function ($empleado) {
@@ -68,20 +88,45 @@ class MensajeriaController extends Controller
 
     public function enviarCorreos(Request $request)
     {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Token administrativo no válido.',
+            ], 403);
+        }
         $data = $request->validate([
-            'id_plantilla'           => 'required|exists:portal_main.plantillas,id',
+            'id_plantilla'           => [
+                'required',
+                'integer',
+                'min:1',
+            ],
             'destinatarios'          => 'required|array|min:1',
             'destinatarios.*.correo' => 'required|email',
             'destinatarios.*.nombre' => 'required|string|max:255',
         ]);
-
+        $permittedClientIds = $this->clientScope
+            ->permittedClientIds($administrator);
         Log::info('📥 Solicitud de envío recibida', [
             'id_plantilla'  => $data['id_plantilla'],
             'total_correos' => count($data['destinatarios']),
         ]);
 
         // Cargar plantilla con adjuntos
-        $plantilla = Plantilla::with('adjuntos')->findOrFail($data['id_plantilla']);
+        $plantilla = Plantilla::with('adjuntos')
+            ->where('id_portal', (int) $administrator->id_portal)
+            ->where(function ($query) use ($permittedClientIds) {
+                $query->whereNull('id_cliente');
+
+                if ($permittedClientIds !== []) {
+                    $query->orWhereIn(
+                        'id_cliente',
+                        $permittedClientIds
+                    );
+                }
+            })
+            ->findOrFail($data['id_plantilla']);
 
         Log::info('📝 Detalles de la plantilla seleccionada', [
             'id'                   => $plantilla->id,

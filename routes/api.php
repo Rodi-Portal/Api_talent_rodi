@@ -259,19 +259,90 @@ Route::middleware(['api'])->group(function () {
     Route::post('catalogos/puestos', [CatalogosController::class, 'crearPuesto']);
     //***************  Fin para  los  catalogos del Puestos y Departamentos ************************/
 
-    //***************  Ruta para  los  Mensajeria del empleado ************************/
-    Route::get('/plantillas', [PlantillaController::class, 'listar']);
-    Route::post('/plantillas/vista-previa', [PlantillaController::class, 'vistaPrevia']);
+    //***************  Rutas de Mensajería interna ************************/
 
-    Route::get('/mensajeria/empleados', [MensajeriaController::class, 'obtenerEmpleados']);
-    Route::post('/mensajeria/enviar-correos', [MensajeriaController::class, 'enviarCorreos']);
+    Route::middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:module.comunicacion.ver',
+    ])->group(function () {
+        Route::get(
+            '/plantillas',
+            [PlantillaController::class, 'listar']
+        )->middleware(
+            'admin.permission:comunicacion.mensajeria.crear_plantilla,comunicacion.mensajeria.actualizar_plantilla'
+        );
 
-    Route::post('/mensajeria/plantillas', [PlantillaController::class, 'store']);
-    Route::get('/mensajeria/plantillas', [PlantillaController::class, 'index']);
-    Route::get('/descargar-adjunto/{id}', [PlantillaController::class, 'descargarAdjunto']);
-    Route::get('plantillas/{plantilla}/logo', [PlantillaController::class, 'mostrarLogo']);
+        Route::post(
+            '/plantillas/vista-previa',
+            [PlantillaController::class, 'vistaPrevia']
+        )->middleware(
+            'admin.permission:comunicacion.mensajeria.crear_plantilla,comunicacion.mensajeria.actualizar_plantilla'
+        );
 
-    //***************  Ruta para  los  Mensajeria del empleado ************************/
+        Route::get(
+            '/mensajeria/empleados',
+            [MensajeriaController::class, 'obtenerEmpleados']
+        )->middleware(
+            'admin.permission:comunicacion.mensajeria.ver'
+        );
+
+        Route::post(
+            '/mensajeria/enviar-correos',
+            [MensajeriaController::class, 'enviarCorreos']
+        )->middleware(
+            'admin.permission:comunicacion.mensajeria.enviar_masivo'
+        );
+
+        Route::get(
+            '/mensajeria/plantillas',
+            [PlantillaController::class, 'index']
+        )->middleware(
+            'admin.permission:comunicacion.mensajeria.ver'
+        );
+
+        /*
+         * El middleware permite entrar con crear o actualizar.
+         * PlantillaController debe validar el permiso exacto según exista
+         * o no el campo id. Lo implementaremos en el siguiente paso.
+         */
+        Route::post(
+            '/mensajeria/plantillas',
+            [PlantillaController::class, 'store']
+        )->middleware(
+            'admin.permission:comunicacion.mensajeria.crear_plantilla,comunicacion.mensajeria.actualizar_plantilla'
+        );
+
+        Route::get(
+            '/mensajeria/configuracion/columnas',
+            [ConfiguracionColumnasController::class, 'obtenerMensajeria']
+        )->middleware(
+            'admin.permission:comunicacion.mensajeria.ver'
+        );
+
+        Route::post(
+            '/mensajeria/configuracion/columnas',
+            [ConfiguracionColumnasController::class, 'guardarMensajeria']
+        )->middleware(
+            'admin.permission:comunicacion.mensajeria.configurar_columnas'
+        );
+    });
+
+    /*
+     * Se mantienen temporalmente fuera del grupo hasta revisar cómo se
+     * consumen como recursos:
+     */
+    Route::get(
+        '/descargar-adjunto/{id}',
+        [PlantillaController::class, 'descargarAdjunto']
+    );
+
+    Route::get(
+        'plantillas/{plantilla}/logo',
+        [PlantillaController::class, 'mostrarLogo']
+    );
+
+    //***************  Fin de Mensajería interna ************************/
 
     //***************  Ruta para  los  Configuracion Columnas  del empleado ****************/
 

@@ -1,15 +1,153 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Models\Auth\AdministradorAuth;
 use App\Models\ConfiguracionColumnas;
+use App\Services\Auth\AdminClientScopeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ConfiguracionColumnasController extends Controller
 {
+     public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
+
     /**
      * Obtener configuración de columnas por usuario, portal, cliente y módulo
      */
+    public function obtenerMensajeria(Request $request)
+    {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Token administrativo no válido.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'id_cliente'   => ['required', 'array', 'min:1'],
+            'id_cliente.*' => [
+                'required',
+                'integer',
+                'distinct',
+                'min:1',
+            ],
+        ]);
+
+        $idsCliente = $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                $validated['id_cliente']
+            );
+
+        $configs = ConfiguracionColumnas::query()
+            ->where('id_usuario', (int) $administrator->id)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->whereIn('id_cliente', $idsCliente)
+            ->where('modulo', 'mensajeria')
+            ->get();
+
+        if ($configs->isEmpty()) {
+            return response()->json([
+                'columnas' => [],
+            ], 200);
+        }
+
+        $columnas = $configs->reduce(
+            function (array $carry, $config): array {
+                $cols = is_array($config->columnas)
+                    ? $config->columnas
+                    : [];
+
+                foreach ($cols as $columna) {
+                    if (! in_array($columna, $carry, true)) {
+                        $carry[] = $columna;
+                    }
+                }
+
+                return $carry;
+            },
+            []
+        );
+
+        return response()->json([
+            'columnas' => $columnas,
+        ], 200);
+    }
+
+    public function guardarMensajeria(Request $request)
+    {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Token administrativo no válido.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'id_cliente'   => ['required', 'array', 'min:1'],
+            'id_cliente.*' => [
+                'required',
+                'integer',
+                'distinct',
+                'min:1',
+            ],
+            'columnas'     => ['required', 'array', 'min:1'],
+            'columnas.*'   => ['required', 'string', 'max:128'],
+        ]);
+
+        $idsCliente = $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                $validated['id_cliente']
+            );
+
+        $resultados = [];
+
+        DB::transaction(function () use (
+            $administrator,
+            $validated,
+            $idsCliente,
+            &$resultados
+        ) {
+            foreach ($idsCliente as $idCliente) {
+                $config = ConfiguracionColumnas::firstOrNew([
+                    'id_usuario' => (int) $administrator->id,
+                    'id_portal'  => (int) $administrator->id_portal,
+                    'id_cliente' => $idCliente,
+                    'modulo'     => 'mensajeria',
+                ]);
+
+                $config->columnas = $validated['columnas'];
+                $config->edicion  = now();
+
+                if (! $config->exists) {
+                    $config->creacion = now();
+                }
+
+                $config->save();
+
+                $resultados[] = [
+                    'id_cliente' => $idCliente,
+                    'columnas'   => $config->columnas,
+                ];
+            }
+        });
+
+        return response()->json([
+            'mensaje'    => 'Configuración guardada exitosamente',
+            'resultados' => $resultados,
+        ], 200);
+    }
+
     public function obtener(Request $request)
     {
         $request->validate([

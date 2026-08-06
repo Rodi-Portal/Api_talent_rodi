@@ -2,8 +2,11 @@
 namespace App\Http\Controllers\Plantillas;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\Plantilla;
 use App\Models\PlantillaAdjunto;
+use App\Services\Auth\AdminClientScopeService;
+use App\Services\Auth\PermissionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -13,33 +16,70 @@ use Illuminate\Support\Facades\View;
 
 class PlantillaController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope,
+        private PermissionService $permissions
+    ) {}
 
     public function index(Request $request)
     {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Token administrativo no válido.',
+            ], 403);
+        }
+
         $raw = $request->query('id_cliente');
 
-        // Puede venir un solo id, array, o "6,70"
         $ids = is_array($raw)
             ? $raw
-            : (is_string($raw) && str_contains($raw, ',') ? explode(',', $raw) : [$raw]);
+            : (
+            is_string($raw) && str_contains($raw, ',')
+                ? explode(',', $raw)
+                : [$raw]
+        );
 
-        $ids = array_values(array_filter(array_map(static fn($v) => (int) $v, $ids)));
+        $ids = array_values(
+            array_filter(
+                array_map(
+                    static fn($value) => (int) $value,
+                    $ids
+                ),
+                static fn($value) => $value > 0
+            )
+        );
+
+        if ($ids !== []) {
+            $ids = $this->clientScope
+                ->authorizeRequestedClients(
+                    $administrator,
+                    $ids
+                );
+        } else {
+            $ids = $this->clientScope
+                ->permittedClientIds($administrator);
+        }
 
         $query = Plantilla::with([
             'adjuntos',
-            'cliente:id,nombre', // ajusta al campo real que usas como nombre
-        ]);
+            'cliente:id,nombre',
+        ])
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(function ($query) use ($ids) {
+                $query->whereNull('id_cliente');
 
-        if (! empty($ids)) {
-            $query->where(function ($q) use ($ids) {
-                $q->whereNull('id_cliente')      // 👈 plantillas generales del portal
-                    ->orWhereIn('id_cliente', $ids); // 👈 plantillas específicas de esos clientes
+                if ($ids !== []) {
+                    $query->orWhereIn('id_cliente', $ids);
+                }
             });
-        }
 
-        $plantillas = $query->get();
-
-        return response()->json($plantillas);
+        return response()->json($query->get());
     }
 
     public function listar()
@@ -242,6 +282,33 @@ class PlantillaController extends Controller
 */
     public function store(Request $request)
     {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Token administrativo no válido.',
+            ], 403);
+        }
+
+        $isUpdate = (int) $request->input('id', 0) > 0;
+
+        $requiredPermission = $isUpdate
+            ? 'comunicacion.mensajeria.actualizar_plantilla'
+            : 'comunicacion.mensajeria.crear_plantilla';
+
+        if (! $this->permissions->canAdminGlobal(
+            (int) $administrator->id,
+            (int) $administrator->id_rol,
+            $requiredPermission
+        )) {
+            return response()->json([
+                'status'  => false,
+                'code'    => 'PERMISSION_DENIED',
+                'message' => 'No tienes permiso para realizar esta acción.',
+            ], 403);
+        }
+
         Log::info('🌐 Iniciando store de plantilla (single-cliente / general)', [
             'id'         => $request->input('id'),
             'id_cliente' => $request->input('id_cliente'),
@@ -252,11 +319,21 @@ class PlantillaController extends Controller
         $idCliente  = ($rawCliente !== null && $rawCliente !== '') ? (int) $rawCliente : null;
 
         // Lo fusionamos al request para que el validador vea null/int
-        $request->merge(['id_cliente' => $idCliente]);
+        $request->merge([
+            'id_cliente' => $idCliente,
+            'id_usuario' => (int) $administrator->id,
+            'id_portal'  => (int) $administrator->id_portal,
+        ]);
 
+        if ($idCliente !== null) {
+            $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                [$idCliente]
+            );
+        }
         // 2) Validación
         $validated = $request->validate([
-            'id'                   => 'nullable|integer|exists:portal_main.plantillas,id',
+            'id'                   => 'nullable|integer|min:1',
             'nombre_personalizado' => 'required|string|max:255',
             'nombre_plantilla'     => 'required|string|max:100',
             'titulo'               => 'required|string|max:255',
@@ -273,6 +350,32 @@ class PlantillaController extends Controller
             'eliminar_logo'        => 'nullable|boolean',
             'adjuntos_a_eliminar'  => 'nullable|string', // JSON
         ]);
+        $existingPlantilla = null;
+
+        if ($isUpdate) {
+            $permittedClientIds = $this->clientScope
+                ->permittedClientIds($administrator);
+
+            $existingPlantilla = Plantilla::query()
+                ->whereKey((int) $validated['id'])
+                ->where(
+                    'id_portal',
+                    (int) $administrator->id_portal
+                )
+                ->where(function ($query) use (
+                    $permittedClientIds
+                ) {
+                    $query->whereNull('id_cliente');
+
+                    if ($permittedClientIds !== []) {
+                        $query->orWhereIn(
+                            'id_cliente',
+                            $permittedClientIds
+                        );
+                    }
+                })
+                ->firstOrFail();
+        }
 
         // 3) Paths por ambiente
         $root = rtrim(
@@ -324,6 +427,7 @@ class PlantillaController extends Controller
         $plantilla = DB::transaction(function () use (
             $request,
             $validated,
+            $existingPlantilla,
             $idCliente,
             $logosDir,
             $adjDir,
@@ -333,8 +437,7 @@ class PlantillaController extends Controller
             // 5.1) Crear o actualizar
             if (! empty($validated['id'])) {
                 /** @var \App\Models\Plantilla $plantilla */
-                $plantilla = Plantilla::findOrFail($validated['id']);
-
+                $plantilla = $existingPlantilla;
                 $plantilla->fill([
                     'nombre_personalizado' => $validated['nombre_personalizado'],
                     'nombre_plantilla'     => $validated['nombre_plantilla'],
