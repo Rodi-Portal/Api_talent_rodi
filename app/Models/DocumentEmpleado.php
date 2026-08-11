@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -13,7 +12,7 @@ class DocumentEmpleado extends Model
     protected $table = 'documents_empleado';
 
     // Desactivar las timestamps automáticas
-    public $timestamps = false;
+    public $timestamps    = false;
     protected $connection = 'portal_main';
 
     // Definir los campos que se pueden rellenar (fillable)
@@ -21,6 +20,7 @@ class DocumentEmpleado extends Model
         'creacion',
         'edicion',
         'employee_id',
+        'id_usuario',
         'name',
         'id_opcion',
         'description',
@@ -28,17 +28,21 @@ class DocumentEmpleado extends Model
         'expiry_reminder',
         'nameDocument',
         'status',
+        'share_scope',
+        'collaborator_can_replace',
     ];
-
+    protected $casts = [
+        'share_scope'              => 'integer',
+        'collaborator_can_replace' => 'boolean',
+    ];
     // Relación con el modelo Empleado (si lo necesitas)
     public function empleado()
     {
         return $this->belongsTo(Empleado::class, 'employee_id', 'id');
     }
 
-
     public function documentOption()
-{
-    return $this->belongsTo(DocumentOption::class, 'id_opcion');
-}
+    {
+        return $this->belongsTo(DocumentOption::class, 'id_opcion');
+    }
 }

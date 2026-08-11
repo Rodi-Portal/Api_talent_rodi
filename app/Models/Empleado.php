@@ -52,7 +52,7 @@ class Empleado extends Model
     }
     public function documentsEmpleado()
     {
-        return $this->hasMany(DocumentEmpleado::class, 'employee_id', 'id_empleado');
+        return $this->hasMany(DocumentEmpleado::class, 'employee_id');
     }
     public function laborales()
     {

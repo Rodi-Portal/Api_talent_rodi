@@ -28,6 +28,12 @@ class CursoEmpleado extends Model
         'expiry_reminder',
         'nameDocument',
         'status',
+        'share_scope',
+        'collaborator_can_replace',
+    ];
+    protected $casts = [
+        'share_scope'              => 'integer',
+        'collaborator_can_replace' => 'boolean',
     ];
 
     // Si necesitas definir relaciones, puedes hacerlo aquí

@@ -192,10 +192,36 @@ Route::middleware(['api'])->group(function () {
         ->withoutMiddleware('throttle:api');
 
     Route::get('/documentos/{carpeta}/{archivo}', [ApiEmpleadoController::class, 'verDocumento']);
+
     // ----- opciones  documentos, examenes y cursos ----- //
-    Route::get('/document-options', [DocumentOptionController::class, 'index']);
-    Route::post('/document-options/save', [DocumentOptionController::class, 'guardarOpcion']);
-    Route::delete('/document-options/delete', [DocumentOptionController::class, 'eliminarOpcion']);
+    // ----- opciones documentos, examenes y cursos ----- //
+    Route::middleware([
+        'auth:sanctum',
+        'admin.session',
+    ])->group(function () {
+        Route::get(
+            '/document-options',
+            [DocumentOptionController::class, 'index']
+        )->middleware(
+            'admin.permission:empleados.expediente.documentos.ver,empleados.expediente.documentos.subir,empleados.expediente.documentos.editar,empleados.cursos.ver,empleados.cursos.agregar_interno,empleados.cursos.editar,empleados.expediente.bgv_examenes.ver,empleados.expediente.bgv_examenes.subir,empleados.expediente.bgv_examenes.editar'
+        );
+
+        Route::post(
+            '/document-options/save',
+            [DocumentOptionController::class, 'guardarOpcion']
+        )->middleware(
+            'admin.permission:empleados.expediente.documentos.editar,empleados.cursos.editar,empleados.expediente.bgv_examenes.editar'
+        );
+
+        Route::delete(
+            '/document-options/delete',
+            [DocumentOptionController::class, 'eliminarOpcion']
+        )->middleware(
+            'admin.permission:empleados.expediente.documentos.editar,empleados.cursos.editar,empleados.expediente.bgv_examenes.editar'
+        );
+    });
+// ----- opciones documentos, examenes y cursos ----- //
+
     // ----- opciones  documentos, examenes y cursos ---- //
 
     Route::get('/download-template', [CsvController::class, 'downloadTemplate']);                // plantilla para  carga   desde 0
@@ -396,12 +422,34 @@ Route::middleware(['api'])->group(function () {
 
     Route::get('/medical-info/{id_empleado}', [MedicalInfoController::class, 'show']);
     Route::put('/medical-info/{id_empleado}', [MedicalInfoController::class, 'upsert']);
-    Route::post('/documents', [DocumentOptionController::class, 'store']);
+
+    Route::post(
+        '/documents',
+        [DocumentOptionController::class, 'store']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.documentos.subir',
+    ]);
     Route::post('/exams', [DocumentOptionController::class, 'storeExams']);
-    Route::get('/documents/{id}', [DocumentOptionController::class, 'getDocumentsByEmployeeId']);
+    Route::get(
+        '/documents/{id}',
+        [DocumentOptionController::class, 'getDocumentsByEmployeeId']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.documentos.ver',
+    ]);
     Route::get('/exam/{id}', [DocumentOptionController::class, 'getExamsByEmployeeId']);
     // Ruta para actualizar la expiración del documento, cursos y examanes
-    Route::put('documents/{id}', [DocumentOptionController::class, 'updateDocuments']);
+    Route::put(
+        'documents/{id}',
+        [DocumentOptionController::class, 'updateDocuments']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.documentos.editar,empleados.cursos.editar,empleados.expediente.bgv_examenes.editar',
+    ]);
     Route::put('documents/{id}/expiry', [DocumentOptionController::class, 'updateExpiry']);
 
     Route::get('/empleados/{id_empleado}/documentos', [EmpleadoController::class, 'getDocumentos']);
@@ -416,8 +464,24 @@ Route::middleware(['api'])->group(function () {
     Route::post('/registrar-candidato', [EviarEmpleadoRodi::class, 'registrarCandidato']);
 
     // para  guardar cursos
-    Route::post('/cursos/registrar', [CursosController::class, 'store']);
-    Route::get('/cursos/empleado', [CursosController::class, 'obtenerCursosPorEmpleado']);
+    Route::post(
+        '/cursos/registrar',
+        [CursosController::class, 'store']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.cursos.agregar_interno,empleados.cursos.agregar_externo',
+    ]);
+
+    Route::get(
+        '/cursos/empleado',
+        [CursosController::class, 'obtenerCursosPorEmpleado']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.cursos.ver',
+    ]);
+
     Route::get('/clientes/{clienteId}/cursos', [CursosController::class, 'getCursosPorCliente']);
     Route::get('/clientes/{id}/exportar-cursos', [CursosController::class, 'exportCursosPorCliente']);
 

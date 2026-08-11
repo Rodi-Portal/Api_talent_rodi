@@ -4,9 +4,12 @@ namespace App\Http\Controllers\Empleados;
 use App\Exports\CursosExport;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\DocumentController;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\ClienteTalent;
 use App\Models\CursoEmpleado;
 use App\Models\Empleado;
+use App\Services\Auth\AdminEmployeeScopeService;
+use App\Services\Auth\PermissionService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http; // Cambia esto al nombre correcto de tu controlador
@@ -16,6 +19,10 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class CursosController extends Controller
 {
+    public function __construct(
+        private AdminEmployeeScopeService $employeeScope,
+        private PermissionService $permissions
+    ) {}
 
     public function exportCursosPorCliente($clienteId)
     {
@@ -89,25 +96,116 @@ class CursosController extends Controller
                 $request->request->remove('file');
                 Log::debug('[CURSO] 🧼 Campo file venía como "null" (string), eliminado antes de validar.');
             }
-            // === [1] Validación de datos ===
+            // === [1] Validación y autorización ===
             $validator = Validator::make($request->all(), [
-                'employee_id'     => 'required|integer',
-                'name'            => 'required|string|max:255',
-                'description'     => 'nullable|string|max:500',
-                'expiry_date'     => 'nullable|date',
-                'expiry_reminder' => 'nullable|integer',
-                'file'            => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120',
-                'id_portal'       => 'required|integer',
-                'status'          => 'required|integer',
-                'carpeta'         => 'nullable|string|max:255',
-                'origen'          => 'required|integer',
-                'id_opcion'       => 'nullable|integer',
+                'employee_id'              => [
+                    'required',
+                    'integer',
+                    'min:1',
+                ],
+                'name'                     => [
+                    'required',
+                    'string',
+                    'max:255',
+                ],
+                'description'              => [
+                    'nullable',
+                    'string',
+                    'max:500',
+                ],
+                'expiry_date'              => ['nullable', 'date'],
+                'expiry_reminder'          => [
+                    'nullable',
+                    'integer',
+                    'min:0',
+                ],
+                'file'                     => [
+                    'nullable',
+                    'file',
+                    'mimes:pdf,jpg,jpeg,png',
+                    'max:5120',
+                ],
+                'status'                   => ['required', 'integer'],
+                'carpeta'                  => [
+                    'nullable',
+                    'string',
+                    'max:255',
+                ],
+                'origen'                   => [
+                    'required',
+                    'integer',
+                    'in:1,2',
+                ],
+                'id_opcion'                => ['nullable', 'integer'],
+                'share_scope'              => [
+                    'nullable',
+                    'integer',
+                    'in:0,1,2,3',
+                ],
+                'collaborator_can_replace' => [
+                    'nullable',
+                    'boolean',
+                ],
             ]);
 
             if ($validator->fails()) {
-                Log::warning('[CURSO] ❌ Validación fallida', $validator->errors()->toArray());
-                return response()->json($validator->errors(), 422);
+                Log::warning(
+                    '[CURSO] ❌ Validación fallida',
+                    $validator->errors()->toArray()
+                );
+
+                return response()->json(
+                    $validator->errors(),
+                    422
+                );
             }
+
+            $administrator = $request->user();
+
+            if (! $administrator instanceof AdministradorAuth) {
+                return response()->json([
+                    'status'  => false,
+                    'code'    => 'ADMIN_TOKEN_INVALID',
+                    'message' => 'Token administrativo no válido.',
+                ], 403);
+            }
+
+            $employee = $this->employeeScope->authorizeEmployee(
+                $administrator,
+                (int) $request->input('employee_id')
+            );
+
+            $employeeId = (int) $employee->id;
+            $origen     = (int) $request->input('origen');
+
+            $permission = $origen === 1
+                ? 'empleados.cursos.agregar_interno'
+                : 'empleados.cursos.agregar_externo';
+
+            if (! $this->permissions->canAdminGlobal(
+                (int) $administrator->id,
+                (int) $administrator->id_rol,
+                $permission
+            )) {
+                return response()->json([
+                    'status'     => false,
+                    'code'       => 'PERMISSION_DENIED',
+                    'message'    => 'No tienes permiso para agregar este tipo de curso.',
+                    'permission' => $permission,
+                ], 403);
+            }
+
+            $shareScope     = (int) $request->input('share_scope', 0);
+            $expiryReminder = (int) $request->input(
+                'expiry_reminder',
+                0
+            );
+
+            $collaboratorCanReplace =
+            in_array($shareScope, [1, 3], true) &&
+            $request->filled('expiry_date') &&
+            $expiryReminder > 0 &&
+            $request->boolean('collaborator_can_replace');
 
             // === [2] Procesar archivo si existe ===
             $newFileName = null;
@@ -116,8 +214,6 @@ class CursosController extends Controller
                 try {
                     Log::info('[CURSO] 📎 Archivo detectado. Procesando...');
 
-                    $employeeId    = $request->input('employee_id');
-                    $origen        = $request->input('origen');
                     $randomString  = $this->generateRandomString();
                     $fileExtension = $request->file('file')->getClientOriginalExtension();
                     $newFileName   = "{$employeeId}_{$randomString}_{$origen}.{$fileExtension}";
@@ -144,7 +240,7 @@ class CursosController extends Controller
                     return response()->json(['error' => 'Ocurrió un error al subir el archivo.'], 500);
                 }
             } else {
-                $newFileName = $request->input('employee_id') . '_sin_curso_' . uniqid();
+                $newFileName = $employeeId . '_sin_curso_' . uniqid();
                 Log::info('[CURSO] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
             }
 
@@ -152,17 +248,19 @@ class CursosController extends Controller
             try {
                 Log::info('[CURSO] 💾 Insertando en base de datos...');
                 $cursoEmpleado = CursoEmpleado::create([
-                    'employee_id'     => $request->input('employee_id'),
-                    'name'            => $newFileName,
-                    'nameDocument'    => $request->input('name'),
-                    'description'     => $request->input('description'),
-                    'expiry_date'     => $request->input('expiry_date'),
-                    'expiry_reminder' => $request->input('expiry_reminder'),
-                    'origen'          => $request->input('origen'),
-                    'id_opcion'       => $request->input('id_opcion'),
-                    'status'          => $request->input('status'),
-                    'creacion'        => $now,
-                    'edicion'         => $now,
+                    'employee_id'              => $employeeId,
+                    'name'                     => $newFileName,
+                    'nameDocument'             => $request->input('name'),
+                    'description'              => $request->input('description'),
+                    'expiry_date'              => $request->input('expiry_date'),
+                    'expiry_reminder'          => $expiryReminder,
+                    'origen'                   => $origen,
+                    'id_opcion'                => $request->input('id_opcion'),
+                    'status'                   => $request->input('status'),
+                    'share_scope'              => $shareScope,
+                    'collaborator_can_replace' => $collaboratorCanReplace,
+                    'creacion'                 => $now,
+                    'edicion'                  => $now,
                 ]);
 
                 Log::info('[CURSO] ✅ Registro guardado', ['id' => $cursoEmpleado->id]);
@@ -184,14 +282,40 @@ class CursosController extends Controller
 
     public function obtenerCursosPorEmpleado(Request $request)
     {
-        // Validar que se proporcionen los parámetros requeridos
         $request->validate([
-            'employee_id' => 'required|integer',
-            'origen'      => 'required|integer',
+            'employee_id' => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+            'origen'      => [
+                'required',
+                'integer',
+                'in:1,2,3',
+            ],
+            'status'      => [
+                'nullable',
+                'integer',
+            ],
         ]);
 
-        $employeeId = $request->input('employee_id');
-        $origen     = $request->input('origen');
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            return response()->json([
+                'status'  => false,
+                'code'    => 'ADMIN_TOKEN_INVALID',
+                'message' => 'Token administrativo no válido.',
+            ], 403);
+        }
+
+        $employee = $this->employeeScope->authorizeEmployee(
+            $administrator,
+            (int) $request->input('employee_id')
+        );
+
+        $employeeId = (int) $employee->id;
+        $origen     = (int) $request->input('origen');
         $status     = $request->query('status');
 
         Log::info('📥 Recibida solicitud para obtener cursos', [
@@ -233,20 +357,26 @@ class CursosController extends Controller
         // Transformar datos
         $cursosTransformados = $cursos->map(function ($curso) {
             return [
-                'id'              => $curso->id,
-                'employee_id'     => $curso->employee_id,
-                'nameDocument'    => $curso->name,
-                'optionName'      => $curso->documentOption ? $curso->documentOption->name : null,
-                'description'     => $curso->description,
-                'upload_date'     => $curso->edicion ? \Carbon\Carbon::parse($curso->edicion)->format('Y-m-d') : null,
-                'expiry_date'     => $curso->expiry_date,
-                'expiry_reminder' => $curso->expiry_reminder,
-                'status'          => $curso->status,
-                'origen'          => $curso->origen,
-                'name'            => $curso->name,
-                'nameAlterno'     => $curso->nameDocument,
-                'daysRemaining'   => $curso->daysRemaining ?? null,
-                'estado'          => $curso->estado ?? '',
+                'id'                       => $curso->id,
+                'employee_id'              => $curso->employee_id,
+                'nameDocument'             => $curso->name,
+                'optionName'               => $curso->documentOption ? $curso->documentOption->name : null,
+                'description'              => $curso->description,
+                'upload_date'              => $curso->edicion ? \Carbon\Carbon::parse($curso->edicion)->format('Y-m-d') : null,
+                'expiry_date'              => $curso->expiry_date,
+                'expiry_reminder'          => $curso->expiry_reminder,
+                'status'                   => $curso->status,
+                'origen'                   => $curso->origen,
+                'name'                     => $curso->name,
+                'nameAlterno'              => $curso->nameDocument,
+                'daysRemaining'            => $curso->daysRemaining ?? null,
+                'estado'                   => $curso->estado ?? '',
+                'share_scope'              => (int) (
+                    $curso->share_scope ?? 0
+                ),
+                'collaborator_can_replace' => (bool) (
+                    $curso->collaborator_can_replace ?? false
+                ),
             ];
         });
 
