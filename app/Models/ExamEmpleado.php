@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,10 +9,9 @@ class ExamEmpleado extends Model
     use HasFactory;
 
     // Especifica la tabla si el nombre no sigue la convención
-    protected $table = 'exams_empleados';
+    protected $table      = 'exams_empleados';
     protected $connection = 'portal_main';
-    public $timestamps = false;
-
+    public $timestamps    = false;
 
     // Definir los campos que pueden ser asignados en masa
     protected $fillable = [
@@ -28,15 +26,21 @@ class ExamEmpleado extends Model
         'id_candidato',
         'nameDocument',
         'status',
-    ];
+        'share_scope',
+        'collaborator_can_replace',
 
+    ];
+    protected $casts = [
+        'share_scope'              => 'integer',
+        'collaborator_can_replace' => 'boolean',
+    ];
     // Si deseas que la marca de tiempo 'creacion' y 'edicion' se gestionen automáticamente
 
     public function empleado()
     {
         return $this->belongsTo(Empleado::class, 'employee_id', 'id');
     }
-    
+
     public function examOption()
     {
         return $this->belongsTo(ExamOption::class, 'id_opcion', 'id'); // Ajusta 'exam_option_id' según tu esquema

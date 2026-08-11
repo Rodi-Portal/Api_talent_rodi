@@ -431,7 +431,14 @@ Route::middleware(['api'])->group(function () {
         'admin.session',
         'admin.permission:empleados.expediente.documentos.subir',
     ]);
-    Route::post('/exams', [DocumentOptionController::class, 'storeExams']);
+    Route::post(
+        '/exams',
+        [DocumentOptionController::class, 'storeExams']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.bgv_examenes.subir',
+    ]);
     Route::get(
         '/documents/{id}',
         [DocumentOptionController::class, 'getDocumentsByEmployeeId']
@@ -440,8 +447,14 @@ Route::middleware(['api'])->group(function () {
         'admin.session',
         'admin.permission:empleados.expediente.documentos.ver',
     ]);
-    Route::get('/exam/{id}', [DocumentOptionController::class, 'getExamsByEmployeeId']);
-    // Ruta para actualizar la expiración del documento, cursos y examanes
+    Route::get(
+        '/exam/{id}',
+        [DocumentOptionController::class, 'getExamsByEmployeeId']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.bgv_examenes.ver',
+    ]); // Ruta para actualizar la expiración del documento, cursos y examanes
     Route::put(
         'documents/{id}',
         [DocumentOptionController::class, 'updateDocuments']

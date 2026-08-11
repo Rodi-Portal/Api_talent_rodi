@@ -32,12 +32,36 @@ class DocumentOptionController extends Controller
         private PermissionService $permissions
     ) {}
 
-    public function getExamsByEmployeeId($employeeId)
-    {
+    public function getExamsByEmployeeId(
+        Request $request,
+        $employeeId
+    ) {
         // Validar el ID del empleado
-        if (! is_numeric($employeeId)) {
-            return response()->json(['error' => 'ID de empleado no válido.'], 422);
+        if (
+            ! is_numeric($employeeId) ||
+            (int) $employeeId < 1
+        ) {
+            return response()->json([
+                'error' => 'ID de empleado no válido.',
+            ], 422);
         }
+
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            return response()->json([
+                'status'  => false,
+                'code'    => 'ADMIN_TOKEN_INVALID',
+                'message' => 'Token administrativo no válido.',
+            ], 403);
+        }
+
+        $employee = $this->employeeScope->authorizeEmployee(
+            $administrator,
+            (int) $employeeId
+        );
+
+        $employeeId = (int) $employee->id;
 
         // Buscar documentos del empleado junto con las opciones
         $exam = ExamEmpleado::with('examOption')
@@ -84,44 +108,50 @@ class DocumentOptionController extends Controller
             }
 
             return [
-                'id'              => $documento->id,
-                'nameDocument'    => $documento->name,
-                'optionName'      => $documento->examOption ? $documento->examOption->name : null,
+                'id'                       => $documento->id,
+                'nameDocument'             => $documento->name,
+                'optionName'               => $documento->examOption ? $documento->examOption->name : null,
                 //'optionType'      => $documento->examOption ? $documento->examOption->type : null,
-                'description'     => $documento->description,
-                'upload_date'     => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
-                'expiry_date'     => $documento->expiry_date,
-                'nameAlterno'     => $documento->nameDocument,
-                'statusexm'       => $documento->status,
-                'expiry_reminder' => $documento->expiry_reminder,
-                'id_candidato'    => $documento->id_candidato,
-                'socioeconomico'  => $candidatoPrueba->socioeconomico ?? null,
-                'medico'          => $candidatoPrueba->medico ?? null,
-                'tipo_antidoping' => $candidatoPrueba->tipo_antidoping ?? null,
-                'antidoping'      => $candidatoPrueba->antidoping ?? null,
-                'psicometrico'    => $candidatoPrueba->psicometrico ?? null,
-                'medicoDetalle'   => [
+                'description'              => $documento->description,
+                'upload_date'              => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
+                'expiry_date'              => $documento->expiry_date,
+                'nameAlterno'              => $documento->nameDocument,
+                'statusexm'                => $documento->status,
+                'expiry_reminder'          => $documento->expiry_reminder,
+                'share_scope'              => (int) (
+                    $documento->share_scope ?? 0
+                ),
+                'collaborator_can_replace' => (bool) (
+                    $documento->collaborator_can_replace ?? false
+                ),
+                'id_candidato'             => $documento->id_candidato,
+                'socioeconomico'           => $candidatoPrueba->socioeconomico ?? null,
+                'medico'                   => $candidatoPrueba->medico ?? null,
+                'tipo_antidoping'          => $candidatoPrueba->tipo_antidoping ?? null,
+                'antidoping'               => $candidatoPrueba->antidoping ?? null,
+                'psicometrico'             => $candidatoPrueba->psicometrico ?? null,
+                'medicoDetalle'            => [
                     'id'                    => $medico->id ?? null,
                     'imagen'                => $medico->imagen_historia_clinica ?? null,
                     'conclusion'            => $medico->conclusion ?? null,
                     'descripcion'           => $medico->descripcion ?? null,
                     'archivo_examen_medico' => $medico->archivo_examen_medico ?? null,
                 ],
-                'psicometricoDet' => [
+                'psicometricoDet'          => [
                     'id'                   => $psicometrico->id ?? null,
                     'archivo_psicometrico' => $psicometrico->archivo ?? null,
                 ],
-                'doping'          => [
+                'doping'                   => [
                     'id'               => $doping->id ?? null,
                     'doping_hecho'     => $candidatoPrueba->status_doping ?? null,
                     'fecha_resultado'  => $doping->fecha_resultado ?? null,
                     'resultado_doping' => $doping->resultado ?? null,
                     'statusDoping'     => $doping->status ?? null,
                 ],
-                'liberado'        => $candidato->liberado ?? null,
-                'status_bgc'      => $candidato->status_bgc ?? null,
-                'cancelado'       => $candidato->cancelado ?? null,
-                'icono_resultado' => $icono_resultado,
+                'liberado'                 => $candidato->liberado ?? null,
+                'status_bgc'               => $candidato->status_bgc ?? null,
+                'cancelado'                => $candidato->cancelado ?? null,
+                'icono_resultado'          => $icono_resultado,
             ];
         });
 
@@ -576,35 +606,105 @@ class DocumentOptionController extends Controller
             $request->request->remove('file');
         }
 
-        // Validación
+        // Validación y autorización
         $validator = Validator::make($request->all(), [
-            'employee_id'     => 'required|integer',
-            'name'            => 'required|string|max:255',
-            'description'     => 'nullable|string|max:500',
-            'expiry_date'     => 'nullable|date',
-            'expiry_reminder' => 'nullable|integer',
-            'file'            => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:15360',
-            'id_portal'       => 'required|integer',
-            'carpeta'         => 'nullable|string|max:255',
-
+            'employee_id'              => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+            'name'                     => [
+                'required',
+                'string',
+                'max:255',
+            ],
+            'description'              => [
+                'nullable',
+                'string',
+                'max:500',
+            ],
+            'expiry_date'              => ['nullable', 'date'],
+            'expiry_reminder'          => [
+                'nullable',
+                'integer',
+                'min:0',
+            ],
+            'file'                     => [
+                'nullable',
+                'file',
+                'mimes:jpg,jpeg,png,pdf',
+                'max:15360',
+            ],
+            'carpeta'                  => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'status'                   => ['required', 'integer'],
+            'share_scope'              => [
+                'nullable',
+                'integer',
+                'in:0,1,2,3',
+            ],
+            'collaborator_can_replace' => [
+                'nullable',
+                'boolean',
+            ],
         ]);
 
         if ($validator->fails()) {
-            Log::warning('[EXAMEN] ❌ Validación fallida', $validator->errors()->toArray());
-            return response()->json($validator->errors(), 422);
+            Log::warning(
+                '[EXAMEN] ❌ Validación fallida',
+                $validator->errors()->toArray()
+            );
+
+            return response()->json(
+                $validator->errors(),
+                422
+            );
         }
+
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            return response()->json([
+                'status'  => false,
+                'code'    => 'ADMIN_TOKEN_INVALID',
+                'message' => 'Token administrativo no válido.',
+            ], 403);
+        }
+
+        $employee = $this->employeeScope->authorizeEmployee(
+            $administrator,
+            (int) $request->input('employee_id')
+        );
+
+        $employeeId = (int) $employee->id;
+        $idPortal   = (int) $administrator->id_portal;
+
+        $shareScope     = (int) $request->input('share_scope', 0);
+        $expiryReminder = (int) $request->input(
+            'expiry_reminder',
+            0
+        );
+
+        $collaboratorCanReplace =
+        in_array($shareScope, [1, 3], true) &&
+        $request->filled('expiry_date') &&
+        $expiryReminder > 0 &&
+        $request->boolean('collaborator_can_replace');
 
         // === [2] Obtener o insertar opción ===
         $opcionRequest = new Request([
-            'id_portal' => $request->input('id_portal'),
+            'id_portal' => $idPortal,
             'name'      => $request->input('name'),
             'creacion'  => $creacion,
             'tabla'     => 'examenes',
         ]);
         $idOpcion = null;
 
-        $documentOption = ExamOption::where(function ($query) use ($request) {
-            $query->where('id_portal', $request->input('id_portal'))
+        $documentOption = ExamOption::where(function ($query) use ($idPortal) {
+            $query->where('id_portal', $idPortal)
                 ->orWhereNull('id_portal');
         })
             ->where('name', $request->input('name'))
@@ -624,7 +724,6 @@ class DocumentOptionController extends Controller
 
         if ($request->hasFile('file') && $request->file('file')->isValid()) {
             try {
-                $employeeId    = $request->input('employee_id');
                 $randomString  = $this->generateRandomString();
                 $fileExtension = $request->file('file')->getClientOriginalExtension();
                 $newFileName   = "{$employeeId}_{$randomString}.{$fileExtension}";
@@ -647,23 +746,25 @@ class DocumentOptionController extends Controller
                 return response()->json(['error' => 'Ocurrió un error al subir el archivo.'], 500);
             }
         } else {
-            $newFileName = $request->input('employee_id') . '_sin_examen_' . uniqid();
+            $newFileName = $employeeId . '_sin_examen_' . uniqid();
             Log::info('[CURSO] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
         }
 
         // === [4] Crear registro en BD ===
         try {
             $examEmpleado = ExamEmpleado::create([
-                'creacion'        => $creacion,
-                'edicion'         => $edicion,
-                'employee_id'     => $request->input('employee_id'),
-                'name'            => $newFileName,
-                'nameDocument'    => $nameDocument,
-                'id_opcion'       => $idOpcion,
-                'description'     => $request->input('description'),
-                'expiry_date'     => $request->input('expiry_date'),
-                'expiry_reminder' => $request->input('expiry_reminder'),
-                'status'          => $request->input('status'),
+                'creacion'                 => $creacion,
+                'edicion'                  => $edicion,
+                'employee_id'              => $employeeId,
+                'name'                     => $newFileName,
+                'nameDocument'             => $nameDocument,
+                'id_opcion'                => $idOpcion,
+                'description'              => $request->input('description'),
+                'expiry_date'              => $request->input('expiry_date'),
+                'expiry_reminder'          => $expiryReminder,
+                'status'                   => $request->input('status'),
+                'share_scope'              => $shareScope,
+                'collaborator_can_replace' => $collaboratorCanReplace,
 
             ]);
         } catch (\Exception $e) {
