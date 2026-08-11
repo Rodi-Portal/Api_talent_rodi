@@ -45,8 +45,49 @@ class EmpleadoController extends Controller
             ->where('id_cliente', $id_cliente)
             ->where('status', $status)
             ->get();
-        $resultados = [];
+        $resultados  = [];
+        $employeeIds = $empleados
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->values();
 
+        $documentsByEmployee = collect();
+        $coursesByEmployee   = collect();
+        $examsByEmployee     = collect();
+        $medicalByEmployee   = collect();
+
+        if ($employeeIds->isNotEmpty()) {
+            if ((int) $status === 2) {
+                $documentsByEmployee = DocumentEmpleado::query()
+                    ->whereIn('employee_id', $employeeIds)
+                    ->where('status', 2)
+                    ->get()
+                    ->groupBy('employee_id');
+            } else {
+                $documentsByEmployee = DocumentEmpleado::query()
+                    ->whereIn('employee_id', $employeeIds)
+                    ->where('status', '!=', 999)
+                    ->get()
+                    ->groupBy('employee_id');
+
+                $coursesByEmployee = CursoEmpleado::query()
+                    ->whereIn('employee_id', $employeeIds)
+                    ->where('status', '!=', 999)
+                    ->get()
+                    ->groupBy('employee_id');
+
+                $examsByEmployee = ExamEmpleado::query()
+                    ->whereIn('employee_id', $employeeIds)
+                    ->where('status', '!=', 999)
+                    ->get()
+                    ->groupBy('employee_id');
+
+                $medicalByEmployee = MedicalInfo::query()
+                    ->whereIn('id_empleado', $employeeIds)
+                    ->get()
+                    ->groupBy('id_empleado');
+            }
+        }
         if ($status == 2) {
 
             foreach ($empleados as $empleado) {
@@ -61,9 +102,10 @@ class EmpleadoController extends Controller
                 //     ->first(['id', 'creacion', 'titulo', 'comentario', 'fecha_salida_reingreso']);
 
                 // Obtener los documentos
-                $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
-                    ->where('status', 2)
-                    ->get();
+                $documentos = $documentsByEmployee->get(
+                    (int) $empleado->id,
+                    collect()
+                );
 
                 $statusDocuments = $this->checkDocumentStatus($documentos);
 
@@ -99,22 +141,30 @@ class EmpleadoController extends Controller
 
         } else {
             foreach ($empleados as $empleado) {
-                // Obtener documentos del empleado
-                $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
-                    ->where('status', '!=', 999)
-                    ->get();
+                $employeeId = (int) $empleado->id;
 
-                $cursos = CursoEmpleado::where('employee_id', $empleado->id)
-                    ->where('status', '!=', 999)
-                    ->get();
+                $documentos = $documentsByEmployee->get(
+                    $employeeId,
+                    collect()
+                );
 
-                $examenes = ExamEmpleado::where('employee_id', $empleado->id)
-                    ->where('status', '!=', 999)
-                    ->get();
+                $cursos = $coursesByEmployee->get(
+                    $employeeId,
+                    collect()
+                );
 
-                $medico = MedicalInfo::where('id_empleado', $empleado->id)->get();
+                $examenes = $examsByEmployee->get(
+                    $employeeId,
+                    collect()
+                );
 
-                $campoExtra = EmpleadoCampoExtra::where('id_empleado', $empleado->id)->get();
+                $medico = $medicalByEmployee->get(
+                    $employeeId,
+                    collect()
+                );
+
+// camposExtra ya fue cargado en Empleado::with().
+                $campoExtra = $empleado->camposExtra;
 
                 $statusExam = $this->checkDocumentStatus($examenes);
 
