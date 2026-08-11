@@ -587,19 +587,70 @@ Route::middleware(['api'])->group(function () {
 
     //***************  Inicio Informacion Interna ****************/
 
-    Route::prefix('internos')->group(function () {
+    Route::prefix('internos')
+        ->middleware([
+            'auth:sanctum',
+            'admin.session',
+        ])
+        ->group(function () {
+            // Información interna: directorios
+            Route::get(
+                'informacion',
+                [ClienteInformacionInternaController::class, 'index']
+            )->middleware(
+                'admin.permission:empleados.expediente.informacion_interna.ver'
+            );
 
-        // Información interna (directorios)
-        Route::get('informacion', [ClienteInformacionInternaController::class, 'index']);
-        Route::post('informacion', [ClienteInformacionInternaController::class, 'store']);
-        Route::put('informacion/{informacion}', [ClienteInformacionInternaController::class, 'update']);
-        Route::delete('informacion/{informacion}', [ClienteInformacionInternaController::class, 'destroy']);
+            Route::post(
+                'informacion',
+                [ClienteInformacionInternaController::class, 'store']
+            )->middleware(
+                'admin.permission:empleados.expediente.informacion_interna.crear_directorio'
+            );
 
-        // Documentos
-        Route::post('informacion/{informacion}/documentos', [DocumentoInternoController::class, 'store']);
-        Route::delete('documentos/{documento}', [DocumentoInternoController::class, 'destroy']);
-        Route::get('documentos/{documento}/download', [DocumentoInternoController::class, 'download']);
-    });
+            Route::put(
+                'informacion/{informacion}',
+                [ClienteInformacionInternaController::class, 'update']
+            )->middleware(
+                'admin.permission:empleados.expediente.informacion_interna.editar_directorio'
+            );
+
+            Route::delete(
+                'informacion/{informacion}',
+                [ClienteInformacionInternaController::class, 'destroy']
+            )->middleware(
+                'admin.permission:empleados.expediente.informacion_interna.eliminar_directorio'
+            );
+
+            // Información interna: documentos
+            Route::post(
+                'informacion/{informacion}/documentos',
+                [DocumentoInternoController::class, 'store']
+            )->middleware(
+                'admin.permission:empleados.expediente.informacion_interna.subir_documento'
+            );
+
+            Route::get(
+                'documentos/{documento}/download',
+                [DocumentoInternoController::class, 'download']
+            )->middleware(
+                'admin.permission:empleados.expediente.informacion_interna.descargar_documento'
+            );
+
+            Route::put(
+                'documentos/{documento}/comparticion',
+                [DocumentoInternoController::class, 'updateSharing']
+            )->middleware(
+                'admin.permission:empleados.expediente.informacion_interna.compartir_documento'
+            );
+
+            Route::delete(
+                'documentos/{documento}',
+                [DocumentoInternoController::class, 'destroy']
+            )->middleware(
+                'admin.permission:empleados.expediente.informacion_interna.eliminar_documento'
+            );
+        });
     //***************  Fin Informacion Interna ****************/
     //**********************Ruta para  fotos de perfil **************************** */
     // routes/api.php

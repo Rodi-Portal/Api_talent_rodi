@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
@@ -7,8 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class DocumentoInterno extends Model
 {
-      protected $connection = 'portal_main';
-    protected $table = 'documentos_internos';
+    protected $connection = 'portal_main';
+    protected $table      = 'documentos_internos';
 
     public $timestamps = false;
 
@@ -22,8 +21,10 @@ class DocumentoInterno extends Model
         'fecha_vencimiento',
         'dias_antes',
         'eliminado',
+        'share_scope',
         'creacion',
         'edicion',
+
     ];
 
     protected $casts = [
@@ -32,6 +33,7 @@ class DocumentoInterno extends Model
         'fecha_vencimiento' => 'date',
         'dias_antes'        => 'integer',
         'eliminado'         => 'boolean',
+        'share_scope'       => 'integer',
     ];
 
     // 👉 Global scope para que por default NO traiga eliminados
@@ -46,7 +48,13 @@ class DocumentoInterno extends Model
     {
         return $this->belongsTo(ClienteInformacionInterna::class, 'id_informacion_interna');
     }
-
+    public function asignacionesEmpleados()
+    {
+        return $this->hasMany(
+            DocumentoInternoEmpleado::class,
+            'id_documento_interno'
+        );
+    }
     // (Opcional) si tienes modelo UsuarioPortal
     public function usuario()
     {

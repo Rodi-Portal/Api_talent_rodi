@@ -1,27 +1,54 @@
 <?php
 
 namespace App\Http\Controllers\Empleados;
-use App\Http\Controllers\Controller;
 
+use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\ClienteInformacionInterna;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
 class ClienteInformacionInternaController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
+
     public function index(Request $request)
     {
-        $query = ClienteInformacionInterna::query();
+        $data = $request->validate([
+            'id_cliente' => ['required', 'integer', 'min:1'],
+        ]);
 
-        if ($request->filled('id_portal')) {
-            $query->where('id_portal', $request->id_portal);
-        }
+        $administrator = $this->administrator($request);
 
-        if ($request->filled('id_cliente')) {
-            $query->where('id_cliente', $request->id_cliente);
-        }
+        $clientIds = $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $data['id_cliente']]
+        );
 
-        $info = $query->with('documentos')->orderBy('nombre')->get();
+        $info = ClienteInformacionInterna::query()
+            ->where('id_portal', (int) $administrator->id_portal)
+            ->whereIn('id_cliente', $clientIds)
+            ->where('eliminado', 0)
+            ->with([
+                'documentos.asignacionesEmpleados.empleado' => function ($query) {
+                    $query->select([
+                        'id',
+                        'id_portal',
+                        'id_cliente',
+                        'nombre',
+                        'paterno',
+                        'materno',
+                        'status',
+                        'eliminado',
+                    ]);
+                },
+            ])
+            ->orderBy('nombre')
+            ->get();
 
         return response()->json($info);
     }
@@ -29,40 +56,97 @@ class ClienteInformacionInternaController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'id_portal'   => 'required|integer',
-            'id_cliente'  => 'required|integer',
-            'nombre'      => 'required|string|max:150',
-            'descripcion' => 'nullable|string',
+            'id_cliente'  => ['required', 'integer', 'min:1'],
+            'nombre'      => ['required', 'string', 'max:150'],
+            'descripcion' => ['nullable', 'string'],
         ]);
 
-        $now = Carbon::now();
+        $administrator = $this->administrator($request);
 
-        $data['creacion'] = $now;
-        $data['edicion']  = $now;
+        $clientIds = $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $data['id_cliente']]
+        );
 
-        $info = ClienteInformacionInterna::create($data);
+        $now = Carbon::now('America/Mexico_City');
+
+        $info = ClienteInformacionInterna::create([
+            'id_portal'   => (int) $administrator->id_portal,
+            'id_cliente'  => $clientIds[0],
+            'nombre'      => $data['nombre'],
+            'descripcion' => $data['descripcion'] ?? null,
+            'creacion'    => $now,
+            'edicion'     => $now,
+            'eliminado'   => 0,
+        ]);
 
         return response()->json($info, 201);
     }
 
-    public function update(Request $request, ClienteInformacionInterna $informacion)
-    {
+    public function update(
+        Request $request,
+        ClienteInformacionInterna $informacion
+    ) {
         $data = $request->validate([
-            'nombre'      => 'required|string|max:150',
-            'descripcion' => 'nullable|string',
+            'nombre'      => ['required', 'string', 'max:150'],
+            'descripcion' => ['nullable', 'string'],
         ]);
 
-        $data['edicion'] = now();
+        $administrator = $this->administrator($request);
 
-        $informacion->update($data);
+        $this->authorizeInformation($administrator, $informacion);
 
-        return response()->json($informacion);
+        $informacion->update([
+            'nombre'      => $data['nombre'],
+            'descripcion' => $data['descripcion'] ?? null,
+            'edicion'     => Carbon::now('America/Mexico_City'),
+        ]);
+
+        return response()->json($informacion->fresh());
     }
 
-    public function destroy(ClienteInformacionInterna $informacion)
-    {
+    public function destroy(
+        Request $request,
+        ClienteInformacionInterna $informacion
+    ) {
+        $administrator = $this->administrator($request);
+
+        $this->authorizeInformation($administrator, $informacion);
+
         $informacion->delete();
 
         return response()->json(['ok' => true]);
+    }
+
+    private function administrator(Request $request): AdministradorAuth
+    {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
+    }
+
+    private function authorizeInformation(
+        AdministradorAuth $administrator,
+        ClienteInformacionInterna $informacion
+    ): void {
+        if (
+            (int) $informacion->id_portal !==
+            (int) $administrator->id_portal
+        ) {
+            throw new AuthorizationException(
+                'La información interna no pertenece al portal autenticado.'
+            );
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $informacion->id_cliente]
+        );
     }
 }
