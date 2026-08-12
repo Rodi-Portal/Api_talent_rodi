@@ -3,6 +3,7 @@ namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller; // Asegúrate de tener esta línea arriba para utilizar Log
 
+use App\Models\Auth\AdministradorAuth;
 use App\Models\CursoEmpleado;
 use App\Models\Departamento;
 use App\Models\DocumentEmpleado;
@@ -10,10 +11,12 @@ use App\Models\DomicilioEmpleado;
 use App\Models\Empleado;
 use App\Models\EmpleadoCampoExtra;
 use App\Models\Evaluacion;
-use App\Models\ExamEmpleado;
-use App\Models\MedicalInfo; // <<<<<< necesario
+use App\Models\ExamEmpleado; // <<<<<< necesario
+use App\Models\MedicalInfo;
 use App\Models\PuestoEmpleado;
+use App\Services\Auth\AdminClientScopeService;
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,18 +24,40 @@ use Illuminate\Support\Facades\Validator;
 
 class EmpleadoController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
+
+    private function administrator(Request $request): AdministradorAuth
+    {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
+    }
 // obtine empleado con sus  domicilios  y con  su estatus  de documentos
     public function getEmpleadosConDocumentos(Request $request)
     {
-        $request->validate([
-            'id_portal'  => 'required|integer',
-            'id_cliente' => 'required|integer',
-            'status'     => 'required|integer',
+        $data = $request->validate([
+            'id_cliente' => ['required', 'integer', 'min:1'],
+            'status'     => ['required', 'integer'],
         ]);
 
-        $id_portal  = $request->input('id_portal');
-        $id_cliente = $request->input('id_cliente');
-        $status     = $request->input('status');
+        $administrator = $this->administrator($request);
+
+        $clientIds = $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $data['id_cliente']]
+        );
+
+        $id_portal  = (int) $administrator->id_portal;
+        $id_cliente = (int) $clientIds[0];
+        $status     = (int) $data['status'];
 
         // Obtener todos los empleados con sus domicilios
         $empleados = Empleado::with([

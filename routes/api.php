@@ -58,6 +58,8 @@ use App\Http\Controllers\Empleados\CsvController;
 use App\Http\Controllers\Empleados\CursosController;
 use App\Http\Controllers\Empleados\DocumentoInternoController;
 use App\Http\Controllers\Empleados\DocumentOptionController;
+use App\Http\Controllers\Empleados\EmpleadoArchivoController;
+use App\Http\Controllers\Empleados\EmpleadoCompartidoController;
 use App\Http\Controllers\Empleados\EmpleadoController;
 use App\Http\Controllers\Empleados\EvaluacionController;
 use App\Http\Controllers\Empleados\EviarEmpleadoRodi;
@@ -193,8 +195,50 @@ Route::middleware(['api'])->group(function () {
 
     Route::get('/documentos/{carpeta}/{archivo}', [ApiEmpleadoController::class, 'verDocumento']);
 
+    Route::get(
+        '/empleados/compartidos/resumen',
+        [EmpleadoCompartidoController::class, 'summary']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.compartidos_admin.ver',
+    ]);
+    Route::get(
+        '/empleados/{empleado}/compartidos',
+        [EmpleadoCompartidoController::class, 'index']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.compartidos_admin.ver',
+    ]);
+    Route::get(
+        '/empleados/archivos/documentos/{id}',
+        [EmpleadoArchivoController::class, 'document']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.documentos.ver',
+    ]);
+
+    Route::get(
+        '/empleados/archivos/cursos/{id}',
+        [EmpleadoArchivoController::class, 'course']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.cursos.ver',
+    ]);
+
+    Route::get(
+        '/empleados/archivos/examenes/{id}',
+        [EmpleadoArchivoController::class, 'exam']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.bgv_examenes.ver',
+    ]);
     // ----- opciones  documentos, examenes y cursos ----- //
-    // ----- opciones documentos, examenes y cursos ----- //
+
     Route::middleware([
         'auth:sanctum',
         'admin.session',
@@ -220,6 +264,14 @@ Route::middleware(['api'])->group(function () {
             'admin.permission:empleados.expediente.documentos.editar,empleados.cursos.editar,empleados.expediente.bgv_examenes.editar'
         );
     });
+    Route::get(
+        '/empleados/compartidos/{type}/{id}/archivo',
+        [EmpleadoCompartidoController::class, 'file']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.compartidos_admin.descargar',
+    ]);
 // ----- opciones documentos, examenes y cursos ----- //
 
     // ----- opciones  documentos, examenes y cursos ---- //
@@ -409,8 +461,14 @@ Route::middleware(['api'])->group(function () {
     //  obtener  el status  de general  de los empleados
     Route::get('/empleados/status', [EmpleadoController::class, 'getEmpleadosStatus']);
     /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
-    Route::get('/empleados/documentos', [EmpleadoController::class, 'getEmpleadosConDocumentos']);
-    /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
+    Route::get(
+        '/empleados/documentos',
+        [EmpleadoController::class, 'getEmpleadosConDocumentos']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.generales.ver',
+    ]); /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
     Route::get('/empleados/check-email', [EmpleadoController::class, 'checkEmail']);
 
     //Ruta  para    eliminar campo extra  de los  empleados
