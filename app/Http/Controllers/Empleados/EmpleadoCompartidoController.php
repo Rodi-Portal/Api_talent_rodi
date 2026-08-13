@@ -7,6 +7,7 @@ use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\Empleado;
 use App\Models\ExamEmpleado;
+use App\Models\SolicitudRenovacionArchivo;
 use App\Services\Auth\AdminClientScopeService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
@@ -91,6 +92,34 @@ class EmpleadoCompartidoController extends Controller
             ),
             'examenes'
         );
+        $pendingApprovals = SolicitudRenovacionArchivo::query()
+            ->selectRaw('id_empleado, COUNT(*) AS total')
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'id_cliente',
+                (int) $clientIds[0]
+            )
+            ->where(
+                'estado',
+                SolicitudRenovacionArchivo::ESTADO_PENDIENTE
+            )
+            ->whereIn('id_empleado', $employeeIds)
+            ->groupBy('id_empleado')
+            ->pluck('total', 'id_empleado');
+
+        foreach ($pendingApprovals as $employeeId => $total) {
+            $employeeId = (int) $employeeId;
+
+            if (! array_key_exists($employeeId, $summary)) {
+                continue;
+            }
+
+            $summary[$employeeId]['aprobaciones_pendientes'] =
+            (int) $total;
+        }
 
         return response()->json([
             'empleados' => $summary,

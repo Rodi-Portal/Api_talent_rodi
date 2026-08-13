@@ -34,9 +34,11 @@ use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
 use App\Http\Controllers\Api\Empleado\EmpleadoAprobacionesController;
 use App\Http\Controllers\Api\Empleado\EmpleadoChecadorController;
 use App\Http\Controllers\Api\Empleado\EmpleadoDashboardController;
+use App\Http\Controllers\Api\Empleado\EmpleadoDocumentoCorporativoController;
 use App\Http\Controllers\Api\Empleado\EmpleadoEventoConfirmacionesController;
 use App\Http\Controllers\Api\Empleado\EmpleadoHorasExtraController;
 use App\Http\Controllers\Api\Empleado\EmpleadoIncidenciasController;
+use App\Http\Controllers\Api\Empleado\EmpleadoRenovacionArchivoController;
 use App\Http\Controllers\Api\Empleado\EmpleadoSucursalController;
 use App\Http\Controllers\Api\Empleado\EmpleadoTareasController;
 use App\Http\Controllers\Api\Empleado\ProfileController;
@@ -68,6 +70,7 @@ use App\Http\Controllers\Empleados\LaboralesController;
 use App\Http\Controllers\Empleados\MedicalInfoController;
 use App\Http\Controllers\Empleados\MensajeriaController;
 use App\Http\Controllers\Empleados\NotificacionController;
+use App\Http\Controllers\Empleados\SolicitudRenovacionArchivoController;
 use App\Http\Controllers\EmployeePhotoController;
 use App\Http\Controllers\ExEmpleados\FormerEmpleadoController;
 use App\Http\Controllers\ImageController;
@@ -210,6 +213,38 @@ Route::middleware(['api'])->group(function () {
         'auth:sanctum',
         'admin.session',
         'admin.permission:empleados.expediente.compartidos_admin.ver',
+    ]);
+    Route::get(
+        '/empleados/aprobaciones',
+        [SolicitudRenovacionArchivoController::class, 'index']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.aprobaciones.ver',
+    ]);
+    Route::get(
+        '/empleados/aprobaciones/{solicitud}/archivo-propuesto',
+        [SolicitudRenovacionArchivoController::class, 'proposedFile']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.aprobaciones.ver',
+    ]);
+    Route::post(
+        '/empleados/aprobaciones/{solicitud}/rechazar',
+        [SolicitudRenovacionArchivoController::class, 'reject']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.aprobaciones.rechazar',
+    ]);
+    Route::post(
+        '/empleados/aprobaciones/{solicitud}/aprobar',
+        [SolicitudRenovacionArchivoController::class, 'approve']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.aprobaciones.aprobar',
     ]);
     Route::get(
         '/empleados/archivos/documentos/{id}',
@@ -805,7 +840,24 @@ Route::middleware(['auth:empleado'])
         | PERFIL
         |--------------------------------------------------------------------------
         */
+        Route::get(
+            '/documentos-corporativos',
+            [EmpleadoDocumentoCorporativoController::class, 'index']
+        );
 
+        Route::get(
+            '/documentos-corporativos/{documento}/ver',
+            [EmpleadoDocumentoCorporativoController::class, 'file']
+        );
+
+        Route::get(
+            '/renovaciones-archivo',
+            [EmpleadoRenovacionArchivoController::class, 'index']
+        );
+        Route::post(
+            '/renovaciones-archivo',
+            [EmpleadoRenovacionArchivoController::class, 'store']
+        );
         Route::get('/me', function (Request $request) {
             return response()->json($request->user());
         });

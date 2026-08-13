@@ -36,6 +36,8 @@ class EmpleadoDashboardController extends Controller
 
         $documents = DocumentEmpleado::with('documentOption')
             ->where('employee_id', $empleado->id)
+            ->whereIn('share_scope', [1, 3])
+            ->where('status', '!=', 999)
             ->get()
             ->map(function ($doc) {
 
@@ -50,7 +52,13 @@ class EmpleadoDashboardController extends Controller
                     'document'        => $doc->name,
                     'expiry_reminder' => $doc->expiry_reminder,
                     'status'          => $doc->status,
-                    'file_url'        => url("/api/empleado/compliance/documento/{$doc->id}/ver")];
+                    'file_url'        => url(
+                        "/api/empleado/compliance/documento/{$doc->id}/ver"
+                    ),
+                    'share_scope'              => (int) $doc->share_scope,
+                    'collaborator_can_replace' =>
+                    (bool) $doc->collaborator_can_replace,
+                ];
             });
 
         /* =========================
@@ -59,6 +67,8 @@ class EmpleadoDashboardController extends Controller
 
         $cursos = CursoEmpleado::with('documentOption')
             ->where('employee_id', $empleado->id)
+            ->whereIn('share_scope', [1, 3])
+            ->where('status', '!=', 999)
             ->get()
             ->map(function ($curso) {
 
@@ -75,6 +85,9 @@ class EmpleadoDashboardController extends Controller
                     'expiry_reminder' => $curso->expiry_reminder,
                     'status'          => $curso->status,
                     'file_url'        => url("/api/empleado/compliance/curso/{$curso->id}/ver"),
+                    'share_scope'              => (int) $curso->share_scope,
+                    'collaborator_can_replace' =>
+                    (bool) $curso->collaborator_can_replace,
                 ];
             });
 
@@ -84,6 +97,8 @@ class EmpleadoDashboardController extends Controller
         $examenes = ExamEmpleado::with('examOption')
             ->where('employee_id', $empleado->id)
             ->whereNull('id_candidato')
+            ->whereIn('share_scope', [1, 3])
+            ->where('status', '!=', 999)
             ->get()
             ->map(function ($exam) {
 
@@ -99,6 +114,9 @@ class EmpleadoDashboardController extends Controller
                     'expiry_reminder' => $exam->expiry_reminder,
                     'status'          => $exam->status,
                     'file_url'        => url("/api/empleado/compliance/examen/{$exam->id}/ver"),
+                    'share_scope'              => (int) $exam->share_scope,
+                    'collaborator_can_replace' =>
+                    (bool) $exam->collaborator_can_replace,
                 ];
             });
 /* =========================
@@ -180,6 +198,8 @@ class EmpleadoDashboardController extends Controller
             case 'documento':
                 $item = DocumentEmpleado::where('id', $id)
                     ->where('employee_id', $empleado->id)
+                    ->whereIn('share_scope', [1, 3])
+                    ->where('status', '!=', 999)
                     ->first();
 
                 $folder     = '_documentEmpleado';
@@ -189,6 +209,8 @@ class EmpleadoDashboardController extends Controller
             case 'curso':
                 $item = CursoEmpleado::where('id', $id)
                     ->where('employee_id', $empleado->id)
+                    ->whereIn('share_scope', [1, 3])
+                    ->where('status', '!=', 999)
                     ->first();
 
                 $folder     = '_cursos';
@@ -198,6 +220,8 @@ class EmpleadoDashboardController extends Controller
             case 'examen':
                 $item = ExamEmpleado::where('id', $id)
                     ->where('employee_id', $empleado->id)
+                    ->whereIn('share_scope', [1, 3])
+                    ->where('status', '!=', 999)
                     ->whereNull('id_candidato')
                     ->first();
 
@@ -223,9 +247,7 @@ class EmpleadoDashboardController extends Controller
             ], 404);
         }
 
-        $basePath = app()->environment('production')
-            ? config('paths.prod_images')
-            : config('paths.local_images');
+        $basePath = (string) config('paths.images_path');
 
         $fullPath = rtrim($basePath, DIRECTORY_SEPARATOR)
         . DIRECTORY_SEPARATOR
@@ -249,6 +271,16 @@ class EmpleadoDashboardController extends Controller
             ], 404);
         }
 
-        return response()->file($fullPath);
+        return response()->file($fullPath, [
+            'Cache-Control' => implode(', ', [
+                'private',
+                'no-store',
+                'no-cache',
+                'must-revalidate',
+                'max-age=0',
+            ]),
+            'Pragma'        => 'no-cache',
+            'Expires'       => '0',
+        ]);
     }
 }
