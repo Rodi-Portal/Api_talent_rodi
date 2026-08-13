@@ -2,12 +2,18 @@
 namespace App\Http\Controllers\Api\Comunicacion360\Checador;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class ChecadorAsignacionController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
     public function empleadosConAcceso(Request $request)
     {
         $idPortal   = (int) $request->query('id_portal');
@@ -351,37 +357,50 @@ class ChecadorAsignacionController extends Controller
 
     public function aprobadoresDisponibles(Request $request)
     {
-        $idPortal  = (int) $request->query('id_portal');
-        $idCliente = (int) $request->query('id_cliente');
+        $administrator = $this->administrator($request);
 
-        $query = DB::connection('portal_main')
-            ->table('empleados')
-            ->select([
-                'id',
-                'id_portal',
-                'id_cliente',
-                'nombre',
-                'paterno',
-                'materno',
-                'puesto',
-                'departamento',
-            ])
-            ->where('id_portal', $idPortal)
-            ->where('status', 1)
-            ->where('eliminado', 0);
+        $idPortal = (int) $administrator->id_portal;
 
-        if ($idCliente > 0) {
-            $query->where('id_cliente', $idCliente);
+        $clientIds = $this->clientScope
+            ->permittedClientIds($administrator);
+
+        if ($clientIds === []) {
+            return response()->json([
+                'ok'   => true,
+                'data' => [],
+            ]);
         }
 
-        $data = $query
-            ->orderBy('nombre')
-            ->orderBy('paterno')
+        $data = DB::connection('portal_main')
+            ->table('empleados as e')
+            ->join('cliente as c', function ($join) {
+                $join->on('c.id', '=', 'e.id_cliente')
+                    ->on('c.id_portal', '=', 'e.id_portal');
+            })
+            ->select([
+                'e.id',
+                'e.id_portal',
+                'e.id_cliente',
+                'e.nombre',
+                'e.paterno',
+                'e.materno',
+                'e.puesto',
+                'e.departamento',
+                'c.nombre as nombre_sucursal',
+            ])
+            ->where('e.id_portal', $idPortal)
+            ->whereIn('e.id_cliente', $clientIds)
+            ->where('e.status', 1)
+            ->where('e.eliminado', 0)
+            ->orderBy('c.nombre')
+            ->orderBy('e.nombre')
+            ->orderBy('e.paterno')
             ->get()
             ->map(function ($empleado) {
                 return [
                     'id'              => (int) $empleado->id,
                     'id_cliente'      => (int) $empleado->id_cliente,
+                    'nombre_sucursal' => $empleado->nombre_sucursal,
                     'nombre_completo' => trim(collect([
                         $empleado->nombre,
                         $empleado->paterno,
@@ -397,5 +416,48 @@ class ChecadorAsignacionController extends Controller
             'ok'   => true,
             'data' => $data,
         ]);
+    }
+    public function tiposEventoDisponibles(Request $request)
+    {
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+
+        $data = DB::connection('portal_main')
+            ->table('eventos_option')
+            ->where(function ($query) use ($idPortal) {
+                $query->whereNull('id_portal')
+                    ->orWhere('id_portal', $idPortal);
+            })
+            ->select([
+                'id',
+                'name',
+                'color',
+            ])
+
+            ->orderByRaw('id_portal IS NULL DESC')
+            ->orderBy('name')
+            ->get()
+            ->map(function ($evento) {
+                return [
+                    'id'    => (int) $evento->id,
+                    'name'  => $evento->name,
+                    'color' => $evento->color,
+                ];
+            })
+            ->values();
+
+        return response()->json($data);
+    }
+    private function administrator(Request $request): AdministradorAuth
+    {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
     }
 }

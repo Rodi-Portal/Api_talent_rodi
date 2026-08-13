@@ -1128,12 +1128,10 @@ Route::prefix('checador')->group(function () {
             Route::post('/ubicaciones', [ChecadorUbicacionesController::class, 'store']);
             Route::put('/ubicaciones/{id}', [ChecadorUbicacionesController::class, 'update']);
             Route::delete('/ubicaciones/{id}', [ChecadorUbicacionesController::class, 'destroy']);
-
             Route::post('/qr/generar', [ChecadorQrController::class, 'generar']);
-            Route::get(
-                '/qr/fijo/{ubicacionId}',
-                [ChecadorQrController::class, 'mostrarFijo']
-            );
+            Route::get('/qr/fijo/{ubicacionId}', [ChecadorQrController::class, 'mostrarFijo']);
+            Route::get('/aprobadores-disponibles', [ChecadorAsignacionController::class, 'aprobadoresDisponibles']);
+            Route::get('/eventos-tipos-disponibles', [ChecadorAsignacionController::class,'tiposEventoDisponibles']);
         });
 
     //validate Ubications
@@ -1167,6 +1165,7 @@ Route::prefix('checador')->group(function () {
                 '/{id}/estado',
                 [ChecadorHorarioPlantillaController::class, 'cambiarEstado']
             );
+
         });
 
     // Importaciones / Exportaciones STC
@@ -1196,7 +1195,7 @@ Route::prefix('checador')->group(function () {
             );
         });
 
-// Incidencias masivas administrativas
+    // Incidencias masivas administrativas
     Route::prefix('incidencias-masivas')
         ->middleware(['auth:sanctum', 'admin.session'])
         ->group(function () {
@@ -1226,13 +1225,13 @@ Route::prefix('checador')->group(function () {
         'guardarPlantillaEmpleado',
     ]);
 
-// Métodos
+    // Métodos
     Route::get('/metodos', [
         ChecadorMetodoController::class,
         'index',
     ]);
 
-// Plantillas para el checador
+    // Plantillas para el checador
     Route::get('/plantillas-checada', [
         ChecadorChecadaPlantillaController::class,
         'index',
@@ -1258,13 +1257,9 @@ Route::prefix('checador')->group(function () {
         'cambiarEstado',
     ]);
 
-// Aprobadores
-    Route::get('/aprobadores-disponibles', [
-        ChecadorAsignacionController::class,
-        'aprobadoresDisponibles',
-    ]);
 
-// Asignaciones de plantillas a empleados
+
+    // Asignaciones de plantillas a empleados
     Route::get('/plantillas-checada/{id}/asignaciones', [
         ChecadorAsignacionController::class,
         'index',
