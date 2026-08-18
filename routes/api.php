@@ -496,21 +496,14 @@ Route::middleware(['api'])->group(function () {
     //  obtener  el status  de general  de los empleados
     Route::get('/empleados/status', [EmpleadoController::class, 'getEmpleadosStatus']);
     /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
-
     Route::get(
-        '/empleados/documentos',
-        [EmpleadoController::class, 'getEmpleadosConDocumentos']
-    );
-    /*  Route::get(
         '/empleados/documentos',
         [EmpleadoController::class, 'getEmpleadosConDocumentos']
     )->middleware([
         'auth:sanctum',
         'admin.session',
         'admin.permission:empleados.expediente.generales.ver',
-    ]); */
-
-    /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
+    ]); /* obtiene   los empleados  dl portal y calcula  si tiene algo vencido*/
     Route::get('/empleados/check-email', [EmpleadoController::class, 'checkEmail']);
 
     //Ruta  para    eliminar campo extra  de los  empleados
@@ -1138,7 +1131,7 @@ Route::prefix('checador')->group(function () {
             Route::post('/qr/generar', [ChecadorQrController::class, 'generar']);
             Route::get('/qr/fijo/{ubicacionId}', [ChecadorQrController::class, 'mostrarFijo']);
             Route::get('/aprobadores-disponibles', [ChecadorAsignacionController::class, 'aprobadoresDisponibles']);
-            Route::get('/eventos-tipos-disponibles', [ChecadorAsignacionController::class, 'tiposEventoDisponibles']);
+            Route::get('/eventos-tipos-disponibles', [ChecadorAsignacionController::class,'tiposEventoDisponibles']);
         });
 
     //validate Ubications
@@ -1263,6 +1256,8 @@ Route::prefix('checador')->group(function () {
         ChecadorChecadaPlantillaController::class,
         'cambiarEstado',
     ]);
+
+
 
     // Asignaciones de plantillas a empleados
     Route::get('/plantillas-checada/{id}/asignaciones', [
