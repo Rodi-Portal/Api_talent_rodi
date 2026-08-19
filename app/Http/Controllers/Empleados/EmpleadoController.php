@@ -12,6 +12,7 @@ use App\Models\Empleado;
 use App\Models\EmpleadoCampoExtra;
 use App\Models\Evaluacion;
 use App\Models\ExamEmpleado; // <<<<<< necesario
+use App\Models\FormerEmpleadoNoRecomendable;
 use App\Models\MedicalInfo;
 use App\Models\PuestoEmpleado;
 use App\Services\Auth\AdminClientScopeService;
@@ -76,15 +77,32 @@ class EmpleadoController extends Controller
             ->map(fn($id) => (int) $id)
             ->values();
 
-        $documentsByEmployee = collect();
-        $coursesByEmployee   = collect();
-        $examsByEmployee     = collect();
-        $medicalByEmployee   = collect();
+        $documentsByEmployee       = collect();
+        $coursesByEmployee         = collect();
+        $examsByEmployee           = collect();
+        $medicalByEmployee         = collect();
+        $noRecomendablesByEmployee = collect();
 
         if ($employeeIds->isNotEmpty()) {
             if ((int) $status === 2) {
-                $documentsByEmployee = DocumentEmpleado::query()
-                    ->whereIn('employee_id', $employeeIds)
+                $noRecomendablesByEmployee =
+                FormerEmpleadoNoRecomendable::query()
+                    ->whereIn(
+                        'id_empleado',
+                        $employeeIds
+                    )
+                    ->where('activo', 1)
+                    ->pluck(
+                        'activo',
+                        'id_empleado'
+                    );
+
+                $documentsByEmployee =
+                DocumentEmpleado::query()
+                    ->whereIn(
+                        'employee_id',
+                        $employeeIds
+                    )
                     ->where('status', 2)
                     ->get()
                     ->groupBy('employee_id');
@@ -157,6 +175,10 @@ class EmpleadoController extends Controller
                     ? \Carbon\Carbon::parse($empleado->fecha_salida)->format('d/m/Y')
                     : null;
                 $empleadoArray['statusDocuments'] = $statusDocuments;
+                $empleadoArray['no_recomendable'] =
+                $noRecomendablesByEmployee->has(
+                    (int) $empleado->id
+                );
 
                 $resultados[] = $empleadoArray;
             }
@@ -248,7 +270,7 @@ class EmpleadoController extends Controller
             'foto', 'statusMedico', 'statusDocuments', 'statusExam',
             'estadoExam', 'statusCursos', 'estadoDocumento',
             'id_domicilio_empleado', 'creacion', 'edicion',
-            'id_portal', 'id_cliente', 'id_usuario', 'id', 'Id', 'campoExtra', 'eliminado', 'status', 'paterno', 'materno', 'nombre', 'id_bolsa', 'id_departamento', 'id_puesto', 'password', 'email_verified_at', 'activation_token', 'activation_expires_at', 'force_password_change', 'login_attempts', 'locked_until', 'last_login_at', 'last_login_ip', 'password_changed_at',
+            'id_portal', 'id_cliente', 'id_usuario', 'id', 'Id', 'campoExtra', 'eliminado', 'status', 'paterno', 'materno', 'nombre', 'id_bolsa', 'id_departamento', 'id_puesto', 'password', 'email_verified_at', 'activation_token', 'activation_expires_at', 'force_password_change', 'login_attempts', 'no_recomendable', 'locked_until', 'last_login_at', 'last_login_ip', 'password_changed_at',
         ];
 
         foreach ($empleados as $empleado) {

@@ -3,6 +3,7 @@ namespace App\Http\Controllers\ExEmpleados;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\DocumentController;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\Candidato;
 use App\Models\CandidatoPruebas;
 use App\Models\ComentarioFormerEmpleado;
@@ -10,178 +11,338 @@ use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\Empleado;
 use App\Models\ExamEmpleado;
+use App\Models\FormerEmpleadoNoRecomendable;
 use App\Models\Medico;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class FormerEmpleadoController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
 
+    private function administrator(Request $request): AdministradorAuth
+    {
+        $administrator = $request->user('sanctum');
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
+    }
+    private function authorizedEmployee(
+        Request $request,
+        int $employeeId
+    ): array {
+        $administrator = $this->administrator($request);
+
+        $employee = Empleado::query()
+            ->whereKey($employeeId)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->firstOrFail();
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $employee->id_cliente]
+        );
+
+        return [$administrator, $employee];
+    }
     // Crear un nuevo comentario
     public function storeComentarioFormer(Request $request)
     {
-        // 🔹 LOG ENTRADA
-        Log::info('ComentarioFormer: request recibido', [
-            'id_empleado' => $request->id_empleado,
-            'id_usuario'  => $request->id_usuario ?? null,
-            'origen'      => $request->origen,
-        ]);
+        $activoNoRecomendable =
+        $request->boolean('no_recomendable');
 
-        $validator = Validator::make($request->all(), [
-            'creacion'    => 'required|date',
-            'id_empleado' => 'required|integer',
-            'id_usuario'  => 'nullable|integer',
-            'titulo'      => 'required|string|max:255',
-            'comentario'  => 'required|string',
-            'origen'      => 'required|integer',
-            'status'      => 'sometimes|integer|in:1,2',
-        ]);
+        $rules = [
+            'creacion'               => [
+                'required',
+                'date',
+            ],
+            'id_empleado'            => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+            'titulo'                 => [
+                'required',
+                'string',
+                'max:255',
+            ],
+            'comentario'             => [
+                'required',
+                'string',
+            ],
+            'origen'                 => [
+                'required',
+                'integer',
+            ],
+            'status'                 => [
+                'sometimes',
+                'integer',
+                'in:1,2',
+            ],
+            'fecha_salida_reingreso' => [
+                'nullable',
+                'date',
+            ],
+            'no_recomendable'        => [
+                'sometimes',
+                'boolean',
+            ],
+            'motivo_no_recomendable' => [
+                'nullable',
+                'string',
+                'max:5000',
+            ],
+        ];
 
-        if ($validator->fails()) {
-            Log::warning('ComentarioFormer: validación fallida', [
-                'errors' => $validator->errors()->toArray(),
-            ]);
-
-            return response()->json($validator->errors(), 422);
+        if (
+            (int) $request->input('status') === 2 &&
+            $request->has('no_recomendable') &&
+            $activoNoRecomendable
+        ) {
+            $rules['motivo_no_recomendable'] = [
+                'required',
+                'string',
+                'max:5000',
+            ];
         }
 
-        try {
+        $data = $request->validate($rules);
 
-            // 🔹 ACTUALIZACIÓN EMPLEADO
-            if ($request->has('status')) {
-                $empleado = Empleado::find($request->id_empleado);
+        [$administrator, $empleado] =
+        $this->authorizedEmployee(
+            $request,
+            (int) $data['id_empleado']
+        );
 
-                if ($empleado) {
+        $resultado = DB::connection('portal_main')
+            ->transaction(function () use (
+                $data,
+                $request,
+                $administrator,
+                $empleado,
+                $activoNoRecomendable
+            ) {
+                if (array_key_exists('status', $data)) {
+                    $empleado->status =
+                    (int) $data['status'];
 
-                    Log::info('ComentarioFormer: actualizando empleado', [
-                        'id_empleado' => $empleado->id,
-                        'status_old'  => $empleado->status,
-                        'status_new'  => $request->status,
-                    ]);
+                    $empleado->edicion =
+                        $data['creacion'];
 
-                    $empleado->edicion = $request->creacion;
-                    $empleado->status  = $request->status;
-                    if ($request->origen == 1) {
+                    $empleado->id_usuario =
+                    (int) $administrator->id;
 
-                        if ($request->filled('fecha_salida_reingreso')) {
-                            // 🔁 REINGRESO
-                            $empleado->fecha_ingreso = $request->fecha_salida_reingreso;
-                        } else {
-                            // 🚪 SALIDA
-                            $empleado->fecha_salida = $request->creacion;
+                    if ((int) $data['origen'] === 1) {
+                        if (
+                            (int) $data['status'] === 1 &&
+                            ! empty(
+                                $data['fecha_salida_reingreso']
+                            )
+                        ) {
+                            $empleado->fecha_ingreso =
+                                $data['fecha_salida_reingreso'];
+                        }
+
+                        if ((int) $data['status'] === 2) {
+                            $empleado->fecha_salida =
+                                $data['creacion'];
                         }
                     }
 
                     $empleado->save();
-
-                } else {
-
-                    Log::warning('ComentarioFormer: empleado no encontrado', [
-                        'id_empleado' => $request->id_empleado,
-                    ]);
                 }
-            }
 
-            // 🔹 CREACIÓN COMENTARIO
-            $comentario = ComentarioFormerEmpleado::create($request->all());
+                $comentario =
+                ComentarioFormerEmpleado::create([
+                    'creacion'               => $data['creacion'],
+                    'id_empleado'            =>
+                    (int) $empleado->id,
+                    'id_usuario'             =>
+                    (int) $administrator->id,
+                    'titulo'                 => $data['titulo'],
+                    'comentario'             =>
+                    trim($data['comentario']),
+                    'origen'                 => (int) $data['origen'],
+                    'fecha_salida_reingreso' =>
+                    $data['fecha_salida_reingreso'] ?? null,
+                ]);
 
-            Log::info('ComentarioFormer: comentario creado', [
-                'comentario_id' => $comentario->id,
-                'id_empleado'   => $comentario->id_empleado,
-                'id_usuario'    => $comentario->id_usuario ?? null,
-            ]);
+                $estadoNoRecomendable = null;
 
-            return response()->json($comentario, 201);
+                if (
+                    (int) ($data['status'] ?? 0) === 2 &&
+                    $request->has('no_recomendable')
+                ) {
+                    $registro =
+                    FormerEmpleadoNoRecomendable::query()
+                        ->firstOrNew([
+                            'id_empleado' =>
+                            (int) $empleado->id,
+                        ]);
 
-        } catch (\Throwable $e) {
+                    $estabaActivo =
+                    $registro->exists &&
+                    (bool) $registro->activo;
 
-            Log::error('ComentarioFormer: error inesperado', [
-                'message' => $e->getMessage(),
-                'line'    => $e->getLine(),
-            ]);
+                    $registro->activo =
+                        $activoNoRecomendable;
 
-            return response()->json([
-                'error' => 'Error interno',
-            ], 500);
-        }
+                    $registro->id_usuario =
+                    (int) $administrator->id;
+
+                    $registro->save();
+
+                    $estadoNoRecomendable =
+                    (bool) $registro->activo;
+
+                    if ($activoNoRecomendable) {
+                        ComentarioFormerEmpleado::create([
+                            'creacion'               =>
+                            $data['creacion'],
+                            'id_empleado'            =>
+                            (int) $empleado->id,
+                            'id_usuario'             =>
+                            (int) $administrator->id,
+                            'titulo'                 =>
+                            'Marcado como no recomendable',
+                            'comentario'             => trim(
+                                $data[
+                                    'motivo_no_recomendable'
+                                ]
+                            ),
+                            'origen'                 => 2,
+                            'fecha_salida_reingreso' =>
+                            $data['creacion'],
+                        ]);
+                    } elseif ($estabaActivo) {
+                        ComentarioFormerEmpleado::create([
+                            'creacion'               =>
+                            $data['creacion'],
+                            'id_empleado'            =>
+                            (int) $empleado->id,
+                            'id_usuario'             =>
+                            (int) $administrator->id,
+                            'titulo'                 =>
+                            'Marca de no recomendable desactivada',
+                            'comentario'             =>
+                            'Se retiró la marca de no recomendable.',
+                            'origen'                 => 2,
+                            'fecha_salida_reingreso' =>
+                            $data['creacion'],
+                        ]);
+                    }
+                }
+
+                return [
+                    'comentario'      => $comentario,
+                    'empleado'        => [
+                        'id'     => (int) $empleado->id,
+                        'status' =>
+                        (int) $empleado->status,
+                    ],
+                    'no_recomendable' =>
+                    $estadoNoRecomendable,
+                ];
+            });
+
+        Log::info(
+            'Comentario Former guardado',
+            [
+                'id_empleado'     => (int) $empleado->id,
+                'id_usuario'      =>
+                (int) $administrator->id,
+                'origen'          => (int) $data['origen'],
+                'status'          => $data['status'] ?? null,
+                'no_recomendable' =>
+                $resultado['no_recomendable'],
+            ]
+        );
+
+        return response()->json([
+            'success' => true,
+            'data'    => $resultado,
+        ], 201);
     }
 
     public function updateFechaSalida(Request $request)
     {
-        $request->validate([
-            'id_empleado'  => 'required|integer',
-            'fecha_salida' => 'required|date',
-            'id_usuario'   => 'nullable|integer',
+        $data = $request->validate([
+            'id_empleado'  => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+            'fecha_salida' => [
+                'required',
+                'date',
+            ],
         ]);
 
-        $empleado = Empleado::find($request->id_empleado);
+        [$administrator, $empleado] =
+        $this->authorizedEmployee(
+            $request,
+            (int) $data['id_empleado']
+        );
 
-        if (! $empleado) {
+        $valorAnterior = $empleado->fecha_salida
+            ? $empleado->fecha_salida->format('Y-m-d')
+            : null;
 
-            Log::warning('Empleado no encontrado al actualizar fecha_salida', [
-                'id_empleado' => $request->id_empleado,
-                'id_usuario'  => $request->id_usuario ?? null,
-                'ip'          => $request->ip(),
-            ]);
+        $valorNuevo = $data['fecha_salida'];
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Empleado no encontrado',
-            ], 404);
-        }
-
-        $valorAnterior = $empleado->fecha_salida;
-        $valorNuevo    = $request->fecha_salida;
-
-        // 🔥 Log antes del cambio
-        Log::info('Intento de actualización de fecha_salida', [
-            'id_empleado'    => $empleado->id,
-            'id_usuario'     => $request->id_usuario ?? null,
-            'valor_anterior' => $valorAnterior,
-            'valor_nuevo'    => $valorNuevo,
-            'ip'             => $request->ip(),
-        ]);
-
-        if ($valorAnterior != $valorNuevo) {
-
-            $empleado->fecha_salida = $valorNuevo;
-            $empleado->id_usuario   = $request->id_usuario ?? null;
-            $empleado->save();
-
-            // 🔥 Log después del cambio
-            Log::info('Fecha_salida actualizada correctamente', [
-                'id_empleado'    => $empleado->id,
-                'id_usuario'     => $request->id_usuario ?? null,
+        Log::info(
+            'Intento de actualización de fecha_salida',
+            [
+                'id_empleado'    => (int) $empleado->id,
+                'id_usuario'     =>
+                (int) $administrator->id,
                 'valor_anterior' => $valorAnterior,
                 'valor_nuevo'    => $valorNuevo,
                 'ip'             => $request->ip(),
-            ]);
+            ]
+        );
 
-        } else {
-
-            Log::notice('No hubo cambio en fecha_salida', [
-                'id_empleado' => $empleado->id,
-                'id_usuario'  => $request->id_usuario ?? null,
-                'fecha'       => $valorNuevo,
-            ]);
+        if ($valorAnterior !== $valorNuevo) {
+            $empleado->fecha_salida = $valorNuevo;
+            $empleado->id_usuario   =
+            (int) $administrator->id;
+            $empleado->save();
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Fecha de salida actualizada',
+            'message' =>
+            'Fecha de salida actualizada.',
             'data'    => [
-                'fecha_salida' => $empleado->fecha_salida,
+                'fecha_salida' => $valorNuevo,
             ],
         ]);
     }
-    public function getDocumentosYCursos($id_empleado)
-    {
+    public function getDocumentosYCursos(
+        Request $request,
+        int $id_empleado
+    ) {
         // Validar que el empleado existe
-        $empleado = Empleado::find($id_empleado);
-        if (! $empleado) {
-            return response()->json(['error' => 'Empleado no encontrado'], 404);
-        }
+        [, $empleado] = $this->authorizedEmployee(
+            $request,
+            $id_empleado
+        );
+
+        $id_empleado = (int) $empleado->id;
         // Obtener el parámetro status si existe
         $status = request()->query('status');
 
@@ -320,13 +481,19 @@ class FormerEmpleadoController extends Controller
             Log::error('Errores de validación:', $validator->errors()->toArray());
             return response()->json($validator->errors(), 422);
         }
+
+        [, $empleado] = $this->authorizedEmployee(
+            $request,
+            (int) $request->input('id_empleado')
+        );
+
         // Log de los datos recibidos
         //Log::info('Datos recibidos en el store: ' . print_r($request->all(), true));
         // dd($request->all());
 
         // Preparar el nombre del archivo para la subida
         $origen        = 1;
-        $employeeId    = $request->input('employee_id');
+        $employeeId    = (int) $empleado->id;
         $randomString  = $this->generateRandomString();                        // Generar cadena aleatoria
         $fileExtension = $request->file('file')->getClientOriginalExtension(); // Obtener extensión del archivo
         $newFileName   = "{$employeeId}_{$randomString}_{$origen}.{$fileExtension}";
@@ -349,7 +516,7 @@ class FormerEmpleadoController extends Controller
 
         // Crear un nuevo registro en la base de datos
         $cursoEmpleado = DocumentEmpleado::create([
-            'employee_id'     => $request->input('id_empleado'),
+            'employee_id'     => $employeeId,
             'name'            => $newFileName,
             'nameDocument'    => $request->input('nameDocument'),
             'description'     => $request->input('descripcion'),
@@ -374,32 +541,166 @@ class FormerEmpleadoController extends Controller
         return substr(str_shuffle(str_repeat("0123456789abcdefghijklmnopqrstuvwxyz", ceil($length / 10))), 1, $length);
     }
 
-    public function getConclusionsByEmployeeId($id_empleado)
-    {
-        // Obtener los comentarios del empleado por su ID
-        $comentarios = ComentarioFormerEmpleado::where('id_empleado', $id_empleado)->get();
+    public function getConclusionsByEmployeeId(
+        Request $request,
+        int $id_empleado
+    ) {
+        [, $empleado] = $this->authorizedEmployee(
+            $request,
+            $id_empleado
+        );
 
-        // Verificar si se encontraron comentarios
-        if ($comentarios->isEmpty()) {
-            return response()->json(['message' => 'No conclusions found for this employee.'], 404);
-        }
+        $comentarios =
+        ComentarioFormerEmpleado::query()
+            ->where(
+                'id_empleado',
+                (int) $empleado->id
+            )
+            ->orderByDesc('id')
+            ->get();
 
-        return response()->json($comentarios, 200);
+        return response()->json($comentarios);
     }
+    public function deleteComentario(
+        Request $request,
+        int $id
+    ) {
+        $comentario =
+        ComentarioFormerEmpleado::findOrFail($id);
 
-    public function deleteComentario($id)
-    {
-        // Buscar el comentario por ID
-        $comentario = ComentarioFormerEmpleado::find($id);
+        $this->authorizedEmployee(
+            $request,
+            (int) $comentario->id_empleado
+        );
 
-        if (! $comentario) {
-            return response()->json(['error' => 'Comentario no encontrado'], 404);
+        if (! empty($comentario->fecha_salida_reingreso)) {
+            return response()->json([
+                'success' => false,
+                'message' =>
+                'Este comentario forma parte del historial y no puede eliminarse.',
+            ], 409);
         }
 
-        // Eliminar el comentario
         $comentario->delete();
 
-        return response()->json(['message' => 'Comentario eliminado exitosamente'], 200);
+        return response()->json([
+            'success' => true,
+            'message' =>
+            'Comentario eliminado exitosamente.',
+        ]);
     }
+    public function updateNoRecomendable(
+        Request $request,
+        int $idEmpleado
+    ) {
+        $activo = $request->boolean('activo');
 
+        $rules = [
+            'activo' => ['required', 'boolean'],
+            'motivo' => ['nullable', 'string', 'max:5000'],
+        ];
+
+        if ($activo) {
+            $rules['motivo'] = [
+                'required',
+                'string',
+                'max:5000',
+            ];
+        }
+
+        $data = $request->validate($rules);
+
+        $administrator = $this->administrator($request);
+
+        $empleado = Empleado::query()
+            ->whereKey($idEmpleado)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->firstOrFail();
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $empleado->id_cliente]
+        );
+
+        $connection = DB::connection('portal_main');
+
+        $resultado = $connection->transaction(
+            function () use (
+                $data,
+                $activo,
+                $administrator,
+                $empleado
+            ) {
+                $registro =
+                FormerEmpleadoNoRecomendable::query()
+                    ->updateOrCreate(
+                        [
+                            'id_empleado' => (int) $empleado->id,
+                        ],
+                        [
+                            'activo'     => $activo,
+                            'id_usuario' =>
+                            (int) $administrator->id,
+                        ]
+                    );
+
+                $hoy = now('America/Mexico_City')
+                    ->toDateString();
+
+                if ($activo) {
+                    ComentarioFormerEmpleado::create([
+                        'creacion'               => $hoy,
+                        'id_empleado'            => (int) $empleado->id,
+                        'id_usuario'             =>
+                        (int) $administrator->id,
+                        'titulo'                 =>
+                        'Marcado como no recomendable',
+                        'comentario'             => trim($data['motivo']),
+                        'origen'                 => 2,
+                        'fecha_salida_reingreso' =>
+                        $empleado->fecha_salida
+                            ? $empleado->fecha_salida
+                            ->format('Y-m-d')
+                            : $hoy,
+                    ]);
+                } else {
+                    ComentarioFormerEmpleado::create([
+                        'creacion'               => $hoy,
+                        'id_empleado'            => (int) $empleado->id,
+                        'id_usuario'             =>
+                        (int) $administrator->id,
+                        'titulo'                 =>
+                        'Marca de no recomendable desactivada',
+                        'comentario'             =>
+                        'Se retiró la marca de no recomendable.',
+                        'origen'                 => 2,
+                        'fecha_salida_reingreso' =>
+                        $empleado->fecha_salida
+                            ? $empleado->fecha_salida
+                            ->format('Y-m-d')
+                            : $hoy,
+                    ]);
+                }
+
+                return [
+                    'id_empleado'     => (int) $empleado->id,
+                    'no_recomendable' =>
+                    (bool) $registro->activo,
+                    'edicion'         => optional($registro->edicion)
+                        ->toISOString(),
+                ];
+            }
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => $activo
+                ? 'El exempleado fue marcado como no recomendable.'
+                : 'La marca de no recomendable fue desactivada.',
+            'data'    => $resultado,
+        ]);
+    }
 }

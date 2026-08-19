@@ -307,7 +307,7 @@ Route::middleware(['api'])->group(function () {
         'admin.session',
         'admin.permission:empleados.expediente.compartidos_admin.descargar',
     ]);
-// ----- opciones documentos, examenes y cursos ----- //
+    // ----- opciones documentos, examenes y cursos ----- //
 
     // ----- opciones  documentos, examenes y cursos ---- //
 
@@ -607,13 +607,98 @@ Route::middleware(['api'])->group(function () {
 
     /** Former Employe   endpoints */
     // enviar   empleado  a exempleados
-    Route::post('/comentarios-former-empleado', [FormerEmpleadoController::class, 'storeComentarioFormer']);
-    Route::post('/update-fecha-salida', [FormerEmpleadoController::class, 'updateFechaSalida']);
-    Route::get('empleados/{id_empleado}/documentos-y-cursos', [FormerEmpleadoController::class, 'getDocumentosYCursos']);
-    Route::post('/documentos/former', [FormerEmpleadoController::class, 'storeDocumentos']);
-    Route::get('/conclusions/{id_empleado}', [FormerEmpleadoController::class, 'getConclusionsByEmployeeId']);
-    // borrar comentario
-    Route::delete('/comentarios-former-empleado/{id}', [FormerEmpleadoController::class, 'deleteComentario']);
+    /** Former Employee endpoints */
+
+    // Enviar empleado a Exempleados o agregar una conclusión.
+    Route::post(
+        '/comentarios-former-empleado',
+        [
+            FormerEmpleadoController::class,
+            'storeComentarioFormer',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.generales.enviar_exempleados,exempleados.conclusiones.agregar',
+    ]);
+
+    // Actualizar fecha de salida desde Exempleados.
+    Route::post(
+        '/update-fecha-salida',
+        [
+            FormerEmpleadoController::class,
+            'updateFechaSalida',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.expediente.generales.actualizar',
+    ]);
+
+    // Consultar documentos, cursos y exámenes históricos.
+    Route::get(
+        '/empleados/{id_empleado}/documentos-y-cursos',
+        [
+            FormerEmpleadoController::class,
+            'getDocumentosYCursos',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.expediente.documentos.ver',
+    ]);
+
+    // Crear documento de salida.
+    Route::post(
+        '/documentos/former',
+        [
+            FormerEmpleadoController::class,
+            'storeDocumentos',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.expediente.documentos_salida.crear',
+    ]);
+
+// Consultar conclusiones.
+    Route::get(
+        '/conclusions/{id_empleado}',
+        [
+            FormerEmpleadoController::class,
+            'getConclusionsByEmployeeId',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.conclusiones.ver',
+    ]);
+
+    // Eliminar conclusión.
+    Route::delete(
+        '/comentarios-former-empleado/{id}',
+        [
+            FormerEmpleadoController::class,
+            'deleteComentario',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.conclusiones.eliminar',
+    ]);
+
+    // Marcar o desmarcar como no recomendable.
+    Route::put(
+        '/exempleados/{idEmpleado}/no-recomendable',
+        [
+            FormerEmpleadoController::class,
+            'updateNoRecomendable',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.recomendacion.actualizar',
+    ]);
 
     // ruta  para   enviar     de pre employment  a employment
     Route::post('candidato-send/{id_candidato}', [ApiGetCandidatosByCliente::class, 'sendCandidateToEmployee']);
