@@ -2,294 +2,728 @@
 namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller;
-use App\Http\Controllers\DocumentController;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\Evaluacion;
+use App\Services\Auditoria\AuditoriaService;
+use App\Services\Auth\AdminClientScopeService;
+use App\Services\Documents\EvaluationDocumentPathService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
+use RuntimeException;
+use Throwable;
 
 class EvaluacionController extends Controller
 {
-    // Método para obtener todas las evaluaciones
+    public function __construct(
+        private AdminClientScopeService $clientScope,
+        private EvaluationDocumentPathService $documentPaths,
+        private AuditoriaService $auditoria
+    ) {}
+
     public function getEvaluations(Request $request)
     {
-        $request->validate([
-            'id_portal'  => 'required|integer',
-            'id_cliente' => 'required|integer',
+        $data = $request->validate([
+            'id_portal'  => ['nullable', 'integer', 'min:1'],
+            'id_cliente' => ['required', 'integer', 'min:1'],
         ]);
 
-        // Obtener todas las evaluaciones asociadas al id_portal
-        $evaluaciones = Evaluacion::where('id_portal', $request->input('id_portal'))
-            ->where('id_cliente', $request->input('id_cliente'))
+        $administrator = $this->administrator($request);
+
+        $this->authorizeClient(
+            $administrator,
+            (int) $data['id_cliente']
+        );
+
+        if (
+            isset($data['id_portal'])
+            && (int) $data['id_portal'] !==
+            (int) $administrator->id_portal
+        ) {
+            throw new AuthorizationException(
+                'El portal solicitado no coincide con el portal autenticado.'
+            );
+        }
+
+        $evaluations = Evaluacion::query()
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'id_cliente',
+                (int) $data['id_cliente']
+            )
             ->where('eliminado', 0)
-            ->get();
-        $resultados = [];
+            ->orderByDesc('id')
+            ->get()
+            ->map(function (Evaluacion $evaluation) {
+                $result                     = $evaluation->toArray();
+                $result['statusEvaluacion'] =
+                $this->checkDocumentStatus($evaluation);
 
-        foreach ($evaluaciones as $evaluacion) {
-            // Obtener documentos o información relacionada con la evaluación
-            $status = $this->checkDocumentStatus($evaluacion);
+                return $result;
+            })
+            ->values();
 
-            // Convertir la evaluación a un array y agregar el statusDocuments
-            $evaluacionArray                     = $evaluacion->toArray();
-            $evaluacionArray['statusEvaluacion'] = $status;
-
-            $resultados[] = $evaluacionArray;
-        }
-        //Log::info('Resultados de empleados con documentos: ' . print_r($resultados, true));
-
-        return response()->json($resultados);
+        return response()->json($evaluations);
     }
 
-    private function checkDocumentStatus($documentos)
-    {
-        // Si $documentos es un solo documento, conviene usarlo directamente
-        if (! is_array($documentos) && ! $documentos instanceof \Illuminate\Support\Collection) {
-            $documentos = [$documentos]; // Convertir a un array para la iteración
-        }
-
-        if (empty($documentos)) {
-            return 'verde'; // Sin documentos, consideramos como verde
-        }
-
-        $tieneRojo     = false;
-        $tieneAmarillo = false;
-
-        foreach ($documentos as $documento) {
-            // Calcular diferencia de días con respecto a la fecha actual
-            $diasDiferencia = $this->calcularDiferenciaDias(now(), $documento->expiry_date);
-
-            // Comprobamos el estado del documento
-            if ($documento->expiry_reminder == 0) {
-                continue; // No se requiere cálculo, se considera verde
-            } elseif ($diasDiferencia <= $documento->expiry_reminder || $diasDiferencia < 0) {
-                // Vencido o exactamente al límite
-                $tieneRojo = true;
-                break; // Prioridad alta, salimos del bucle
-            } elseif ($diasDiferencia > $documento->expiry_reminder && $diasDiferencia <= ($documento->expiry_reminder + 7)) {
-                // Se requiere atención, se considera amarillo
-                $tieneAmarillo = true;
-            }
-        }
-
-        // Determinamos el estado basado en las prioridades
-        if ($tieneRojo) {
-            return 'rojo';
-        }
-
-        if ($tieneAmarillo) {
-            return 'amarillo';
-        }
-
-        return 'verde'; // Si no hay documentos en rojo o amarillo
-    }
-
-    private function calcularDiferenciaDias($fechaActual, $fechaExpiracion)
-    {
-        $fechaActual     = \Carbon\Carbon::parse($fechaActual);
-        $fechaExpiracion = \Carbon\Carbon::parse($fechaExpiracion);
-
-        // Calculamos la diferencia de días
-        $diferenciaDias = $fechaExpiracion->diffInDays($fechaActual);
-
-        // Ajustamos la diferencia para que sea negativa si la fecha de expiración ya ha pasado
-        return $fechaExpiracion < $fechaActual ? -$diferenciaDias : $diferenciaDias;
-    }
-
-    // Método para crear una nueva evaluación
     public function store(Request $request)
     {
-        // Validar los datos de entrada
-        $validator = Validator::make($request->all(), [
-            'id_portal'            => 'required|integer',
-            'id_usuario'           => 'nullable|integer',
-            'id_cliente'           => 'nullable|integer',
-            'name'                 => 'required|string|max:255',
-            'numero_participantes' => 'nullable|integer',
-            'departamento'         => 'nullable|string|max:250',
-            'name_document'        => 'required|string|max:255',
-            'description'          => 'nullable|string',
-            'conclusiones'         => 'nullable|string',
-            'acciones'             => 'nullable|string',
-            'expiry_date'          => 'required|date',
-            'expiry_reminder'      => 'nullable|integer',
-            'origen'               => 'nullable|integer',
-            'file'                 => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120', // Validación del archivo
-            'creacion'             => 'required|date',
-            'edicion'              => 'required|date',
+        $data = $request->validate([
+            'id_cliente'           => ['required', 'integer', 'min:1'],
+            'name'                 => ['required', 'string', 'max:255'],
+            'numero_participantes' => ['nullable', 'integer', 'min:1'],
+            'departamento'         => ['nullable', 'string', 'max:250'],
+            'description'          => ['nullable', 'string'],
+            'conclusiones'         => ['nullable', 'string'],
+            'acciones'             => ['nullable', 'string'],
+            'expiry_date'          => ['required', 'date'],
+            'expiry_reminder'      => [
+                'nullable',
+                'integer',
+                'in:0,1,7,15,30',
+            ],
+            'origen'               => ['nullable', 'integer', 'in:1,2'],
+            'file'                 => [
+                'required',
+                'file',
+                'mimes:jpg,jpeg,png,pdf',
+                'max:10240',
+            ],
         ]);
-        Log::info('Datos recibidos en el store: ' . print_r($request->all(), true));
 
-        if ($validator->fails()) {
-            Log::error('Errores de validación:', $validator->errors()->toArray());
-            return response()->json($validator->errors(), 422);
+        $administrator = $this->administrator($request);
+        $clientId      = (int) $data['id_cliente'];
+
+        $this->authorizeClient($administrator, $clientId);
+
+        $file = $request->file('file');
+
+        $mimeType  = $file->getClientMimeType();
+        $sizeBytes = $file->getSize();
+
+        $extension = preg_replace(
+            '/[^A-Za-z0-9]/',
+            '',
+            strtolower(
+                (string) $file->getClientOriginalExtension()
+            )
+        );
+
+        $physicalName = 'eval_'
+        . $clientId
+        . '_'
+        . bin2hex(random_bytes(12));
+
+        if ($extension !== '') {
+            $physicalName .= '.' . $extension;
         }
 
-        // Preparar el nombre del archivo para la subida
-        $origen        = $request->input('origen');
-        $randomString  = $this->generateRandomString();                        // Generar cadena aleatoria
-        $fileExtension = $request->file('file')->getClientOriginalExtension(); // Obtener extensión del archivo
-        $newFileName   = "{$request->input('id_usuario')}_{$randomString}_{$origen}.{$fileExtension}";
+        $targetDirectory = $this->documentPaths
+            ->activeDirectory(
+                (int) $administrator->id_portal,
+                $clientId
+            );
 
-        // Preparar la solicitud para la subida del archivo
-        $uploadRequest = new Request();
-        $uploadRequest->files->set('file', $request->file('file'));
-        $uploadRequest->merge([
-            'file_name' => $newFileName,
-            'carpeta'   => '_evaluacionesPortal', // Cambia esto a tu carpeta deseada
-        ]);
-
-                                                                                     // Llamar a la función de upload
-        $uploadResponse = app(DocumentController::class)->uploadZip($uploadRequest); // Cambia el nombre del controlador según sea necesario
-
-        // Verificar si la subida fue exitosa
-        if ($uploadResponse->getStatusCode() !== 200) {
-            return response()->json(['error' => 'Error al subir el documento.'], 500);
+        if (
+            ! is_dir($targetDirectory)
+            && ! @mkdir($targetDirectory, 0755, true)
+            && ! is_dir($targetDirectory)
+        ) {
+            throw new RuntimeException(
+                'No se pudo crear el directorio de evaluaciones.'
+            );
         }
 
-        // Crear un nuevo registro en la base de datos
-        $evaluacion = Evaluacion::create([
-            'id_portal'            => $request->input('id_portal'),
-            'id_usuario'           => $request->input('id_usuario'),
-            'id_cliente'           => $request->input('id_cliente'),
-            'name'                 => $request->input('name'),
-            'numero_participantes' => $request->input('numero_participantes'),
-            'departamento'         => $request->input('departamento'),
-            'name_document'        => $newFileName,
-            'description'          => $request->input('description'),
-            'conclusiones'         => $request->input('conclusiones'),
-            'acciones'             => $request->input('acciones'),
-            'expiry_date'          => $request->input('expiry_date'),
-            'expiry_reminder'      => $request->input('expiry_reminder'),
-            'origen'               => $origen,
-            'creacion'             => $request->input('creacion'),
-            'edicion'              => $request->input('edicion'),
-        ]);
+        $storedPath = $this->documentPaths->storedPath(
+            (int) $administrator->id_portal,
+            $clientId,
+            $physicalName
+        );
 
-        // Log para verificar la evaluación registrada
-        Log::info('Evaluación registrada:', ['evaluacion' => $evaluacion]);
+        $file->move($targetDirectory, $physicalName);
 
-        // Devolver una respuesta exitosa
+        $absolutePath = $targetDirectory
+            . DIRECTORY_SEPARATOR
+            . $physicalName;
+
+        @chmod($absolutePath, 0664);
+
+        $now = Carbon::now('America/Mexico_City');
+
+        try {
+            $evaluation = DB::connection('portal_main')
+                ->transaction(function () use (
+                    $administrator,
+                    $clientId,
+                    $data,
+                    $storedPath,
+                    $now
+                ) {
+                    $evaluation = new Evaluacion();
+
+                    $evaluation->id_portal =
+                    (int) $administrator->id_portal;
+
+                    $evaluation->id_usuario =
+                    (int) $administrator->id;
+
+                    $evaluation->id_cliente = $clientId;
+                    $evaluation->name       = $data['name'];
+
+                    $evaluation->numero_participantes =
+                    $data['numero_participantes'] ?? null;
+
+                    $evaluation->departamento =
+                    $data['departamento'] ?? null;
+
+                    $evaluation->name_document = $storedPath;
+
+                    $evaluation->description =
+                    $data['description'] ?? null;
+
+                    $evaluation->conclusiones =
+                    $data['conclusiones'] ?? null;
+
+                    $evaluation->acciones =
+                    $data['acciones'] ?? null;
+
+                    $evaluation->expiry_date =
+                        $data['expiry_date'];
+
+                    $evaluation->expiry_reminder =
+                    (int) ($data['expiry_reminder'] ?? 0);
+
+                    $evaluation->origen =
+                    (int) ($data['origen'] ?? 1);
+
+                    $evaluation->eliminado = 0;
+                    $evaluation->creacion  = $now;
+                    $evaluation->edicion   = $now;
+                    $evaluation->save();
+
+                    return $evaluation;
+                });
+        } catch (Throwable $exception) {
+            if (is_file($absolutePath)) {
+                @unlink($absolutePath);
+            }
+
+            throw $exception;
+        }
+
+        $this->audit(
+            $request,
+            $administrator,
+            $evaluation,
+            'evaluacion_cargada',
+            null,
+            $this->auditData($evaluation),
+            [
+                'storage_origen' => 'nuevo',
+                'mime_type'      => $mimeType,
+                'size_bytes'     => $sizeBytes,
+            ]
+        );
+
         return response()->json([
             'message'    => 'Evaluación agregada exitosamente.',
-            'evaluacion' => $evaluacion,
+            'evaluacion' => $evaluation,
         ], 201);
     }
 
-    // Método para obtener una evaluación específica
-    public function show($id)
-    {
-        $evaluacion = Evaluacion::findOrFail($id);
+    public function download(
+        Request $request,
+        Evaluacion $evaluacion
+    ) {
+        $administrator = $this->administrator($request);
+
+        $this->authorizeEvaluation(
+            $administrator,
+            $evaluacion
+        );
+
+        if ((int) $evaluacion->eliminado !== 0) {
+            abort(404, 'La evaluación no está disponible.');
+        }
+
+        try {
+            $absolutePath = $this->documentPaths
+                ->existingAbsolutePath(
+                    (string) $evaluacion->name_document
+                );
+        } catch (
+            InvalidArgumentException | RuntimeException $exception
+        ) {
+            return response()->json([
+                'message' => 'Archivo no encontrado.',
+            ], 404);
+        }
+
+        $downloadName = basename(
+            str_replace(
+                '\\',
+                '/',
+                (string) $evaluacion->name_document
+            )
+        );
+
+        if (
+            str_ends_with(
+                strtolower($absolutePath),
+                '.zip'
+            )
+            && ! str_ends_with(
+                strtolower($downloadName),
+                '.zip'
+            )
+        ) {
+            $downloadName .= '.zip';
+        }
+
+        $this->audit(
+            $request,
+            $administrator,
+            $evaluacion,
+            'evaluacion_descargada',
+            null,
+            null,
+            [
+                'storage_path'   =>
+                $evaluacion->name_document,
+                'storage_origen' =>
+                $this->documentPaths->storageOrigin(
+                    (string) $evaluacion->name_document
+                ),
+                'size_bytes'     => filesize($absolutePath),
+                'modo'           => 'descarga',
+            ]
+        );
+
+        return response()->download(
+            $absolutePath,
+            $downloadName
+        );
+    }
+
+    public function update(
+        Request $request,
+        Evaluacion $evaluacion
+    ) {
+        $data = $request->validate([
+            'name'                 => ['sometimes', 'string', 'max:255'],
+            'numero_participantes' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'min:1',
+            ],
+            'departamento'         => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:250',
+            ],
+            'description'          => ['sometimes', 'nullable', 'string'],
+            'conclusiones'         => ['sometimes', 'nullable', 'string'],
+            'acciones'             => ['sometimes', 'nullable', 'string'],
+            'expiry_date'          => ['sometimes', 'date'],
+            'expiry_reminder'      => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'in:0,1,7,15,30',
+            ],
+            'origen'               => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'in:1,2',
+            ],
+            'file'                 => [
+                'sometimes',
+                'nullable',
+                'file',
+                'mimes:jpg,jpeg,png,pdf',
+                'max:10240',
+            ],
+        ]);
+
+        $administrator = $this->administrator($request);
+
+        $this->authorizeEvaluation(
+            $administrator,
+            $evaluacion
+        );
+
+        if ((int) $evaluacion->eliminado !== 0) {
+            abort(404, 'La evaluación no está disponible.');
+        }
+
+        $previousData    = $this->auditData($evaluacion);
+        $movement        = null;
+        $newAbsolutePath = null;
+
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+
+            $extension = preg_replace(
+                '/[^A-Za-z0-9]/',
+                '',
+                strtolower(
+                    (string) $file->getClientOriginalExtension()
+                )
+            );
+
+            $physicalName = 'eval_'
+            . (int) $evaluacion->id
+            . '_'
+            . bin2hex(random_bytes(12));
+
+            if ($extension !== '') {
+                $physicalName .= '.' . $extension;
+            }
+
+            $targetDirectory = $this->documentPaths
+                ->activeDirectory(
+                    (int) $evaluacion->id_portal,
+                    (int) $evaluacion->id_cliente
+                );
+
+            if (
+                ! is_dir($targetDirectory)
+                && ! @mkdir($targetDirectory, 0755, true)
+                && ! is_dir($targetDirectory)
+            ) {
+                throw new RuntimeException(
+                    'No se pudo crear el directorio de evaluaciones.'
+                );
+            }
+
+            $newStoredPath = $this->documentPaths
+                ->storedPath(
+                    (int) $evaluacion->id_portal,
+                    (int) $evaluacion->id_cliente,
+                    $physicalName
+                );
+
+            $file->move(
+                $targetDirectory,
+                $physicalName
+            );
+
+            $newAbsolutePath = $targetDirectory
+                . DIRECTORY_SEPARATOR
+                . $physicalName;
+
+            @chmod($newAbsolutePath, 0664);
+
+            try {
+                $movement = $this->documentPaths
+                    ->moveToTrash($evaluacion);
+            } catch (Throwable $exception) {
+                @unlink($newAbsolutePath);
+                throw $exception;
+            }
+
+            $data['name_document'] = $newStoredPath;
+        }
+
+        $allowedFields = [
+            'name',
+            'numero_participantes',
+            'departamento',
+            'description',
+            'conclusiones',
+            'acciones',
+            'expiry_date',
+            'expiry_reminder',
+            'origen',
+            'name_document',
+        ];
+
+        try {
+            DB::connection('portal_main')->transaction(
+                function () use (
+                    $evaluacion,
+                    $data,
+                    $allowedFields
+                ) {
+                    foreach ($allowedFields as $field) {
+                        if (array_key_exists($field, $data)) {
+                            $evaluacion->{$field} = $data[$field];
+                        }
+                    }
+
+                    $evaluacion->edicion = Carbon::now(
+                        'America/Mexico_City'
+                    );
+
+                    $evaluacion->save();
+                }
+            );
+        } catch (Throwable $exception) {
+            if (
+                $newAbsolutePath !== null
+                && is_file($newAbsolutePath)
+            ) {
+                @unlink($newAbsolutePath);
+            }
+
+            if ($movement !== null) {
+                try {
+                    $this->documentPaths
+                        ->rollbackMovement($movement);
+                } catch (Throwable $rollbackException) {
+                    report($rollbackException);
+                }
+            }
+
+            throw $exception;
+        }
+
+        $evaluacion->refresh();
+
+        $this->audit(
+            $request,
+            $administrator,
+            $evaluacion,
+            'evaluacion_actualizada',
+            $previousData,
+            $this->auditData($evaluacion),
+            [
+                'archivo_reemplazado'     =>
+                $movement !== null,
+                'archivo_compartido'      =>
+                $movement['archivo_compartido'] ?? false,
+                'storage_origen_anterior' =>
+                $movement['origen'] ?? null,
+            ]
+        );
 
         return response()->json($evaluacion);
     }
 
-    // Método para actualizar una evaluación
-    public function update(Request $request, $id)
-    {
-        Log::info('Evaluacion update', [
-            'id'      => $id,
-            'hasFile' => $request->hasFile('file'),
-        ]);
+    public function destroy(
+        Request $request,
+        Evaluacion $evaluacion
+    ) {
+        $administrator = $this->administrator($request);
 
-        $rules = [
-            'name'                 => 'string|max:255',
-            'numero_participantes' => 'integer|min:1',
-            'departamento'         => 'string|max:255',
-            'description'          => 'nullable|string',
-            'expiry_date'          => 'date',
-            'expiry_reminder'      => 'nullable|integer|in:0,1,7,15,30',
-            'conclusiones'         => 'string',
-            'acciones'             => 'string',
-            'edicion'              => 'nullable|date_format:Y-m-d H:i:s',
-            'file'                 => 'nullable|file|max:10240',
-            'eliminado'            => 'integer', // 10 MB
-        ];
-        $data = $request->validate($rules);
-
-        $eval = \App\Models\Evaluacion::findOrFail($id);
-
-        // --- Entorno y rutas base desde .env ---
-        // Nota: Laravel usa 'production' (en inglés). Incluyo 'produccion' por si acaso.
-        $isProd = app()->environment(['production', 'produccion']);
-
-        $baseFs = rtrim(
-            $isProd
-                ? config('paths.prod_images')
-                : config('paths.local_images'),
-            '/\\'
+        $this->authorizeEvaluation(
+            $administrator,
+            $evaluacion
         );
 
-        $baseUrl = rtrim(
-            $isProd
-                ? config('paths.prod_images_url')
-                : config('paths.local_images_url'),
-            '/'
-        );
-
-                                               // Directorio final
-        $targetDirRel = '_evaluacionesPortal'; // relativo (para BD)
-        $targetDirFs  = $baseFs . DIRECTORY_SEPARATOR . $targetDirRel;
-        $targetDirUrl = $baseUrl . '/' . $targetDirRel;
-
-        if (! is_dir($targetDirFs)) {
-            @mkdir($targetDirFs, 0755, true);
+        if ((int) $evaluacion->eliminado !== 0) {
+            return response()->json(['ok' => true]);
         }
 
-                                                    // --- Guardamos referencia del archivo anterior (si existía) ---
-        $oldRelPath = $eval->path_document ?? null; // p.ej. "_evaluaciones/archivo.pdf"
-        $oldAbsPath = null;
-        if ($oldRelPath) {
-            $oldRelNormalized = ltrim(str_replace(['\\'], '/', $oldRelPath), '/');
-            $oldAbsPath       = $baseFs . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $oldRelNormalized);
-        }
+        $previousData = $this->auditData($evaluacion);
 
-        // --- Si viene archivo, guardar y reemplazar ---
-        if ($request->hasFile('file')) {
-            $file = $request->file('file');
+        $movement = $this->documentPaths
+            ->moveToTrash($evaluacion);
 
-            // Nombre final: eval_<id>_<random>.<ext>
-            $ext      = strtolower($file->getClientOriginalExtension());
-            $filename = 'eval_' . $eval->id . '_' . Str::random(8) . ($ext ? '.' . $ext : '');
+        try {
+            DB::connection('portal_main')->transaction(
+                function () use (
+                    $evaluacion,
+                    $movement
+                ) {
+                    $evaluacion->eliminado = 1;
 
-            // Mover nuevo archivo
-            $destFs = $targetDirFs . DIRECTORY_SEPARATOR . $filename;
-            $file->move($targetDirFs, $filename);
+                    if ($movement !== null) {
+                        $evaluacion->name_document =
+                            $movement['ruta_borrado'];
+                    }
 
-            // Intentar borrar el anterior (si existía)
-            if ($oldAbsPath && is_file($oldAbsPath)) {
-                @unlink($oldAbsPath);
+                    $evaluacion->edicion = Carbon::now(
+                        'America/Mexico_City'
+                    );
+
+                    $evaluacion->save();
+                }
+            );
+        } catch (Throwable $exception) {
+            if ($movement !== null) {
+                try {
+                    $this->documentPaths
+                        ->rollbackMovement($movement);
+                } catch (Throwable $rollbackException) {
+                    report($rollbackException);
+                }
             }
 
-                                                                      // Actualizar referencias en $data (BD)
-            $data['name_document'] = $filename;                       // solo nombre
-            $data['path_document'] = $targetDirRel . '/' . $filename; // ruta relativa
-            $data['url_document']  = $targetDirUrl . '/' . $filename; // URL pública (si aplica)
-
-            // (Opcional) permisos/propietario; ignorará en Windows
-            @chmod($destFs, 0664);
-            @chgrp($destFs, 'rodicomm');
+            throw $exception;
         }
 
-        // Campos que NO quieres actualizar si llegan del front
-        unset($data['creacion']);
+        $this->audit(
+            $request,
+            $administrator,
+            $evaluacion,
+            'evaluacion_eliminada',
+            $previousData,
+            $this->auditData($evaluacion),
+            [
+                'archivo_procesado'  => $movement !== null,
+                'archivo_compartido' =>
+                $movement['archivo_compartido'] ?? false,
+                'storage_origen'     =>
+                $movement['origen'] ?? null,
+            ]
+        );
 
-        $eval->fill($data);
-        $eval->save();
-
-        return response()->json($eval);
+        return response()->json(['ok' => true]);
     }
 
-    // Método para eliminar una evaluación
-    public function destroy($id)
-    {
-        $evaluacion = Evaluacion::findOrFail($id);
-        $evaluacion->delete();
+    private function checkDocumentStatus(
+        Evaluacion $evaluation
+    ): string {
+        $reminder = (int) ($evaluation->expiry_reminder ?? 0);
 
-        return response()->json(null, 204);
+        if ($reminder <= 0) {
+            return 'verde';
+        }
+
+        $today      = Carbon::today('America/Mexico_City');
+        $expiryDate = Carbon::parse(
+            $evaluation->expiry_date,
+            'America/Mexico_City'
+        )->startOfDay();
+
+        $days = $today->diffInDays(
+            $expiryDate,
+            false
+        );
+
+        if ($days < 0 || $days <= $reminder) {
+            return 'rojo';
+        }
+
+        if ($days <= $reminder + 7) {
+            return 'amarillo';
+        }
+
+        return 'verde';
     }
-    private function generateRandomString($length = 10)
-    {
-        return substr(str_shuffle(str_repeat("0123456789abcdefghijklmnopqrstuvwxyz", ceil($length / 10))), 1, $length);
+
+    private function administrator(
+        Request $request
+    ): AdministradorAuth {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
+    }
+
+    private function authorizeClient(
+        AdministradorAuth $administrator,
+        int $clientId
+    ): void {
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [$clientId]
+        );
+    }
+
+    private function authorizeEvaluation(
+        AdministradorAuth $administrator,
+        Evaluacion $evaluation
+    ): void {
+        if (
+            (int) $evaluation->id_portal !==
+            (int) $administrator->id_portal
+        ) {
+            throw new AuthorizationException(
+                'La evaluación no pertenece al portal autenticado.'
+            );
+        }
+
+        $this->authorizeClient(
+            $administrator,
+            (int) $evaluation->id_cliente
+        );
+    }
+
+    private function auditData(
+        Evaluacion $evaluation
+    ): array {
+        return [
+            'nombre'               => $evaluation->name,
+            'name_document'        =>
+            $evaluation->name_document,
+            'numero_participantes' =>
+            $evaluation->numero_participantes,
+            'departamento'         =>
+            $evaluation->departamento,
+            'expiry_date'          =>
+            $evaluation->expiry_date,
+            'expiry_reminder'      =>
+            $evaluation->expiry_reminder,
+            'origen'               =>
+            $evaluation->origen,
+            'eliminado'            =>
+            (int) $evaluation->eliminado,
+        ];
+    }
+
+    private function audit(
+        Request $request,
+        AdministradorAuth $administrator,
+        Evaluacion $evaluation,
+        string $action,
+        ?array $previousData,
+        ?array $newData,
+        ?array $metadata = null
+    ): void {
+        $this->auditoria->registrar([
+            'id_portal'        =>
+            (int) $evaluation->id_portal,
+            'id_cliente'       =>
+            (int) $evaluation->id_cliente,
+            'actor_tipo'       =>
+            'administrador',
+            'actor_id'         =>
+            (int) $administrator->id,
+            'actor_nombre'     =>
+            $this->administratorName($administrator),
+            'modulo'           =>
+            'evaluaciones',
+            'entidad_tipo'     =>
+            'evaluacion',
+            'entidad_id'       =>
+            (int) $evaluation->id,
+            'accion'           =>
+            $action,
+            'resultado'        =>
+            'exitoso',
+            'datos_anteriores' =>
+            $previousData,
+            'datos_nuevos'     =>
+            $newData,
+            'metadatos'        =>
+            $metadata,
+        ], $request);
+    }
+
+    private function administratorName(
+        AdministradorAuth $administrator
+    ): ?string {
+        $name = trim(implode(' ', array_filter([
+            $administrator->nombre ?? null,
+            $administrator->paterno ?? null,
+            $administrator->materno ?? null,
+        ])));
+
+        return $name !== '' ? $name : null;
     }
 }

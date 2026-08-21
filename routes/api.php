@@ -601,10 +601,51 @@ Route::middleware(['api'])->group(function () {
     // validar  si hay cursos   vencidos
     Route::get('/empleados/cursos', [CursosController::class, 'getEmpleadosConCursos']);
 
-    /*  rutas  para  subir  las  evaluaciones   */
-    Route::post('/evaluaciones', [EvaluacionController::class, 'store']);
-    Route::get('/evaluaciones', [EvaluacionController::class, 'getEvaluations']);
-    Route::put('/evaluaciones/{id}', [EvaluacionController::class, 'update']);
+    /* Rutas de evaluaciones */
+    Route::get(
+        '/evaluaciones',
+        [EvaluacionController::class, 'getEvaluations']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.evaluaciones.ver',
+    ]);
+
+    Route::post(
+        '/evaluaciones',
+        [EvaluacionController::class, 'store']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.evaluaciones.subir_interna',
+    ]);
+
+    Route::get(
+        '/evaluaciones/{evaluacion}/archivo',
+        [EvaluacionController::class, 'download']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.evaluaciones.descargar_resultados',
+    ]);
+
+    Route::put(
+        '/evaluaciones/{evaluacion}',
+        [EvaluacionController::class, 'update']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.evaluaciones.editar',
+    ]);
+
+    Route::delete(
+        '/evaluaciones/{evaluacion}',
+        [EvaluacionController::class, 'destroy']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.evaluaciones.eliminar',
+    ]);
 
     /*Descomprimir  archivos  */
     Route::post('/unzip', [DocumentController::class, 'unzipFile']);
