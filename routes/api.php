@@ -25,7 +25,7 @@ use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorMetodoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorQrController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorUbicacionesController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorValidacionController;
-use App\Http\Controllers\Api\Comunicacion360\Checador\HikvisionEventController;
+//use App\Http\Controllers\Api\Comunicacion360\Checador\HikvisionEventController;
 use App\Http\Controllers\Api\Comunicacion360\EmployeeProfileAnalysisController;
 use App\Http\Controllers\Api\Comunicacion360\Incidencias\IncidenciasCalendarioController;
 use App\Http\Controllers\Api\Comunicacion360\PlantillasController;
@@ -1463,13 +1463,14 @@ Route::prefix('comunicacion360/plantillas')
         )->middleware('admin.permission:comunicacion360.plantillas.desasignar');
     });
 
-Route::post(
+/*Route::post(
     '/checador/hikvision/eventos/{token}',
     [HikvisionEventController::class, 'store']
 )
     ->where('token', '[A-Fa-f0-9]{64}')
     ->withoutMiddleware('throttle:api')
     ->middleware('throttle:hikvision-device');
+    */
 
 Route::post(
     '/checador/dispositivo/registrar',

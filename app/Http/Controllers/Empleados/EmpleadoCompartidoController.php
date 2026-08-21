@@ -9,13 +9,17 @@ use App\Models\Empleado;
 use App\Models\ExamEmpleado;
 use App\Models\SolicitudRenovacionArchivo;
 use App\Services\Auth\AdminClientScopeService;
+use App\Services\Documents\EmployeeDocumentPathService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
+use RuntimeException;
 
 class EmpleadoCompartidoController extends Controller
 {
     public function __construct(
-        private AdminClientScopeService $clientScope
+        private AdminClientScopeService $clientScope,
+        private EmployeeDocumentPathService $documentPaths
     ) {}
 
     public function summary(Request $request)
@@ -265,22 +269,29 @@ class EmpleadoCompartidoController extends Controller
             [(int) $employee->id_cliente]
         );
 
-        $fileName = basename((string) $item->name);
+        $storedValue = trim((string) $item->name);
 
-        if ($fileName === '') {
-            abort(404);
+        if (
+            $storedValue === ''
+            || $this->documentPaths->isExternalUrl($storedValue)
+        ) {
+            abort(404, 'Archivo local no disponible.');
         }
 
-        $basePath = rtrim(
-            (string) config('paths.images_path'),
-            DIRECTORY_SEPARATOR
-        );
+        try {
+            $filePath = $this->documentPaths->absolutePath(
+                $configuration['folder'],
+                $storedValue
+            );
+        } catch (
+            InvalidArgumentException | RuntimeException $exception
+        ) {
+            abort(404, $exception->getMessage());
+        }
 
-        $filePath = $basePath
-            . DIRECTORY_SEPARATOR
-            . $configuration['folder']
-            . DIRECTORY_SEPARATOR
-            . $fileName;
+        $fileName = basename(
+            str_replace('\\', '/', $storedValue)
+        );
 
         if (! is_file($filePath)) {
             abort(404, 'Archivo no encontrado.');
