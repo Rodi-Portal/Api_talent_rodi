@@ -580,6 +580,7 @@ class DocumentOptionController extends Controller
                     }
 
                     $newStoredPath = $this->documentPaths->storedPath(
+                        '_documentEmpleado',
                         $employee,
                         $newFileName
                     );
@@ -911,6 +912,7 @@ class DocumentOptionController extends Controller
                     return response()->json(['error' => 'Error al subir el documento.'], 500);
                 }
                 $newFileName = $this->documentPaths->storedPath(
+                    '_examEmpleado',
                     $employee,
                     $newFileName
                 );
@@ -1316,6 +1318,7 @@ class DocumentOptionController extends Controller
                 * Los otros flujos conservan por ahora el nombre simple.
                 */
                 $document->name = $this->documentPaths->storedPath(
+                    $carpeta,
                     $employee,
                     $nuevoNombre
                 );

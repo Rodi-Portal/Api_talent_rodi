@@ -261,6 +261,7 @@ class CursosController extends Controller
                         return response()->json(['error' => 'Error al subir el documento.'], 500);
                     }
                     $newFileName = $this->documentPaths->storedPath(
+                        '_cursos',
                         $employee,
                         $newFileName
                     );

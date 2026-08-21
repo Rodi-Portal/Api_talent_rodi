@@ -609,6 +609,7 @@ class SolicitudRenovacionArchivoController extends Controller
 
                     $newStoredValue =
                     $this->documentPaths->storedPath(
+                        $category,
                         $employeeForTrash,
                         $newName
                     );

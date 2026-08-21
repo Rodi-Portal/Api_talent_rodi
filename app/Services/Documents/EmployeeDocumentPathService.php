@@ -42,7 +42,29 @@ class EmployeeDocumentPathService
         ]);
     }
 
+    public function categoryRelativeDirectory(
+        string $categoryFolder,
+        Empleado $employee
+    ): string {
+        $categoryFolder = $this->normalizeCategoryFolder(
+            $categoryFolder
+        );
+
+        // También valida portal, cliente y PK del empleado.
+        $this->employeeRelativeDirectory($employee);
+
+        return implode('/', [
+            'portales',
+            (int) $employee->id_portal,
+            $categoryFolder,
+            'clientes',
+            (int) $employee->id_cliente,
+            'empleados',
+            (int) $employee->id,
+        ]);
+    }
     public function storedPath(
+        string $categoryFolder,
         Empleado $employee,
         string $fileName
     ): string {
@@ -54,7 +76,10 @@ class EmployeeDocumentPathService
             );
         }
 
-        return $this->employeeRelativeDirectory($employee)
+        return $this->categoryRelativeDirectory(
+            $categoryFolder,
+            $employee
+        )
             . '/'
             . $fileName;
     }
@@ -63,15 +88,11 @@ class EmployeeDocumentPathService
         string $categoryFolder,
         Empleado $employee
     ): string {
-        $categoryFolder = $this->normalizeCategoryFolder(
-            $categoryFolder
+        return $this->categoryRelativeDirectory(
+            $categoryFolder,
+            $employee
         );
-
-        return $categoryFolder
-        . '/'
-        . $this->employeeRelativeDirectory($employee);
     }
-
     public function absolutePath(
         string $categoryFolder,
         string $storedValue
@@ -88,39 +109,80 @@ class EmployeeDocumentPathService
             );
         }
 
-        /*
- * Un valor con subdirectorios pertenece a la estructura nueva.
- * Un nombre simple pertenece a la infraestructura antigua.
- */
-        $isNewPath = str_contains($storedValue, '/');
-
-        $configKey = $isNewPath
-            ? 'paths.documents_path'
-            : 'paths.images_path';
-
-        $basePath = rtrim(
-            (string) config($configKey),
-            "/\\"
+        $imagesPath = rtrim(
+            (string) config('paths.images_path'),
+            '/\\'
         );
 
-        if ($basePath === '') {
+        $documentsPath = rtrim(
+            (string) config('paths.documents_path'),
+            '/\\'
+        );
+
+        if ($imagesPath === '' || $documentsPath === '') {
             throw new RuntimeException(
-                'La ruta base documental no está configurada.'
+                'Las rutas documentales no están configuradas.'
             );
         }
 
-        $relativePath = $isNewPath
-            ? $storedValue
-            : basename($storedValue);
+        /*
+     * Legacy:
+     * _categoria/{nombre_simple}
+     */
+        if (! str_contains($storedValue, '/')) {
+            return $imagesPath
+            . DIRECTORY_SEPARATOR
+            . $categoryFolder
+            . DIRECTORY_SEPARATOR
+            . basename($storedValue);
+        }
 
-        return $basePath
-        . DIRECTORY_SEPARATOR
-        . $categoryFolder
-        . DIRECTORY_SEPARATOR
-        . str_replace(
-            '/',
-            DIRECTORY_SEPARATOR,
-            $relativePath
+        $quotedCategory = preg_quote(
+            $categoryFolder,
+            '#'
+        );
+
+        /*
+     * Estructura definitiva:
+     * portales/{portal}/_categoria/clientes/...
+     */
+        if (preg_match(
+            '#^portales/[1-9][0-9]*/'
+            . $quotedCategory
+            . '/clientes/[1-9][0-9]*/empleados/[1-9][0-9]*/#',
+            $storedValue
+        )) {
+            return $documentsPath
+            . DIRECTORY_SEPARATOR
+            . str_replace(
+                '/',
+                DIRECTORY_SEPARATOR,
+                $storedValue
+            );
+        }
+
+        /*
+     * Estructura transitoria:
+     * BD: portales/{portal}/clientes/...
+     * Disco: _categoria/portales/{portal}/clientes/...
+     */
+        if (preg_match(
+            '#^portales/[1-9][0-9]*/clientes/[1-9][0-9]*/empleados/[1-9][0-9]*/#',
+            $storedValue
+        )) {
+            return $documentsPath
+            . DIRECTORY_SEPARATOR
+            . $categoryFolder
+            . DIRECTORY_SEPARATOR
+            . str_replace(
+                '/',
+                DIRECTORY_SEPARATOR,
+                $storedValue
+            );
+        }
+
+        throw new InvalidArgumentException(
+            'La ruta documental no pertenece a una estructura válida.'
         );
     }
     public function renewalRelativeDirectory(
@@ -386,11 +448,14 @@ class EmployeeDocumentPathService
         $fileName = basename($storedValue);
 
         $trashRelativeDirectory = implode('/', [
+            'portales',
+            (int) $employee->id_portal,
             '_borrados',
-            $reason,
             $categoryFolder,
-            $this->employeeRelativeDirectory($employee),
-            'documento_' . $documentId,
+            'clientes',
+            (int) $employee->id_cliente,
+            'empleados',
+            (int) $employee->id,
         ]);
 
         $trashDirectory = $documentsBasePath
