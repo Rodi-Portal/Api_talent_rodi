@@ -1,7 +1,10 @@
 <?php
 namespace App\Services\Documents;
 
+use App\Models\CursoEmpleado;
+use App\Models\DocumentEmpleado;
 use App\Models\Empleado;
+use App\Models\ExamEmpleado;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -508,11 +511,29 @@ class EmployeeDocumentPathService
                 . $trashFileName;
         }
 
-        if (! @rename($sourcePath, $trashPath)) {
+        $hasOtherReferences = $this->hasOtherActiveReferences(
+            $categoryFolder,
+            $documentId,
+            $storedValue
+        );
+
+/*
+ * Si otros registros activos comparten el mismo archivo,
+ * se conserva el origen y únicamente se crea el respaldo.
+ */
+        if ($hasOtherReferences) {
+            if (! @copy($sourcePath, $trashPath)) {
+                @unlink($trashPath);
+
+                throw new RuntimeException(
+                    'No se pudo respaldar el archivo compartido.'
+                );
+            }
+        } elseif (! @rename($sourcePath, $trashPath)) {
             /*
-         * Respaldo para movimientos entre volúmenes:
-         * primero copia y después retira el origen.
-         */
+     * Respaldo para movimientos entre volúmenes:
+     * primero copia y después retira el origen.
+     */
             if (
                 ! @copy($sourcePath, $trashPath)
                 || ! @unlink($sourcePath)
@@ -531,7 +552,31 @@ class EmployeeDocumentPathService
             . '/'
             . $trashFileName;
     }
+    private function hasOtherActiveReferences(
+        string $categoryFolder,
+        int $documentId,
+        string $storedValue
+    ): bool {
+        $modelClass = match ($categoryFolder) {
+            '_documentEmpleado' => DocumentEmpleado::class,
+            '_cursos'           => CursoEmpleado::class,
+            '_examEmpleado'     => ExamEmpleado::class,
 
+            default             => throw new InvalidArgumentException(
+                'La categoría documental no admite referencias compartidas.'
+            ),
+        };
+
+        return $modelClass::query()
+            ->where('id', '<>', $documentId)
+            ->where('name', $storedValue)
+            ->where(function ($query) {
+                $query
+                    ->whereNull('status')
+                    ->orWhere('status', '<>', 999);
+            })
+            ->exists();
+    }
     public function isExternalUrl(string $storedValue): bool
     {
         return filter_var(
