@@ -272,6 +272,15 @@ Route::middleware(['api'])->group(function () {
         'admin.session',
         'admin.permission:empleados.expediente.bgv_examenes.ver',
     ]);
+    Route::get(
+        '/exempleados/documentos-salida/{id}/archivo',
+        [EmpleadoArchivoController::class, 'formerDocument']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.expediente.documentos_salida.ver',
+    ]);
+
     // ----- opciones  documentos, examenes y cursos ----- //
 
     Route::middleware([

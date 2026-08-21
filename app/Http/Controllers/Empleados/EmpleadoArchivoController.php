@@ -13,6 +13,7 @@ use App\Services\Documents\EmployeeDocumentPathService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
+use RuntimeException;
 
 class EmpleadoArchivoController extends Controller
 {
@@ -28,6 +29,19 @@ class EmpleadoArchivoController extends Controller
             DocumentEmpleado::class,
             $id,
             '_documentEmpleado'
+        );
+    }
+
+    public function formerDocument(
+        Request $request,
+        int $id
+    ) {
+        return $this->serveFile(
+            $request,
+            DocumentEmpleado::class,
+            $id,
+            '_documentEmpleado',
+            2
         );
     }
 
@@ -91,7 +105,9 @@ class EmpleadoArchivoController extends Controller
                 $folder,
                 $storedValue
             );
-        } catch (InvalidArgumentException $exception) {
+        } catch (
+            InvalidArgumentException | RuntimeException $exception
+        ) {
             abort(404, $exception->getMessage());
         }
 
