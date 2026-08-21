@@ -7,17 +7,23 @@ use App\Models\ClienteInformacionInterna;
 use App\Models\DocumentoInterno;
 use App\Models\DocumentoInternoEmpleado;
 use App\Models\Empleado;
+use App\Services\Auditoria\AuditoriaService;
 use App\Services\Auth\AdminClientScopeService;
+use App\Services\Documents\InternalDocumentPathService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
+use RuntimeException;
 
 class DocumentoInternoController extends Controller
 {
     public function __construct(
-        private AdminClientScopeService $clientScope
+        private AdminClientScopeService $clientScope,
+        private InternalDocumentPathService $documentPaths,
+        private AuditoriaService $auditoria
     ) {}
     public function store(
         Request $request,
@@ -47,36 +53,19 @@ class DocumentoInternoController extends Controller
             $data['employee_ids'] ?? []
         );
 
-        $basePath = rtrim(
-            (string) config('paths.images_path'),
-            '/\\'
-        );
-
-        if ($basePath === '') {
-            return response()->json([
-                'status'  => false,
-                'code'    => 'STORAGE_PATH_NOT_CONFIGURED',
-                'message' => 'La ruta de almacenamiento no está configurada.',
-            ], 500);
-        }
-
         $file = $request->file('file');
 
         $originalName = $file->getClientOriginalName();
         $mimeType     = $file->getClientMimeType();
         $sizeBytes    = $file->getSize();
 
-        $folderRel = "_internos/{$informacion->id_portal}/"
-        . $informacion->id_cliente;
-
-        $targetDir = $basePath
-        . DIRECTORY_SEPARATOR
-        . str_replace('/', DIRECTORY_SEPARATOR, $folderRel);
+        $targetDir = $this->documentPaths
+            ->activeDirectoryPath($informacion);
 
         if (
-            ! is_dir($targetDir) &&
-            ! mkdir($targetDir, 0775, true) &&
             ! is_dir($targetDir)
+            && ! mkdir($targetDir, 0755, true)
+            && ! is_dir($targetDir)
         ) {
             return response()->json([
                 'status'  => false,
@@ -97,11 +86,19 @@ class DocumentoInternoController extends Controller
             $storedFilename .= '.' . strtolower($extension);
         }
 
+        $storagePath = $this->documentPaths->activeStoredPath(
+            $informacion,
+            $storedFilename
+        );
+
         $file->move($targetDir, $storedFilename);
 
-        $storagePath = $folderRel . '/' . $storedFilename;
-        $fullPath    = $targetDir . DIRECTORY_SEPARATOR . $storedFilename;
-        $now         = Carbon::now('America/Mexico_City');
+        $fullPath = $targetDir
+            . DIRECTORY_SEPARATOR
+            . $storedFilename;
+
+        @chmod($fullPath, 0664);
+        $now = Carbon::now('America/Mexico_City');
 
         try {
             $doc = DB::connection('portal_main')->transaction(
@@ -171,7 +168,32 @@ class DocumentoInternoController extends Controller
                 ]);
             },
         ]);
+        $this->auditoria->registrar([
+            'id_portal'        => (int) $informacion->id_portal,
+            'id_cliente'       => (int) $informacion->id_cliente,
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     => $this->administratorName($administrator),
 
+            'modulo'           => 'informacion_interna',
+            'entidad_tipo'     => 'documento_interno',
+            'entidad_id'       => (int) $doc->id,
+            'accion'           => 'documento_cargado',
+            'resultado'        => 'exitoso',
+            'descripcion'      => 'Se cargó un documento interno.',
+
+            'datos_anteriores' => null,
+            'datos_nuevos'     => [
+                'nombre'            => $doc->nombre,
+                'storage_path'      => $doc->storage_path,
+                'mime_type'         => $doc->typo,
+                'size_bytes'        => $doc->size,
+                'fecha_vencimiento' => $doc->fecha_vencimiento,
+                'dias_antes'        => $doc->dias_antes,
+                'share_scope'       => $doc->share_scope,
+                'employee_ids'      => $employeeIds,
+            ],
+        ], $request);
         return response()->json($doc, 201);
     }
 
@@ -181,34 +203,44 @@ class DocumentoInternoController extends Controller
     ) {
         $administrator = $this->administrator($request);
 
-        $this->authorizeDocument(
+        $informacion = $this->authorizeDocument(
             $administrator,
             $documento
         );
-
-        $basePath = rtrim(
-            (string) config('paths.images_path'),
-            '/\\'
-        );
-
-        if ($basePath === '') {
-            return response()->json([
-                'status'  => false,
-                'code'    => 'STORAGE_PATH_NOT_CONFIGURED',
-                'message' => 'La ruta de almacenamiento no está configurada.',
-            ], 500);
-        }
-
-        $fullPath = $basePath
-        . DIRECTORY_SEPARATOR
-        . $documento->storage_path;
-
-        if (! file_exists($fullPath)) {
+        try {
+            $fullPath = $this->documentPaths
+                ->existingAbsolutePath(
+                    (string) $documento->storage_path
+                );
+        } catch (InvalidArgumentException | RuntimeException $exception) {
             return response()->json([
                 'message' => 'Archivo no encontrado.',
             ], 404);
         }
+        $this->auditoria->registrar([
+            'id_portal'    => (int) $informacion->id_portal,
+            'id_cliente'   => (int) $informacion->id_cliente,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' => $this->administratorName($administrator),
 
+            'modulo'       => 'informacion_interna',
+            'entidad_tipo' => 'documento_interno',
+            'entidad_id'   => (int) $documento->id,
+            'accion'       => 'documento_descargado',
+            'resultado'    => 'exitoso',
+            'descripcion'  => 'Se descargó un documento interno.',
+
+            'metadatos'    => [
+                'storage_path'   => $documento->storage_path,
+                'storage_origen' => $this->documentPaths->storageOrigin(
+                    (string) $documento->storage_path
+                ),
+                'modo'           => 'descarga',
+                'mime_type'      => $documento->typo,
+                'size_bytes'     => $documento->size,
+            ],
+        ], $request);
         return response()->download(
             $fullPath,
             $documento->nombre
@@ -230,6 +262,19 @@ class DocumentoInternoController extends Controller
             $administrator,
             $documento
         );
+        $previousSharing = [
+            'share_scope'  => (int) $documento->share_scope,
+
+            'employee_ids' => DocumentoInternoEmpleado::query()
+                ->where(
+                    'id_documento_interno',
+                    (int) $documento->id
+                )
+                ->pluck('id_empleado')
+                ->map(fn($id) => (int) $id)
+                ->values()
+                ->all(),
+        ];
 
         $shareScope = (int) $data['share_scope'];
 
@@ -308,7 +353,26 @@ class DocumentoInternoController extends Controller
                 ]);
             },
         ]);
+        $this->auditoria->registrar([
+            'id_portal'        => (int) $informacion->id_portal,
+            'id_cliente'       => (int) $informacion->id_cliente,
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     => $this->administratorName($administrator),
 
+            'modulo'           => 'informacion_interna',
+            'entidad_tipo'     => 'documento_interno',
+            'entidad_id'       => (int) $documento->id,
+            'accion'           => 'comparticion_actualizada',
+            'resultado'        => 'exitoso',
+            'descripcion'      => 'Se actualizó la compartición del documento interno.',
+
+            'datos_anteriores' => $previousSharing,
+            'datos_nuevos'     => [
+                'share_scope'  => $shareScope,
+                'employee_ids' => $employeeIds,
+            ],
+        ], $request);
         return response()->json([
             'message'   => 'Compartición actualizada correctamente.',
             'documento' => $documento,
@@ -321,34 +385,96 @@ class DocumentoInternoController extends Controller
     ) {
         $administrator = $this->administrator($request);
 
-        $this->authorizeDocument(
+        $informacion = $this->authorizeDocument(
             $administrator,
             $documento
+        );
+        $previousData = [
+            'eliminado'    => (int) $documento->eliminado,
+            'storage_path' => (string) $documento->storage_path,
+            'share_scope'  => (int) $documento->share_scope,
+        ];
+        $previousStoragePath = (string) $documento->storage_path;
+
+        $movement = $this->documentPaths->moveToTrash(
+            $informacion,
+            (int) $documento->id,
+            $previousStoragePath
         );
 
         $now = Carbon::now('America/Mexico_City');
 
-        DB::connection('portal_main')->transaction(
-            function () use ($documento, $now) {
-                $documento->eliminado = 1;
-                $documento->edicion   = $now;
-                $documento->save();
+        try {
+            DB::connection('portal_main')->transaction(
+                function () use (
+                    $documento,
+                    $movement,
+                    $now
+                ) {
+                    $documento->eliminado = 1;
 
-                DocumentoInternoEmpleado::query()
-                    ->withoutGlobalScope('no_eliminado')
-                    ->where(
-                        'id_documento_interno',
-                        (int) $documento->id
-                    )
-                    ->update([
-                        'eliminado' => 1,
-                        'edicion'   => $now,
-                    ]);
+                    if ($movement !== null) {
+                        $documento->storage_path =
+                            $movement['ruta_borrado'];
+                    }
+
+                    $documento->edicion = $now;
+                    $documento->save();
+
+                    DocumentoInternoEmpleado::query()
+                        ->withoutGlobalScope('no_eliminado')
+                        ->where(
+                            'id_documento_interno',
+                            (int) $documento->id
+                        )
+                        ->update([
+                            'eliminado' => 1,
+                            'edicion'   => $now,
+                        ]);
+                }
+            );
+        } catch (\Throwable $exception) {
+            if ($movement !== null) {
+                try {
+                    $this->documentPaths->restoreMovedFile(
+                        $movement['ruta_borrado'],
+                        $movement['ruta_anterior']
+                    );
+                } catch (\Throwable $restoreException) {
+                    report($restoreException);
+                }
             }
-        );
+
+            throw $exception;
+        }
+        $this->auditoria->registrar([
+            'id_portal'        => (int) $informacion->id_portal,
+            'id_cliente'       => (int) $informacion->id_cliente,
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     => $this->administratorName($administrator),
+
+            'modulo'           => 'informacion_interna',
+            'entidad_tipo'     => 'documento_interno',
+            'entidad_id'       => (int) $documento->id,
+            'accion'           => 'documento_eliminado',
+            'resultado'        => 'exitoso',
+            'descripcion'      => 'Se eliminó lógicamente un documento interno.',
+
+            'datos_anteriores' => $previousData,
+            'datos_nuevos'     => [
+                'eliminado'    => 1,
+                'storage_path' => (string) $documento->storage_path,
+            ],
+            'metadatos'        => [
+                'archivo_movido' => $movement !== null,
+                'storage_origen' => $movement['origen'] ?? null,
+            ],
+        ], $request);
 
         return response()->json(['ok' => true]);
     }
+
     private function administrator(Request $request): AdministradorAuth
     {
         $administrator = $request->user();
@@ -447,5 +573,16 @@ class DocumentoInternoController extends Controller
         }
 
         return $validEmployeeIds;
+    }
+    private function administratorName(
+        AdministradorAuth $administrator
+    ): ?string {
+        $name = trim(implode(' ', array_filter([
+            $administrator->nombre ?? null,
+            $administrator->paterno ?? null,
+            $administrator->materno ?? null,
+        ])));
+
+        return $name !== '' ? $name : null;
     }
 }
