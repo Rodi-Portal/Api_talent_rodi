@@ -8,8 +8,10 @@ use Illuminate\Support\Str;
 class DocumentController extends Controller
 {
 
-    public function upload(Request $request)
-    {
+    public function upload(
+        Request $request,
+        string $storage = 'legacy'
+    ) {
         $traceId = (string) Str::ulid();
         $t0      = microtime(true);
         Log::withContext(['traceId' => $traceId, 'endpoint' => 'document.upload']);
@@ -44,26 +46,50 @@ class DocumentController extends Controller
             return response()->json(['traceId' => $traceId, 'error' => 'Archivo inválido'], 400);
         }
 
-        // === Paths base desde .env (igual que tu versión) ===
-        $isProd = app()->environment('production');
+        // === Resolver almacenamiento autorizado por el backend ===
+        $storageConfig = match ($storage) {
+            'legacy'    => [
+                'path' => 'paths.images_path',
+                'url'  => 'paths.images_url',
+            ],
+            'documents' => [
+                'path' => 'paths.documents_path',
+                'url'  => 'paths.documents_url',
+            ],
+            default     => null,
+        };
 
-        $basePath = $isProd
-            ? config('paths.prod_images')
-            : config('paths.local_images');
+        if ($storageConfig === null) {
+            Log::error('🚫 Almacenamiento documental no válido', [
+                'storage' => $storage,
+            ]);
 
-        $basePublic = $isProd
-            ? config('paths.prod_images_url')
-            : config('paths.local_images_url');
+            return response()->json([
+                'traceId' => $traceId,
+                'error'   => 'Almacenamiento documental no válido.',
+            ], 500);
+        }
+
+        $basePath   = (string) config($storageConfig['path']);
+        $basePublic = (string) config($storageConfig['url']);
 
         Log::info('🧭 Config de paths', [
-            'env'        => $isProd ? 'production' : app()->environment(),
+            'env'        => app()->environment(),
+            'storage'    => $storage,
             'basePath'   => $basePath,
             'basePublic' => $basePublic,
         ]);
 
-        if (! $basePath) {
-            Log::error('🚫 Falta PROD_IMAGE_PATH/LOCAL_IMAGE_PATH en .env');
-            return response()->json(['traceId' => $traceId, 'error' => 'Ruta base no configurada en .env'], 500);
+        if ($basePath === '') {
+            Log::error('🚫 Ruta base documental no configurada', [
+                'storage' => $storage,
+                'config'  => $storageConfig['path'],
+            ]);
+
+            return response()->json([
+                'traceId' => $traceId,
+                'error'   => 'Ruta base documental no configurada.',
+            ], 500);
         }
 
         // === Normalización de carpeta y filename ===

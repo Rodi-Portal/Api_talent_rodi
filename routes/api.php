@@ -560,7 +560,14 @@ Route::middleware(['api'])->group(function () {
 
     Route::get('/empleados/{id_empleado}/documentos', [EmpleadoController::class, 'getDocumentos']);
     //eliminar Documentos  del empleado
-    Route::delete('/documents', [DocumentOptionController::class, 'deleteDocument']);
+    Route::delete(
+        '/documents',
+        [DocumentOptionController::class, 'deleteDocument']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.documentos.eliminar,empleados.cursos.eliminar,empleados.expediente.bgv_examenes.eliminar',
+    ]);
 
     //  traer  los  paquetes    antidoping
     Route::get('/antidoping-packages', [ApiEmpleadoController::class, 'getAntidopinPaquetes']);
@@ -1216,7 +1223,7 @@ Route::prefix('checador')->group(function () {
             Route::post('/qr/generar', [ChecadorQrController::class, 'generar']);
             Route::get('/qr/fijo/{ubicacionId}', [ChecadorQrController::class, 'mostrarFijo']);
             Route::get('/aprobadores-disponibles', [ChecadorAsignacionController::class, 'aprobadoresDisponibles']);
-            Route::get('/eventos-tipos-disponibles', [ChecadorAsignacionController::class,'tiposEventoDisponibles']);
+            Route::get('/eventos-tipos-disponibles', [ChecadorAsignacionController::class, 'tiposEventoDisponibles']);
         });
 
     //validate Ubications
@@ -1341,8 +1348,6 @@ Route::prefix('checador')->group(function () {
         ChecadorChecadaPlantillaController::class,
         'cambiarEstado',
     ]);
-
-
 
     // Asignaciones de plantillas a empleados
     Route::get('/plantillas-checada/{id}/asignaciones', [

@@ -5,8 +5,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Auth\EmpleadoAuth;
 use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
+use App\Models\Empleado;
 use App\Models\ExamEmpleado;
 use App\Models\SolicitudRenovacionArchivo;
+use App\Services\Auditoria\AuditoriaService;
+use App\Services\Documents\EmployeeDocumentPathService;
 use Carbon\Carbon;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
@@ -17,7 +20,10 @@ use Illuminate\Validation\ValidationException;
 
 class EmpleadoRenovacionArchivoController extends Controller
 {
-
+    public function __construct(
+        private EmployeeDocumentPathService $documentPaths,
+        private AuditoriaService $auditoria
+    ) {}
     public function index(Request $request)
     {
         $data = $request->validate([
@@ -116,13 +122,19 @@ class EmpleadoRenovacionArchivoController extends Controller
             ],
         ]);
 
-        $employee = $this->employee($request);
+        $employee       = $this->employee($request);
+        $employeeRecord = Empleado::query()
+            ->where('id', (int) $employee->id)
+            ->where('id_portal', (int) $employee->id_portal)
+            ->where('id_cliente', (int) $employee->id_cliente)
+            ->firstOrFail();
 
         [$modelClass] = $this->originConfiguration(
             $data['tipo']
         );
 
-        $storedPath = null;
+        $storedPath     = null;
+        $originSnapshot = null;
 
         try {
             $renewal = DB::connection('portal_main')->transaction(
@@ -130,8 +142,10 @@ class EmpleadoRenovacionArchivoController extends Controller
                     $request,
                     $data,
                     $employee,
+                    $employeeRecord,
                     $modelClass,
-                    &$storedPath
+                    &$storedPath,
+                    &$originSnapshot
                 ) {
                     $origin = $modelClass::query()
                         ->where('id', (int) $data['id_origen'])
@@ -147,7 +161,20 @@ class EmpleadoRenovacionArchivoController extends Controller
                         ->where('status', '!=', 999)
                         ->lockForUpdate()
                         ->firstOrFail();
-
+                    $originSnapshot = $origin->only([
+                        'id',
+                        'employee_id',
+                        'name',
+                        'nameDocument',
+                        'id_opcion',
+                        'description',
+                        'expiry_date',
+                        'expiry_reminder',
+                        'status',
+                        'share_scope',
+                        'collaborator_can_replace',
+                        'edicion',
+                    ]);
                     if (empty($origin->expiry_date)) {
                         throw ValidationException::withMessages([
                             'id_origen' => [
@@ -271,37 +298,20 @@ class EmpleadoRenovacionArchivoController extends Controller
                         . '.'
                         . $extension;
 
-                    $relativeDirectory = implode('/', [
-                        '_renovaciones',
-                        (int) $employee->id_portal,
-                        (int) $employee->id_cliente,
-                        (int) $employee->id,
-                    ]);
-
-                    $relativePath =
-                        $relativeDirectory
-                        . '/'
-                        . $fileName;
-
-                    $basePath = rtrim(
-                        (string) config('paths.images_path'),
-                        '/\\'
+                    $relativeDirectory =
+                    $this->documentPaths->renewalRelativeDirectory(
+                        $employeeRecord
                     );
 
-                    if ($basePath === '') {
-                        abort(
-                            500,
-                            'La ruta de archivos no está configurada.'
-                        );
-                    }
+                    $relativePath =
+                    $this->documentPaths->renewalStoredPath(
+                        $employeeRecord,
+                        $fileName
+                    );
 
                     $destinationDirectory =
-                    $basePath
-                    . DIRECTORY_SEPARATOR
-                    . str_replace(
-                        '/',
-                        DIRECTORY_SEPARATOR,
-                        $relativeDirectory
+                    $this->documentPaths->renewalDirectoryPath(
+                        $employeeRecord
                     );
 
                     if (
@@ -324,12 +334,7 @@ class EmpleadoRenovacionArchivoController extends Controller
                         $fileName
                     );
 
-                    $storedPath =
-                    $basePath
-                    . DIRECTORY_SEPARATOR
-                    . str_replace(
-                        '/',
-                        DIRECTORY_SEPARATOR,
+                    $storedPath = $this->documentPaths->renewalAbsolutePath(
                         $relativePath
                     );
 
@@ -370,7 +375,67 @@ class EmpleadoRenovacionArchivoController extends Controller
 
             throw $exception;
         }
+        $employeeName = trim(implode(' ', array_filter([
+            $employeeRecord->nombre ?? null,
+            $employeeRecord->paterno ?? null,
+            $employeeRecord->materno ?? null,
+        ])));
 
+        $renewalFields = [
+            'id',
+            'id_portal',
+            'id_cliente',
+            'id_empleado',
+            'tipo',
+            'id_origen',
+            'archivo_actual',
+            'edicion_origen',
+            'archivo_propuesto',
+            'nombre_original',
+            'mime_type',
+            'size_bytes',
+            'storage_path',
+            'estado',
+            'comentario_colaborador',
+            'creacion',
+        ];
+
+        $this->auditoria->registrar([
+            'id_portal'    => (int) $employee->id_portal,
+            'id_cliente'   => (int) $employee->id_cliente,
+
+            'actor_tipo'   => 'empleado',
+            'actor_id'     => (int) $employee->id,
+            'actor_nombre' => $employeeName,
+
+            'modulo'       => 'empleados',
+            'entidad_tipo' => (string) $renewal->tipo,
+            'entidad_id'   => (int) $renewal->id_origen,
+
+            'accion'       => 'solicitar_renovacion',
+            'resultado'    => 'exitoso',
+
+            'descripcion'  =>
+            "El colaborador solicitó renovar su {$renewal->tipo}.",
+
+            'datos_anteriores' => $originSnapshot,
+            'datos_nuevos'     => $renewal->only($renewalFields),
+
+            'metadatos'        => [
+                'solicitud_id'      => (int) $renewal->id,
+                'employee_id'       => (int) $employee->id,
+                'archivo_actual'    =>
+                (string) $renewal->archivo_actual,
+                'archivo_propuesto' =>
+                (string) $renewal->archivo_propuesto,
+                'nombre_original'   =>
+                (string) $renewal->nombre_original,
+                'mime_type'         => (string) $renewal->mime_type,
+                'tamano_bytes'      => (int) $renewal->size_bytes,
+                'storage_path'      =>
+                (string) $renewal->storage_path,
+            ],
+        ], $request);
         return response()->json([
             'message'   =>
             'Solicitud de renovación enviada correctamente.',

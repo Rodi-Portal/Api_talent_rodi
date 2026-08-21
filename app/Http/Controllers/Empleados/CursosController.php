@@ -8,8 +8,10 @@ use App\Models\Auth\AdministradorAuth;
 use App\Models\ClienteTalent;
 use App\Models\CursoEmpleado;
 use App\Models\Empleado;
+use App\Services\Auditoria\AuditoriaService;
 use App\Services\Auth\AdminEmployeeScopeService;
 use App\Services\Auth\PermissionService;
+use App\Services\Documents\EmployeeDocumentPathService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http; // Cambia esto al nombre correcto de tu controlador
@@ -21,7 +23,9 @@ class CursosController extends Controller
 {
     public function __construct(
         private AdminEmployeeScopeService $employeeScope,
-        private PermissionService $permissions
+        private PermissionService $permissions,
+        private EmployeeDocumentPathService $documentPaths,
+        private AuditoriaService $auditoria
     ) {}
 
     public function exportCursosPorCliente($clienteId)
@@ -208,9 +212,22 @@ class CursosController extends Controller
             $request->boolean('collaborator_can_replace');
 
             // === [2] Procesar archivo si existe ===
-            $newFileName = null;
+            $newFileName     = null;
+            $archivoRecibido =
+            $request->hasFile('file')
+            && $request->file('file')->isValid();
+            $archivoOriginal = $archivoRecibido
+                ? $request->file('file')->getClientOriginalName()
+                : null;
 
-            if ($request->hasFile('file') && $request->file('file')->isValid()) {
+            $archivoMime = $archivoRecibido
+                ? $request->file('file')->getClientMimeType()
+                : null;
+
+            $archivoTamano = $archivoRecibido
+                ? $request->file('file')->getSize()
+                : null;
+            if ($archivoRecibido) {
                 try {
                     Log::info('[CURSO] 📎 Archivo detectado. Procesando...');
 
@@ -222,18 +239,31 @@ class CursosController extends Controller
 
                     $uploadRequest = new Request();
                     $uploadRequest->files->set('file', $request->file('file'));
+                    $uploadFolder = $this->documentPaths->uploadFolder(
+                        '_cursos',
+                        $employee
+                    );
+
                     $uploadRequest->merge([
                         'file_name' => $newFileName,
-                        'carpeta'   => $request->input('carpeta') ?? '_cursos',
+                        'carpeta'   => $uploadFolder,
                     ]);
 
-                    $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
+                    $uploadResponse = app(
+                        DocumentController::class
+                    )->upload(
+                        $uploadRequest,
+                        'documents'
+                    );
 
                     if ($uploadResponse->getStatusCode() !== 200) {
                         Log::error('[CURSO] 🚫 Fallo al subir archivo', ['response' => $uploadResponse->getContent()]);
                         return response()->json(['error' => 'Error al subir el documento.'], 500);
                     }
-
+                    $newFileName = $this->documentPaths->storedPath(
+                        $employee,
+                        $newFileName
+                    );
                     Log::info('[CURSO] ✅ Archivo subido con éxito');
                 } catch (\Exception $e) {
                     Log::error('[CURSO] ⚠️ Excepción durante subida de archivo', ['exception' => $e->getMessage()]);
@@ -268,7 +298,62 @@ class CursosController extends Controller
                 Log::error('[CURSO] ❌ Error al guardar en base de datos', ['exception' => $e->getMessage()]);
                 return response()->json(['error' => 'Error al guardar el curso.'], 500);
             }
+            $actorNombre = trim(implode(' ', array_filter([
+                $administrator->nombre ?? null,
+                $administrator->paterno ?? null,
+                $administrator->materno ?? null,
+            ])));
 
+            if ($actorNombre === '') {
+                $actorNombre = $administrator->email ?? $administrator->correo ?? null;
+            }
+
+            $auditFields = [
+                'id',
+                'employee_id',
+                'name',
+                'nameDocument',
+                'id_opcion',
+                'description',
+                'expiry_date',
+                'expiry_reminder',
+                'origen',
+                'status',
+                'share_scope',
+                'collaborator_can_replace',
+                'creacion',
+                'edicion',
+            ];
+
+            $this->auditoria->registrar([
+                'id_portal'        => (int) $administrator->id_portal,
+                'id_cliente'       => (int) $employee->id_cliente,
+
+                'actor_tipo'       => 'administrador',
+                'actor_id'         => (int) $administrator->id,
+                'actor_nombre'     => $actorNombre,
+
+                'modulo'           => 'empleados',
+                'entidad_tipo'     => 'curso',
+                'entidad_id'       => (int) $cursoEmpleado->id,
+
+                'accion'           => 'crear',
+                'resultado'        => 'exitoso',
+                'descripcion'      => 'Se creó un curso para el empleado.',
+
+                'datos_anteriores' => null,
+                'datos_nuevos'     => $cursoEmpleado->only($auditFields),
+
+                'metadatos'        => [
+                    'employee_id'              => $employeeId,
+                    'categoria_almacenamiento' => '_cursos',
+                    'archivo_recibido'         => $archivoRecibido,
+                    'archivo_guardado'         => (string) $cursoEmpleado->name,
+                    'nombre_original'          => $archivoOriginal,
+                    'mime_type'                => $archivoMime,
+                    'tamano_bytes'             => $archivoTamano,
+                ],
+            ], $request);
             return response()->json([
                 'message' => 'Curso agregado exitosamente.',
                 'curso'   => $cursoEmpleado,

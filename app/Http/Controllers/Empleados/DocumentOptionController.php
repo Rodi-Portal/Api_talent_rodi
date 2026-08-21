@@ -15,8 +15,10 @@ use App\Models\ExamEmpleado;
 use App\Models\ExamOption;
 use App\Models\Medico;
 use App\Models\Psicometrico;
+use App\Services\Auditoria\AuditoriaService;
 use App\Services\Auth\AdminEmployeeScopeService;
 use App\Services\Auth\PermissionService;
+use App\Services\Documents\EmployeeDocumentPathService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +31,9 @@ class DocumentOptionController extends Controller
 {
     public function __construct(
         private AdminEmployeeScopeService $employeeScope,
-        private PermissionService $permissions
+        private PermissionService $permissions,
+        private EmployeeDocumentPathService $documentPaths,
+        private AuditoriaService $auditoria
     ) {}
 
     public function getExamsByEmployeeId(
@@ -433,6 +437,21 @@ class DocumentOptionController extends Controller
             && $hasExpiryDate
             && $expiryReminder > 0
             && $request->boolean('collaborator_can_replace');
+            $archivoRecibido =
+            $request->hasFile('file')
+            && $request->file('file')->isValid();
+
+            $archivoOriginal = $archivoRecibido
+                ? $request->file('file')->getClientOriginalName()
+                : null;
+
+            $archivoMime = $archivoRecibido
+                ? $request->file('file')->getClientMimeType()
+                : null;
+
+            $archivoTamano = $archivoRecibido
+                ? $request->file('file')->getSize()
+                : null;
             // === Resolver catálogo como ya lo tenías ===
             $documentOption = \App\Models\DocumentOption::where(
                 function ($q) use ($idPortal) {
@@ -464,15 +483,32 @@ class DocumentOptionController extends Controller
                 }
             }
 
-            // === Determinar filename ===
-            // Si es UPDATE: usar doc_anterior (si viene) o el name del documento existente (para sobrescribir).
-            // Si es CREATE: generar aleatorio (como tenías) o genérico si no hay archivo.
-            $newFileName = null;
+            // === Determinar nombre físico y valor para BD ===
+            $newFileName   = null;
+            $newStoredPath = null;
+
             if ($isUpdate) {
-                $docAnterior = trim((string) $request->input('doc_anterior', ''));
-                // Sanitizar: quedarnos solo con el basename por seguridad
-                $docAnterior = $docAnterior ? basename($docAnterior) : '';
-                $newFileName = $docAnterior ?: ($existing->name ?? null);
+                $existingStoredPath = trim(
+                    (string) ($existing->name ?? '')
+                );
+
+                $docAnterior = trim(
+                    (string) $request->input('doc_anterior', '')
+                );
+
+                $sourceName = $docAnterior !== ''
+                    ? $docAnterior
+                    : $existingStoredPath;
+
+                $newFileName = basename(
+                    str_replace('\\', '/', $sourceName)
+                );
+
+                /*
+                * Si no llega un archivo nuevo, se conserva exactamente
+                * el valor anterior, incluyendo una posible ruta nueva.
+                */
+                $newStoredPath = $existingStoredPath;
             }
 
             if ($request->hasFile('file')) {
@@ -488,43 +524,85 @@ class DocumentOptionController extends Controller
                 ]);
 
                 if (! $file->isValid()) {
-                    return response()->json(['traceId' => $traceId, 'error' => 'Archivo inválido'], 400);
+                    return response()->json([
+                        'traceId' => $traceId,
+                        'error'   => 'Archivo inválido',
+                    ], 400);
                 }
 
-                if (empty($newFileName)) {
-                    // CREATE o UPDATE sin filename previo: genera uno nuevo
-                    $employeeId    = (int) $request->input('employee_id');
-                    $fileExtension = $file->getClientOriginalExtension();
-                    $newFileName   = "{$employeeId}_" . Str::random(8) . ".{$fileExtension}";
+                if ($newFileName === null || $newFileName === '') {
+                    $fileExtension = strtolower(
+                        (string) $file->getClientOriginalExtension()
+                    );
+
+                    $newFileName = "{$employee->id}_"
+                    . Str::random(8)
+                        . ".{$fileExtension}";
                 }
+
+                $uploadFolder = $this->documentPaths->uploadFolder(
+                    '_documentEmpleado',
+                    $employee
+                );
 
                 try {
                     $uploadRequest = new Request();
                     $uploadRequest->files->set('file', $file);
                     $uploadRequest->merge([
-                        'file_name' => $newFileName, // <- clave: mismo nombre => sobrescribe
-                        'carpeta'   => (string) $request->input('carpeta', ''),
+                        'file_name' => $newFileName,
+                        'carpeta'   => $uploadFolder,
                     ]);
 
-                    $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
-                    $status         = $uploadResponse->getStatusCode();
-                    $resp           = json_decode($uploadResponse->getContent(), true);
+                    $uploadResponse = app(
+                        DocumentController::class
+                    )->upload(
+                        $uploadRequest,
+                        'documents'
+                    );
 
-                    Log::info('↩️ Respuesta de upload()', ['status' => $status, 'body' => $resp]);
+                    $status = $uploadResponse->getStatusCode();
+                    $resp   = json_decode(
+                        $uploadResponse->getContent(),
+                        true
+                    );
+
+                    Log::info('↩️ Respuesta de upload()', [
+                        'status' => $status,
+                        'body'   => $resp,
+                    ]);
+
                     if ($status !== 200) {
-                        return response()->json(['traceId' => $traceId, 'error' => 'Error al subir el documento', 'detail' => $resp], 500);
+                        return response()->json([
+                            'traceId' => $traceId,
+                            'error'   => 'Error al subir el documento',
+                            'detail'  => $resp,
+                        ], 500);
                     }
+
+                    $newStoredPath = $this->documentPaths->storedPath(
+                        $employee,
+                        $newFileName
+                    );
                 } catch (\Throwable $e) {
-                    Log::error('💥 Excepción subiendo archivo', ['msg' => $e->getMessage(), 'line' => $e->getLine()]);
-                    return response()->json(['traceId' => $traceId, 'error' => 'Excepción al subir el archivo', 'detail' => $e->getMessage()], 500);
+                    Log::error('💥 Excepción subiendo archivo', [
+                        'msg'  => $e->getMessage(),
+                        'line' => $e->getLine(),
+                    ]);
+
+                    return response()->json([
+                        'traceId' => $traceId,
+                        'error'   => 'Excepción al subir el archivo',
+                        'detail'  => $e->getMessage(),
+                    ], 500);
                 }
-            } else {
-                if (empty($newFileName)) {
-                    // Sin archivo entrante
-                    $newFileName = $isUpdate
-                        ? ($existing->name ?? ((int) $request->input('employee_id') . '_sin_documento_' . Str::random(6)))
-                        : ((int) $request->input('employee_id') . '_sin_documento_' . Str::random(6));
-                }
+            } elseif ($newStoredPath === null || $newStoredPath === '') {
+                /*
+                 Se conserva el comportamiento existente para registros
+                 creados sin archivo físico.
+                */
+                $newStoredPath = (int) $employee->id
+                . '_sin_documento_'
+                . Str::random(6);
             }
 
             // === Persistencia: UPDATE si había ID, CREATE si no
@@ -533,7 +611,7 @@ class DocumentOptionController extends Controller
                     'edicion'                  => $now,
                     'employee_id'              => (int) $employee->id,
                     'id_usuario'               => $idUsuario,
-                    'name'                     => $newFileName,
+                    'name'                     => $newStoredPath,
                     'nameDocument'             => $nameDocument,
                     'id_opcion'                => $idOpcion,
                     'description'              => $request->input('description'),
@@ -561,7 +639,7 @@ class DocumentOptionController extends Controller
                 'edicion'                  => $now,
                 'employee_id'              => (int) $employee->id,
                 'id_usuario'               => $idUsuario,
-                'name'                     => $newFileName,
+                'name'                     => $newStoredPath,
                 'nameDocument'             => $nameDocument,
                 'id_opcion'                => $idOpcion,
                 'description'              => $request->input('description'),
@@ -571,6 +649,73 @@ class DocumentOptionController extends Controller
                 'share_scope'              => $shareScope,
                 'collaborator_can_replace' => $collaboratorCanReplace,
             ]);
+            $actorNombre = trim(implode(' ', array_filter([
+                $administrator->nombre ?? null,
+                $administrator->paterno ?? null,
+                $administrator->materno ?? null,
+            ])));
+
+            if ($actorNombre === '') {
+                $actorNombre = $administrator->email ?? $administrator->correo ?? null;
+            }
+
+            $auditFields = [
+                'id',
+                'employee_id',
+                'id_usuario',
+                'name',
+                'nameDocument',
+                'id_opcion',
+                'description',
+                'expiry_date',
+                'expiry_reminder',
+                'status',
+                'share_scope',
+                'collaborator_can_replace',
+                'creacion',
+                'edicion',
+            ];
+
+            $this->auditoria->registrar([
+                'id_portal'        => $idPortal,
+                'id_cliente'       => (int) $employee->id_cliente,
+
+                'actor_tipo'       => 'administrador',
+                'actor_id'         => $idUsuario,
+                'actor_nombre'     => $actorNombre,
+
+                'modulo'           => 'empleados',
+                'entidad_tipo'     => 'documento',
+                'entidad_id'       => (int) $documentEmpleado->id,
+
+                'accion'           => 'crear',
+                'resultado'        => 'exitoso',
+                'descripcion'      =>
+                'Se creó un documento para el empleado.',
+
+                'datos_anteriores' => null,
+                'datos_nuevos'     =>
+                $documentEmpleado->only($auditFields),
+
+                'metadatos'        => [
+                    'employee_id'              => (int) $employee->id,
+                    'categoria_almacenamiento' =>
+                    '_documentEmpleado',
+                    'archivo_recibido'         => $archivoRecibido,
+                    'archivo_guardado'         =>
+                    (string) $documentEmpleado->name,
+                    'nombre_original'          => $archivoOriginal,
+                    'mime_type'                => $archivoMime,
+                    'tamano_bytes'             => $archivoTamano,
+                    'trace_id'                 => $traceId,
+                ],
+
+                /*
+                * Relaciona la auditoría con los logs técnicos
+                * generados por este mismo store().
+                */
+                'request_id'       => $traceId,
+            ], $request);
 
             $ms = (int) ((microtime(true) - $t0) * 1000);
             Log::info('✅ Fin CREATE STORE', ['dur_ms' => $ms, 'id' => $documentEmpleado->id]);
@@ -693,7 +838,21 @@ class DocumentOptionController extends Controller
         $request->filled('expiry_date') &&
         $expiryReminder > 0 &&
         $request->boolean('collaborator_can_replace');
+        $archivoRecibido =
+        $request->hasFile('file')
+        && $request->file('file')->isValid();
 
+        $archivoOriginal = $archivoRecibido
+            ? $request->file('file')->getClientOriginalName()
+            : null;
+
+        $archivoMime = $archivoRecibido
+            ? $request->file('file')->getClientMimeType()
+            : null;
+
+        $archivoTamano = $archivoRecibido
+            ? $request->file('file')->getSize()
+            : null;
         // === [2] Obtener o insertar opción ===
         $opcionRequest = new Request([
             'id_portal' => $idPortal,
@@ -722,7 +881,7 @@ class DocumentOptionController extends Controller
         // === [3] Procesar archivo (si existe) ===
         $newFileName = null;
 
-        if ($request->hasFile('file') && $request->file('file')->isValid()) {
+        if ($archivoRecibido) {
             try {
                 $randomString  = $this->generateRandomString();
                 $fileExtension = $request->file('file')->getClientOriginalExtension();
@@ -730,24 +889,38 @@ class DocumentOptionController extends Controller
 
                 $uploadRequest = new Request();
                 $uploadRequest->files->set('file', $request->file('file'));
+                $uploadFolder = $this->documentPaths->uploadFolder(
+                    '_examEmpleado',
+                    $employee
+                );
+
                 $uploadRequest->merge([
                     'file_name' => $newFileName,
-                    'carpeta'   => $request->input('carpeta') ?? 'examenes',
+                    'carpeta'   => $uploadFolder,
                 ]);
 
-                $uploadResponse = app(DocumentController::class)->upload($uploadRequest);
+                $uploadResponse = app(
+                    DocumentController::class
+                )->upload(
+                    $uploadRequest,
+                    'documents'
+                );
 
                 if ($uploadResponse->getStatusCode() !== 200) {
                     Log::error('[EXAMEN] ❌ Error al subir el archivo.', ['response' => $uploadResponse->getContent()]);
                     return response()->json(['error' => 'Error al subir el documento.'], 500);
                 }
+                $newFileName = $this->documentPaths->storedPath(
+                    $employee,
+                    $newFileName
+                );
             } catch (\Exception $e) {
                 Log::error('[EXAMEN] ⚠️ Excepción al subir archivo.', ['exception' => $e->getMessage()]);
                 return response()->json(['error' => 'Ocurrió un error al subir el archivo.'], 500);
             }
         } else {
             $newFileName = $employeeId . '_sin_examen_' . uniqid();
-            Log::info('[CURSO] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
+            Log::info('[Examen] 🗂 No se recibió archivo. Se asigna nombre genérico', ['name' => $newFileName]);
         }
 
         // === [4] Crear registro en BD ===
@@ -773,7 +946,65 @@ class DocumentOptionController extends Controller
         }
 
         Log::info('[EXAMEN] ✅ Examen registrado correctamente.', ['exam' => $examEmpleado]);
+        $actorNombre = trim(implode(' ', array_filter([
+            $administrator->nombre ?? null,
+            $administrator->paterno ?? null,
+            $administrator->materno ?? null,
+        ])));
 
+        if ($actorNombre === '') {
+            $actorNombre = $administrator->email ?? $administrator->correo ?? null;
+        }
+
+        $auditFields = [
+            'id',
+            'employee_id',
+            'name',
+            'nameDocument',
+            'id_opcion',
+            'description',
+            'expiry_date',
+            'expiry_reminder',
+            'status',
+            'share_scope',
+            'collaborator_can_replace',
+            'creacion',
+            'edicion',
+        ];
+
+        $this->auditoria->registrar([
+            'id_portal'        => $idPortal,
+            'id_cliente'       => (int) $employee->id_cliente,
+
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     => $actorNombre,
+
+            'modulo'           => 'empleados',
+            'entidad_tipo'     => 'examen',
+            'entidad_id'       => (int) $examEmpleado->id,
+
+            'accion'           => 'crear',
+            'resultado'        => 'exitoso',
+            'descripcion'      =>
+            'Se creó un examen para el empleado.',
+
+            'datos_anteriores' => null,
+            'datos_nuevos'     =>
+            $examEmpleado->only($auditFields),
+
+            'metadatos'        => [
+                'employee_id'              => $employeeId,
+                'categoria_almacenamiento' =>
+                '_examEmpleado',
+                'archivo_recibido'         => $archivoRecibido,
+                'archivo_guardado'         =>
+                (string) $examEmpleado->name,
+                'nombre_original'          => $archivoOriginal,
+                'mime_type'                => $archivoMime,
+                'tamano_bytes'             => $archivoTamano,
+            ],
+        ], $request);
         return response()->json([
             'message'  => 'Examen agregado exitosamente.',
             'document' => $examEmpleado,
@@ -910,27 +1141,32 @@ class DocumentOptionController extends Controller
         // 3) Configuración autorizada para cada origen
         $fuentes = [
             '_documentEmpleado' => [
-                'model'      => DocumentEmpleado::class,
-                'tabla'      => 'documentos',
-                'permission' => 'empleados.expediente.documentos.editar',
+                'model'        => DocumentEmpleado::class,
+                'tabla'        => 'documentos',
+                'entidad_tipo' => 'documento',
+                'permission'   =>
+                'empleados.expediente.documentos.editar',
             ],
             '_cursos'           => [
-                'model'      => CursoEmpleado::class,
-                'tabla'      => 'cursos',
-                'permission' => 'empleados.cursos.editar',
+                'model'        => CursoEmpleado::class,
+                'tabla'        => 'cursos',
+                'entidad_tipo' => 'curso',
+                'permission'   => 'empleados.cursos.editar',
             ],
             '_examEmpleado'     => [
-                'model'      => ExamEmpleado::class,
-                'tabla'      => 'examenes',
-                'permission' => 'empleados.expediente.bgv_examenes.editar',
+                'model'        => ExamEmpleado::class,
+                'tabla'        => 'examenes',
+                'entidad_tipo' => 'examen',
+                'permission'   =>
+                'empleados.expediente.bgv_examenes.editar',
             ],
         ];
 
-        $fuente     = $fuentes[$carpeta];
-        $modelClass = $fuente['model'];
-        $tabla      = $fuente['tabla'];
-        $permission = $fuente['permission'];
-
+        $fuente      = $fuentes[$carpeta];
+        $modelClass  = $fuente['model'];
+        $tabla       = $fuente['tabla'];
+        $permission  = $fuente['permission'];
+        $entidadTipo = $fuente['entidad_tipo'];
         if (! $this->permissions->canAdminGlobal(
             (int) $administrator->id,
             (int) $administrator->id_rol,
@@ -974,51 +1210,123 @@ class DocumentOptionController extends Controller
 
         $idPortal  = (int) $administrator->id_portal;
         $idUsuario = (int) $administrator->id;
+        /*
+        * Se conserva la referencia anterior para trasladarla
+        * después de confirmar el reemplazo en la BD.
+        */
+        $previousStoredValue = (string) $document->name;
+        $auditFields         = [
+            'id',
+            'employee_id',
+            'name',
+            'nameDocument',
+            'id_opcion',
+            'description',
+            'expiry_date',
+            'expiry_reminder',
+            'status',
+            'share_scope',
+            'collaborator_can_replace',
+            'edicion',
+        ];
 
+        $datosAnteriores = $document->only($auditFields);
         DB::beginTransaction();
         try {
-            $input           = $request->all();
-            $docAnteriorBase = $docAnterior ? basename($docAnterior) : '';
-            $publicUrl       = null;
+            $input     = $request->all();
+            $publicUrl = null;
 
-            // 4) ARCHIVO: si llega, generar NOMBRE NUEVO y subir
+            /*
+            * Solo los documentos de empleado utilizan por ahora
+            * la nueva infraestructura documental.
+            */
+            $usesEmployeeStorage = in_array(
+                $carpeta,
+                [
+                    '_documentEmpleado',
+                    '_cursos',
+                    '_examEmpleado',
+                ],
+                true
+            ); // 4) ARCHIVO: si llega, generar nombre nuevo y subir
             if ($file) {
-                $ext   = strtolower($file->getClientOriginalExtension() ?: 'bin');
+                $ext = strtolower(
+                    $file->getClientOriginalExtension() ?: 'bin'
+                );
                 $empId = (string) $employeeId;
-                $tipo  = (string) ($input['name'] ?? $document->nameDocument ?? 'documento');
-                $slug  = Str::slug(str_replace('_sin_', '', $tipo), '-') ?: 'doc';
+                $tipo  = (string) (
+                    $input['name'] ?? $document->nameDocument ?? 'documento'
+                );
+                $slug = Str::slug(
+                    str_replace('_sin_', '', $tipo),
+                    '-'
+                ) ?: 'doc';
                 $stamp = date('YmdHis');
                 $rand  = substr(sha1(uniqid('', true)), 0, 6);
 
                 $nuevoNombre = "EMP{$empId}_{$slug}_{$stamp}_{$rand}.{$ext}";
-                Log::info("🆕 Generado nombre NUEVO: {$nuevoNombre}");
+
+                Log::info('🆕 Generado nombre NUEVO', [
+                    'nombre' => $nuevoNombre,
+                ]);
+
+                /*
+                * El backend construye la carpeta oficial.
+                * No se utiliza la estructura enviada por el frontend.
+                */
+                $uploadFolder = $this->documentPaths->uploadFolder(
+                    $carpeta,
+                    $employee
+                );
 
                 $uploadReq = new Request([
                     'file_name' => $nuevoNombre,
-                    'carpeta'   => $carpeta,
+                    'carpeta'   => $uploadFolder,
                 ]);
                 $uploadReq->files->set('file', $file);
 
-                $uploadResp = app(DocumentController::class)->upload($uploadReq);
+                $uploadResp = app(
+                    DocumentController::class
+                )->upload(
+                    $uploadReq,
+                    'documents'
+                );
+
                 if ($uploadResp->getStatusCode() !== 200) {
-                    Log::error("❌ Falló la carga del archivo nuevo (upload).");
+                    Log::error(
+                        '❌ Falló la carga del archivo nuevo (upload).'
+                    );
+
                     DB::rollBack();
+
                     return $uploadResp;
                 }
 
-                $uploadData = json_decode($uploadResp->getContent(), true);
-                if (is_array($uploadData) && isset($uploadData['publicUrl'])) {
-                    $publicUrl = $uploadData['publicUrl'];
-                }
+                $uploadData = json_decode(
+                    $uploadResp->getContent(),
+                    true
+                );
 
-                $document->name = $nuevoNombre;
+                $publicUrl = is_array($uploadData)
+                    ? ($uploadData['public_url'] ?? null)
+                    : null;
 
+                /*
+                * Para documentos nuevos se guarda la ruta relativa.
+                * Los otros flujos conservan por ahora el nombre simple.
+                */
+                $document->name = $this->documentPaths->storedPath(
+                    $employee,
+                    $nuevoNombre
+                );
             } else {
-                // Sin archivo: conserva doc_anterior si lo envían
-                if ($docAnteriorBase !== '') {
-                    Log::info("📎 Sin archivo; se conserva doc_anterior: {$docAnteriorBase}");
-                    $document->name = $docAnteriorBase;
-                }
+                /*
+                * Sin archivo se conserva directamente el valor actual
+                * de la BD. No se acepta doc_anterior como autoridad.
+                */
+                Log::info('📎 Sin archivo; se conserva el documento actual', [
+                    'name' => $document->name,
+                ]);
             }
 
             // 5) Tipo de documento
@@ -1108,8 +1416,8 @@ class DocumentOptionController extends Controller
                 }
             }
             // La renovación solo puede habilitarse para el colaborador
-// cuando el documento está compartido con él, tiene vencimiento
-// y tiene un recordatorio mayor que cero.
+            // cuando el documento está compartido con él, tiene vencimiento
+            // y tiene un recordatorio mayor que cero.
             if ($schemaConn->hasColumn($table, 'collaborator_can_replace')) {
                 $requestedReplacement = array_key_exists(
                     'collaborator_can_replace',
@@ -1149,13 +1457,111 @@ class DocumentOptionController extends Controller
             $document->save();
 
             DB::commit();
-            Log::info("✅ Documento actualizado correctamente", ['id' => $id, 'name' => $document->name]);
 
+            $trashedPreviousPath = null;
+
+/*
+ * La versión anterior se mueve solamente después de que:
+ * 1. Llegó un archivo nuevo.
+ * 2. Es un documento de empleado.
+ * 3. La BD confirmó la nueva referencia.
+ */
+            if (
+                $file
+                && $usesEmployeeStorage
+                && $previousStoredValue !== ''
+                && $previousStoredValue !== (string) $document->name
+            ) {
+                try {
+                    $trashedPreviousPath = $this->documentPaths->moveToTrash(
+                        $carpeta,
+                        $employee,
+                        (int) $document->id,
+                        $previousStoredValue,
+                        'reemplazados'
+                    );
+
+                    Log::info('🗑️ Versión anterior movida a borrados', [
+                        'document_id' => (int) $document->id,
+                        'previous'    => $previousStoredValue,
+                        'trash_path'  => $trashedPreviousPath,
+                    ]);
+                } catch (\Throwable $trashError) {
+                    /*
+         * La actualización ya fue confirmada.
+         * No se revierte ni se pierde el archivo nuevo si falla
+         * el traslado de la versión anterior.
+         */
+                    Log::error('⚠️ No se pudo mover la versión anterior', [
+                        'document_id' => (int) $document->id,
+                        'previous'    => $previousStoredValue,
+                        'message'     => $trashError->getMessage(),
+                    ]);
+                }
+            }
+            $archivoReemplazado =
+            $file !== null
+            && $previousStoredValue !== ''
+            && $previousStoredValue !== (string) $document->name;
+
+            $actorNombre = trim(implode(' ', array_filter([
+                $administrator->nombre ?? null,
+                $administrator->paterno ?? null,
+                $administrator->materno ?? null,
+            ])));
+
+            if ($actorNombre === '') {
+                $actorNombre = $administrator->email ?? $administrator->correo ?? null;
+            }
+
+            $this->auditoria->registrar([
+                'id_portal'    => $idPortal,
+                'id_cliente'   => (int) $employee->id_cliente,
+
+                'actor_tipo'   => 'administrador',
+                'actor_id'     => $idUsuario,
+                'actor_nombre' => $actorNombre,
+
+                'modulo'       => 'empleados',
+                'entidad_tipo' => $entidadTipo,
+                'entidad_id'   => (int) $document->id,
+
+                'accion'       => $archivoReemplazado
+                    ? 'reemplazar_archivo'
+                    : 'actualizar',
+
+                'resultado'    => 'exitoso',
+
+                'descripcion'  => $archivoReemplazado
+                    ? "Se reemplazó el archivo del {$entidadTipo}."
+                    : "Se actualizaron los datos del {$entidadTipo}.",
+
+                'datos_anteriores' => $datosAnteriores,
+
+                'datos_nuevos' => $document->only($auditFields),
+
+                'metadatos' => [
+                    'employee_id'              => $employeeId,
+                    'categoria_almacenamiento' => $carpeta,
+                    'archivo_anterior'         => $previousStoredValue,
+                    'archivo_nuevo'            => (string) $document->name,
+                    'archivo_respaldo'         => $trashedPreviousPath,
+                    'archivo_recibido'         => $file !== null,
+                    'archivo_reemplazado'      => $archivoReemplazado,
+                ],
+            ], $request);
+
+            Log::info('✅ Documento actualizado correctamente', [
+                'id'         => $id,
+                'name'       => $document->name,
+                'trash_path' => $trashedPreviousPath,
+            ]);
             return response()->json([
                 'message'                  => 'Documento actualizado correctamente.',
                 'id'                       => (int) $id,
                 'name'                     => $document->name,
                 'publicUrl'                => $publicUrl,
+                'previous_file_trash'      => $trashedPreviousPath,
                 'share_scope'              => (int) (
                     $document->getAttribute('share_scope') ?? 0
                 ),
@@ -1219,137 +1625,242 @@ class DocumentOptionController extends Controller
 
     public function deleteDocument(Request $request)
     {
-        $rules = [
-            'tabla' => 'required|string',
-            'id'    => 'required|integer',
-        ];
+        $data = $request->validate([
+            'tabla' => [
+                'required',
+                'string',
+                'in:documentos,cursos,examenes',
+            ],
+            'id'    => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+        ]);
 
-        $request->validate($rules);
+        $administrator = $request->user();
 
-        $tabla      = $request->tabla;
-        $id         = $request->id;
-        $id_usuario = $request->input('id_usuario', null);
-
-        $tablaModelo = [
-            'examenes'   => [ExamEmpleado::class, '_examEmpleado/'],
-            'documentos' => [DocumentEmpleado::class, '_documentEmpleado/'],
-            'cursos'     => [CursoEmpleado::class, '_cursos/'],
-        ];
-
-        // Validar tabla
-        if (! isset($tablaModelo[$tabla])) {
+        if (! $administrator instanceof AdministradorAuth) {
             return response()->json([
-                'message' => 'Invalid table specified',
-            ], 400);
+                'status'  => false,
+                'code'    => 'ADMIN_TOKEN_INVALID',
+                'message' => 'Token administrativo no válido.',
+            ], 403);
         }
 
-        [$modelClass, $carpeta] = $tablaModelo[$tabla];
+        /*
+     * Configuración autorizada desde el backend.
+     * El frontend solo indica el tipo lógico.
+     */
+        $sources = [
+            'documentos' => [
+                'model'        => DocumentEmpleado::class,
+                'category'     => '_documentEmpleado',
+                'entidad_tipo' => 'documento',
+                'permission'   =>
+                'empleados.expediente.documentos.eliminar',
+            ],
+            'cursos'     => [
+                'model'        => CursoEmpleado::class,
+                'category'     => '_cursos',
+                'entidad_tipo' => 'curso',
+                'permission'   =>
+                'empleados.cursos.eliminar',
+            ],
+            'examenes'   => [
+                'model'        => ExamEmpleado::class,
+                'category'     => '_examEmpleado',
+                'entidad_tipo' => 'examen',
+                'permission'   =>
+                'empleados.expediente.bgv_examenes.eliminar',
+            ],
+        ];
 
-        // Buscar documento
-        $document = $modelClass::find($id);
+        $source      = $sources[$data['tabla']];
+        $modelClass  = $source['model'];
+        $category    = $source['category'];
+        $permission  = $source['permission'];
+        $entidadTipo = $source['entidad_tipo'];
+        $documentId  = (int) $data['id'];
+
+        /** @var \Illuminate\Database\Eloquent\Model|null $document */
+        $document = $modelClass::query()->find($documentId);
 
         if (! $document) {
             return response()->json([
-                'message' => 'Record not found',
+                'message' => 'Documento no encontrado.',
             ], 404);
         }
 
-        // Evitar eliminar dos veces
-        if ($document->status == 999) {
+        if ((int) $document->status === 999) {
             return response()->json([
-                'message' => 'Already deleted',
+                'message' => 'El documento ya fue eliminado.',
+                'id'      => $documentId,
             ], 200);
         }
+        $auditFields = [
+            'id',
+            'employee_id',
+            'name',
+            'nameDocument',
+            'id_opcion',
+            'description',
+            'expiry_date',
+            'expiry_reminder',
+            'status',
+            'share_scope',
+            'collaborator_can_replace',
+            'creacion',
+            'edicion',
+        ];
 
-        // Definir ruta base
-        $basePath = env('APP_ENV') === 'local'
-            ? env('LOCAL_IMAGE_PATH')
-            : env('PROD_IMAGE_PATH');
+        $datosAnteriores = $document->only($auditFields);
+        /*
+     * El empleado y su alcance se obtienen desde el registro.
+     * No se confía en un employee_id enviado por el frontend.
+     */
+        $employee = $this->employeeScope->authorizeEmployee(
+            $administrator,
+            (int) $document->employee_id
+        );
 
-        // Obtener nombre del archivo
-        // Puede venir desde catálogo o desde línea directa
-        $fileName = ! empty($document->nameDocument)
-            ? $document->nameDocument
-            : (! empty($document->name) ? $document->name : null);
-
-        // Construcción segura de rutas
-        $folderPath = rtrim($basePath, DIRECTORY_SEPARATOR)
-        . DIRECTORY_SEPARATOR
-        . trim($carpeta, DIRECTORY_SEPARATOR)
-            . DIRECTORY_SEPARATOR;
-
-        $deletedPath = $folderPath
-            . '_borrados'
-            . DIRECTORY_SEPARATOR;
-
-        // Crear carpeta _borrados si no existe
-        if (! file_exists($deletedPath)) {
-
-            if (! mkdir($deletedPath, 0755, true) && ! is_dir($deletedPath)) {
-
-                Log::error('❌ No se pudo crear carpeta _borrados', [
-                    'ruta' => $deletedPath,
-                ]);
-
-                return response()->json([
-                    'message' => 'No se pudo crear carpeta de borrados',
-                ], 500);
-            }
+        if (! $this->permissions->canAdminGlobal(
+            (int) $administrator->id,
+            (int) $administrator->id_rol,
+            $permission
+        )) {
+            return response()->json([
+                'status'     => false,
+                'code'       => 'PERMISSION_DENIED',
+                'message'    =>
+                'No tienes permiso para eliminar este archivo.',
+                'permission' => $permission,
+            ], 403);
         }
 
-        // Mover archivo físico
-        if ($fileName) {
+        /*
+     * La referencia física siempre procede de la BD.
+     */
+        $storedValue = trim((string) $document->name);
 
-            $filePath = $folderPath . $fileName;
+        DB::beginTransaction();
 
-            Log::info('📂 Intentando mover archivo', [
-                'archivo'      => $fileName,
-                'ruta_origen'  => $filePath,
-                'ruta_destino' => $deletedPath,
+        try {
+            $document->update([
+                'status' => 999,
             ]);
 
-            if (file_exists($filePath)) {
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
 
-                // Evitar sobrescribir nombres
-                $newFilePath = $deletedPath
-                . time()
-                    . '_'
-                    . $fileName;
-
-                if (rename($filePath, $newFilePath)) {
-
-                    Log::info('✅ Archivo movido correctamente', [
-                        'nuevo_archivo' => $newFilePath,
-                    ]);
-
-                } else {
-
-                    Log::error('❌ Error al mover archivo', [
-                        'origen'  => $filePath,
-                        'destino' => $newFilePath,
-                    ]);
-                }
-
-            } else {
-
-                Log::warning('⚠️ Archivo no encontrado', [
-                    'archivo' => $filePath,
-                ]);
-            }
-        } else {
-
-            Log::warning('⚠️ Documento sin nombre de archivo', [
-                'document_id' => $id,
+            Log::error('❌ No se pudo aplicar el borrado lógico', [
+                'tabla'       => $data['tabla'],
+                'document_id' => $documentId,
+                'message'     => $e->getMessage(),
             ]);
+
+            return response()->json([
+                'message' => 'No se pudo eliminar el archivo.',
+            ], 500);
         }
 
-        // Soft delete manual
-        $document->update([
-            'status' => 999,
-        ]);
+        $trashPath         = null;
+        $trashErrorMessage = null;
 
+        /*
+     * Solo después de confirmar la BD se traslada el archivo.
+     * absolutePath() permite tomar archivos antiguos o nuevos.
+     */
+        if ($storedValue !== '') {
+            try {
+                $trashPath = $this->documentPaths->moveToTrash(
+                    $category,
+                    $employee,
+                    $documentId,
+                    $storedValue,
+                    'eliminados'
+                );
+
+                Log::info('🗑️ Archivo movido a borrados', [
+                    'tabla'        => $data['tabla'],
+                    'document_id'  => $documentId,
+                    'stored_value' => $storedValue,
+                    'trash_path'   => $trashPath,
+                ]);
+            } catch (\Throwable $trashError) {
+                /*
+             * El registro ya está marcado como eliminado.
+             * Si falla el traslado, el archivo permanece en origen.
+             */
+                $trashErrorMessage = $trashError->getMessage();
+                Log::error('⚠️ No se pudo trasladar el archivo eliminado', [
+                    'tabla'        => $data['tabla'],
+                    'document_id'  => $documentId,
+                    'stored_value' => $storedValue,
+                    'message'      => $trashError->getMessage(),
+                ]);
+            }
+        }
+        $actorNombre = trim(implode(' ', array_filter([
+            $administrator->nombre ?? null,
+            $administrator->paterno ?? null,
+            $administrator->materno ?? null,
+        ])));
+
+        if ($actorNombre === '') {
+            $actorNombre = $administrator->email ?? $administrator->correo ?? null;
+        }
+
+        $trasladoEsperado = $storedValue !== '';
+
+        $trasladoCompletado =
+        ! $trasladoEsperado
+            || $trashPath !== null;
+
+        $resultadoAuditoria = $trasladoCompletado
+            ? 'exitoso'
+            : 'exitoso_con_advertencia';
+
+        $this->auditoria->registrar([
+            'id_portal'    => (int) $administrator->id_portal,
+            'id_cliente'   => (int) $employee->id_cliente,
+
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' => $actorNombre,
+
+            'modulo'       => 'empleados',
+            'entidad_tipo' => $entidadTipo,
+            'entidad_id'   => $documentId,
+
+            'accion'       => 'eliminar',
+            'resultado'    => $resultadoAuditoria,
+
+            'descripcion'  => $trasladoCompletado
+                ? "Se eliminó el {$entidadTipo}."
+                : "Se eliminó lógicamente el {$entidadTipo}, pero su archivo no pudo trasladarse.",
+
+            'datos_anteriores' => $datosAnteriores,
+            'datos_nuevos'     => $document->only($auditFields),
+
+            'metadatos'        => [
+                'employee_id'              => (int) $employee->id,
+                'categoria_almacenamiento' => $category,
+                'archivo_anterior'         => $storedValue,
+                'archivo_respaldo'         => $trashPath,
+                'traslado_esperado'        => $trasladoEsperado,
+                'traslado_completado'      => $trasladoCompletado,
+                'error_traslado'           => $trashErrorMessage,
+                'borrado_logico'           => true,
+                'status_eliminado'         => 999,
+            ],
+        ], $request);
         return response()->json([
-            'message' => 'Soft deleted successfully',
+            'message'    => 'Archivo eliminado correctamente.',
+            'id'         => $documentId,
+            'tabla'      => $data['tabla'],
+            'trash_path' => $trashPath,
         ], 200);
     }
     public function generateRandomString($length = 10)
