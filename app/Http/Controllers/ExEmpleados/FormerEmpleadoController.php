@@ -343,16 +343,12 @@ class FormerEmpleadoController extends Controller
         );
 
         $id_empleado = (int) $empleado->id;
-        // Obtener el parámetro status si existe
-        $status = request()->query('status');
-
-        // Construir la consulta
-        $query = DocumentEmpleado::with('documentOption')->where('employee_id', $id_empleado);
-
-        // Aplicar filtro por status si se proporciona
-        if ($status) {
-            $query->where('status', $status);
-        }
+        // Documentos históricos del expediente personal.
+        // El contexto separa estos documentos de los documentos de salida.
+        $query = DocumentEmpleado::with('documentOption')
+            ->where('employee_id', $id_empleado)
+            ->where('document_context', 'expediente')
+            ->where('status', '!=', 999);
 
         // Ejecutar la consulta y mapear resultados
         $documentos = $query->get()->map(function ($documento) {
