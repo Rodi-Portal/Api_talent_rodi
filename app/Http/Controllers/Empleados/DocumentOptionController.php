@@ -382,7 +382,16 @@ class DocumentOptionController extends Controller
                 'expiry_date'              => 'nullable|date',
                 'expiry_reminder'          => 'nullable|integer',
                 'file'                     => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:15360',
-                'status'                   => 'required|integer',
+                'status'                   => [
+                    'required',
+                    'integer',
+                    'in:1,2,3',
+                ],
+                'document_context'         => [
+                    'nullable',
+                    'string',
+                    'in:expediente,salida',
+                ],
                 'share_scope'              => [
                     'nullable',
                     'integer',
@@ -619,6 +628,10 @@ class DocumentOptionController extends Controller
                     'expiry_date'              => $request->input('expiry_date'),
                     'expiry_reminder'          => $request->input('expiry_reminder'),
                     'status'                   => (int) $request->input('status', 1),
+                    'document_context'         => (string) (
+                        $existing->document_context ?? 'expediente'
+                    ),
+
                     'share_scope'              => $shareScope,
                     'collaborator_can_replace' => $collaboratorCanReplace,
                 ])->save();
@@ -647,6 +660,10 @@ class DocumentOptionController extends Controller
                 'expiry_date'              => $request->input('expiry_date'),
                 'expiry_reminder'          => $request->input('expiry_reminder'),
                 'status'                   => (int) $request->input('status', 1),
+                'document_context'         => (string) $request->input(
+                    'document_context',
+                    'expediente'
+                ),
                 'share_scope'              => $shareScope,
                 'collaborator_can_replace' => $collaboratorCanReplace,
             ]);
@@ -1036,15 +1053,41 @@ class DocumentOptionController extends Controller
             (int) $employeeId
         );
 
-        $status = $request->query('status');
-        $query  = DocumentEmpleado::with('documentOption')
-            ->where('employee_id', (int) $employee->id);
+        $filters = $request->validate([
+            'document_context' => [
+                'nullable',
+                'string',
+                'in:expediente,salida',
+            ],
+            'status'           => [
+                'nullable',
+                'integer',
+                'in:1,2,3,999',
+            ],
+        ]);
+
+        $documentContext = (string) (
+            $filters['document_context'] ?? 'expediente'
+        );
+
+        $status = $filters['status'] ?? null;
+
+        $query = DocumentEmpleado::with('documentOption')
+            ->where(
+                'employee_id',
+                (int) $employee->id
+            )
+            ->where(
+                'document_context',
+                $documentContext
+            );
 
         if ($status !== null) {
-            // Si piden un status específico, lo respetas (incluyendo 999)
-            $query->where('status', $status);
+            $query->where(
+                'status',
+                (int) $status
+            );
         } else {
-            // Por defecto, excluyes los borrados
             $query->where('status', '!=', 999);
         }
 
@@ -1067,6 +1110,9 @@ class DocumentOptionController extends Controller
                 'expiry_reminder'          => $documento->expiry_reminder,
                 'nameAlterno'              => $documento->nameDocument,
                 'status'                   => $documento->status,
+                'status_check'             => $documento->status_check === null
+                    ? null
+                    : (int) $documento->status_check,
                 'share_scope'              => (int) $documento->share_scope,
                 'collaborator_can_replace' =>
                 (bool) $documento->collaborator_can_replace,
@@ -1227,6 +1273,8 @@ class DocumentOptionController extends Controller
             'expiry_date',
             'expiry_reminder',
             'status',
+            'document_context',
+            'status_check',
             'share_scope',
             'collaborator_can_replace',
             'edicion',
@@ -1463,12 +1511,12 @@ class DocumentOptionController extends Controller
 
             $trashedPreviousPath = null;
 
-/*
- * La versión anterior se mueve solamente después de que:
- * 1. Llegó un archivo nuevo.
- * 2. Es un documento de empleado.
- * 3. La BD confirmó la nueva referencia.
- */
+            /*
+            * La versión anterior se mueve solamente después de que:
+            * 1. Llegó un archivo nuevo.
+            * 2. Es un documento de empleado.
+            * 3. La BD confirmó la nueva referencia.
+            */
             if (
                 $file
                 && $usesEmployeeStorage
@@ -1491,10 +1539,10 @@ class DocumentOptionController extends Controller
                     ]);
                 } catch (\Throwable $trashError) {
                     /*
-         * La actualización ya fue confirmada.
-         * No se revierte ni se pierde el archivo nuevo si falla
-         * el traslado de la versión anterior.
-         */
+                    * La actualización ya fue confirmada.
+                    * No se revierte ni se pierde el archivo nuevo si falla
+                    * el traslado de la versión anterior.
+                    */
                     Log::error('⚠️ No se pudo mover la versión anterior', [
                         'document_id' => (int) $document->id,
                         'previous'    => $previousStoredValue,
@@ -1516,7 +1564,11 @@ class DocumentOptionController extends Controller
             if ($actorNombre === '') {
                 $actorNombre = $administrator->email ?? $administrator->correo ?? null;
             }
-
+            $auditModule = (
+                (string) $document->document_context === 'salida'
+            )
+                ? 'exempleados'
+                : 'empleados';
             $this->auditoria->registrar([
                 'id_portal'    => $idPortal,
                 'id_cliente'   => (int) $employee->id_cliente,
@@ -1525,7 +1577,7 @@ class DocumentOptionController extends Controller
                 'actor_id'     => $idUsuario,
                 'actor_nombre' => $actorNombre,
 
-                'modulo'       => 'empleados',
+                'modulo' => $auditModule,
                 'entidad_tipo' => $entidadTipo,
                 'entidad_id'   => (int) $document->id,
 

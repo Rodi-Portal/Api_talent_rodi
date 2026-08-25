@@ -63,6 +63,7 @@ use App\Http\Controllers\Empleados\DocumentOptionController;
 use App\Http\Controllers\Empleados\EmpleadoArchivoController;
 use App\Http\Controllers\Empleados\EmpleadoCompartidoController;
 use App\Http\Controllers\Empleados\EmpleadoController;
+use App\Http\Controllers\Empleados\EmpleadoMatrizRequisitoController;
 use App\Http\Controllers\Empleados\EvaluacionController;
 use App\Http\Controllers\Empleados\EviarEmpleadoRodi;
 use App\Http\Controllers\Empleados\IncidenciasController;
@@ -716,6 +717,93 @@ Route::middleware(['api'])->group(function () {
         'auth:sanctum',
         'admin.session',
         'admin.permission:exempleados.expediente.documentos_salida.crear',
+    ]);
+    // Listar plantillas del checklist de salida.
+    Route::get(
+        '/exempleados/checklists/plantillas',
+        [
+            EmpleadoMatrizRequisitoController::class,
+            'index',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.checklist_salida.plantillas.ver',
+    ]);
+
+    // Crear plantilla del checklist de salida.
+    Route::post(
+        '/exempleados/checklists/plantillas',
+        [
+            EmpleadoMatrizRequisitoController::class,
+            'store',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.checklist_salida.plantillas.crear',
+    ]);
+    // Actualizar plantilla del checklist de salida.
+    Route::put(
+        '/exempleados/checklists/plantillas/{id}',
+        [
+            EmpleadoMatrizRequisitoController::class,
+            'update',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.checklist_salida.plantillas.actualizar',
+    ]);
+
+    // Activar o desactivar plantilla.
+    Route::patch(
+        '/exempleados/checklists/plantillas/{id}/estado',
+        [
+            EmpleadoMatrizRequisitoController::class,
+            'updateStatus',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.checklist_salida.plantillas.actualizar',
+    ]);
+
+    // Eliminar lógicamente una plantilla.
+    Route::delete(
+        '/exempleados/checklists/plantillas/{id}',
+        [
+            EmpleadoMatrizRequisitoController::class,
+            'destroy',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.checklist_salida.plantillas.eliminar',
+    ]);
+    // Asignar una plantilla de checklist a un exempleado.
+    Route::post(
+        '/exempleados/{employeeId}/checklists/asignar',
+        [
+            EmpleadoMatrizRequisitoController::class,
+            'assign',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.checklist_salida.asignar',
+    ]);
+    // Marcar un requisito del checklist como pendiente o completado.
+    Route::patch(
+        '/exempleados/checklists/documentos/{documentId}/estado',
+        [
+            EmpleadoMatrizRequisitoController::class,
+            'updateDocumentCheck',
+        ]
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.checklist_salida.completar',
     ]);
 
 // Consultar conclusiones.

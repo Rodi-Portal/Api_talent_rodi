@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller;
@@ -28,7 +27,8 @@ class EmpleadoArchivoController extends Controller
             $request,
             DocumentEmpleado::class,
             $id,
-            '_documentEmpleado'
+            '_documentEmpleado',
+            'expediente'
         );
     }
 
@@ -41,7 +41,7 @@ class EmpleadoArchivoController extends Controller
             DocumentEmpleado::class,
             $id,
             '_documentEmpleado',
-            2
+            'salida'
         );
     }
 
@@ -69,14 +69,23 @@ class EmpleadoArchivoController extends Controller
         Request $request,
         string $modelClass,
         int $id,
-        string $folder
+        string $folder,
+        ?string $documentContext = null
     ) {
         $administrator = $this->administrator($request);
 
-        $item = $modelClass::query()
+        $itemQuery = $modelClass::query()
             ->where('id', $id)
-            ->where('status', '!=', 999)
-            ->firstOrFail();
+            ->where('status', '!=', 999);
+
+        if ($documentContext !== null) {
+            $itemQuery->where(
+                'document_context',
+                $documentContext
+            );
+        }
+
+        $item = $itemQuery->firstOrFail();
 
         $employee = Empleado::query()
             ->where('id', (int) $item->employee_id)
@@ -125,7 +134,7 @@ class EmpleadoArchivoController extends Controller
         return response()->file($filePath, [
             'Content-Type'        => $mimeType,
             'Content-Disposition' =>
-                'inline; filename="' . $fileName . '"',
+            'inline; filename="' . $fileName . '"',
         ]);
     }
 

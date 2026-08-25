@@ -28,10 +28,13 @@ class DocumentEmpleado extends Model
         'expiry_reminder',
         'nameDocument',
         'status',
+        'document_context',
+        'status_check',
         'share_scope',
         'collaborator_can_replace',
     ];
     protected $casts = [
+        'status_check'             => 'integer',
         'share_scope'              => 'integer',
         'collaborator_can_replace' => 'boolean',
     ];

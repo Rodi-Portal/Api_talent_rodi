@@ -103,12 +103,20 @@ class EmpleadoController extends Controller
                         'employee_id',
                         $employeeIds
                     )
-                    ->where('status', 2)
+                    ->where(
+                        'document_context',
+                        'salida'
+                    )
+                    ->where('status', '!=', 999)
                     ->get()
                     ->groupBy('employee_id');
             } else {
                 $documentsByEmployee = DocumentEmpleado::query()
                     ->whereIn('employee_id', $employeeIds)
+                    ->where(
+                        'document_context',
+                        'expediente'
+                    )
                     ->where('status', '!=', 999)
                     ->get()
                     ->groupBy('employee_id');
@@ -150,8 +158,41 @@ class EmpleadoController extends Controller
                     collect()
                 );
 
-                $statusDocuments = $this->checkDocumentStatus($documentos);
+                $statusDocuments    = $this->checkDocumentStatus($documentos);
+                $hasSalidaDocuments = $documentos->isNotEmpty();
+                $hasBadDocument     = $documentos->contains(
+                    fn($documento) =>
+                    (int) $documento->status === 3
+                );
 
+                $hasRegularDocument = $documentos->contains(
+                    fn($documento) =>
+                    (int) $documento->status === 2
+                );
+
+                $statusDocumentQuality = $hasBadDocument
+                    ? 'rojo'
+                    : (
+                    $hasRegularDocument
+                        ? 'amarillo'
+                        : 'verde'
+                );
+
+                $hasChecklist = $documentos->contains(
+                    fn($documento) =>
+                    $documento->status_check !== null
+                );
+
+                $hasPendingChecklist = $documentos->contains(
+                    fn($documento) =>
+                    $documento->status_check !== null
+                    && (int) $documento->status_check === 0
+                );
+
+                $hasSalidaRisk =
+                    $statusDocuments === 'rojo'
+                    || $statusDocumentQuality === 'rojo'
+                    || $hasPendingChecklist;
                 // Convertir a array
                 $empleadoArray                 = $empleado->toArray();
                 $empleadoArray['departamento'] = $empleado->depto->nombre ?? null;
@@ -174,7 +215,23 @@ class EmpleadoController extends Controller
                 $empleadoArray['fecha_salida'] = $empleado->fecha_salida
                     ? \Carbon\Carbon::parse($empleado->fecha_salida)->format('d/m/Y')
                     : null;
-                $empleadoArray['statusDocuments'] = $statusDocuments;
+                $empleadoArray['statusDocuments'] =
+                    $statusDocuments;
+
+                $empleadoArray['statusDocumentQuality'] =
+                    $statusDocumentQuality;
+                $empleadoArray['hasSalidaDocuments'] =
+                    $hasSalidaDocuments;
+
+                $empleadoArray['hasChecklist'] =
+                    $hasChecklist;
+
+                $empleadoArray['hasPendingChecklist'] =
+                    $hasPendingChecklist;
+
+                $empleadoArray['hasSalidaRisk'] =
+                    $hasSalidaRisk;
+
                 $empleadoArray['no_recomendable'] =
                 $noRecomendablesByEmployee->has(
                     (int) $empleado->id
@@ -237,6 +294,7 @@ class EmpleadoController extends Controller
                 $empleadoArray['campoExtra']      = $campoExtra;
                 $empleadoArray['statusMedico']    = $statusPadecimientos;
                 $empleadoArray['statusDocuments'] = $statusDocuments;
+
                 $empleadoArray['statusExam']      = $statusExam;
                 $empleadoArray['estadoExam']      = $estadoExam;
                 $empleadoArray['statusCursos']    = $statusCursos;
@@ -558,11 +616,18 @@ class EmpleadoController extends Controller
 
         if ($isEx) {
             // === EX-EMPLEADOS ===
-            // Regla: solo documentos “de salida” (status=2). Si hay vencidos, marcar en rojo/amarillo según checkDocumentStatus
+            // Solo documentos de salida activos.
             foreach ($empleados as $empleado) {
-                $documentosSalida = DocumentEmpleado::where('employee_id', $empleado->id)
-                    ->where('status', 2) // documentos de salida
-                                     // ->whereDate('fecha_vencimiento', '<', now()) // <-- si tienes un campo de vencimiento, descomenta/ajusta
+                $documentosSalida = DocumentEmpleado::query()
+                    ->where(
+                        'employee_id',
+                        $empleado->id
+                    )
+                    ->where(
+                        'document_context',
+                        'salida'
+                    )
+                    ->where('status', '!=', 999)
                     ->get();
 
                 $estado = $this->checkDocumentStatus($documentosSalida); // debe devolver rojo/amarillo/verde
@@ -582,7 +647,15 @@ class EmpleadoController extends Controller
 
         // === EMPLEADOS ACTIVOS (status=1) ===
         foreach ($empleados as $empleado) {
-            $documentos = DocumentEmpleado::where('employee_id', $empleado->id)
+            $documentos = DocumentEmpleado::query()
+                ->where(
+                    'employee_id',
+                    $empleado->id
+                )
+                ->where(
+                    'document_context',
+                    'expediente'
+                )
                 ->where('status', '!=', 999)
                 ->get();
 
