@@ -2,9 +2,13 @@
 namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\Empleado;
 use App\Models\LaboralesEmpleado;
+use App\Models\PeriodoNomina;
 use App\Models\PreNominaEmpleado;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -12,14 +16,70 @@ use Illuminate\Support\Facades\Validator;
 
 class LaboralesController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
+
+    private function administrator(Request $request): AdministradorAuth
+    {
+        $administrator = $request->user('sanctum');
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'No existe una sesión administrativa válida.'
+            );
+        }
+
+        return $administrator;
+    }
+
+    private function authorizeEmployee(
+        Request $request,
+        int $employeeId
+    ): Empleado {
+        $administrator = $this->administrator($request);
+
+        $employee = Empleado::query()
+            ->where('id', $employeeId)
+            ->where('id_portal', (int) $administrator->id_portal)
+            ->firstOrFail();
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $employee->id_cliente]
+        );
+
+        return $employee;
+    }
+
+    private function normalizeClientIds(mixed $value): array
+    {
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+
+            $value = json_last_error() === JSON_ERROR_NONE && is_array($decoded)
+                ? $decoded
+                : explode(',', $value);
+        }
+
+        return collect((array) $value)
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
     /**
      * Obtener los datos laborales del empleado junto con sus relaciones.
      *
      * @param  int  $id_empleado
      * @return \Illuminate\Http\Response
      */
-    public function obtenerDatosLaborales($id_empleado)
-    {
+    public function obtenerDatosLaborales(
+        Request $request,
+        $id_empleado
+    ) {
+        $this->authorizeEmployee($request, (int) $id_empleado);
         // Usamos el modelo Empleado para obtener los datos y relaciones
         $empleado = Empleado::obtenerEmpleadoConRelacionados($id_empleado);
 
@@ -87,8 +147,10 @@ class LaboralesController extends Controller
         }
 
         // Buscar empleado
-        $empleado = Empleado::find($request->id_empleado);
-
+        $empleado = $this->authorizeEmployee(
+            $request,
+            (int) $request->id_empleado
+        );
         if (! $empleado) {
             \Log::warning('Empleado no encontrado', ['id_empleado' => $request->id_empleado]);
             return response()->json(['message' => 'Empleado no encontrado'], 404);
@@ -181,8 +243,15 @@ class LaboralesController extends Controller
             'diasDescanso'          => 'array|min:0',
             'diasDescanso.*'        => 'string|in:Lunes,Martes,Miércoles,Jueves,Viernes,Sábado,Domingo',
         ]);
-
-        $empleado = Empleado::find($id_empleado);
+        if ((int) $request->id_empleado !== (int) $id_empleado) {
+            return response()->json([
+                'message' => 'El empleado enviado no coincide con la ruta.',
+            ], 422);
+        }
+        $empleado = $this->authorizeEmployee(
+            $request,
+            (int) $id_empleado
+        );
 
         if (! $empleado) {
             return response()->json(['message' => 'Empleado no encontrado'], 404);
@@ -263,7 +332,26 @@ class LaboralesController extends Controller
             Log::error('Error en validación: ', $e->errors());
             return response()->json(['errors' => $e->errors()], 422);
         }
+        $empleado = $this->authorizeEmployee(
+            $request,
+            (int) $validated['idEmpleado']
+        );
 
+        $administrator = $this->administrator($request);
+
+        $periodo = PeriodoNomina::query()
+            ->where('id', (int) $validated['idPeriodo'])
+            ->where('id_portal', (int) $administrator->id_portal)
+            ->firstOrFail();
+
+        if (
+            $periodo->id_cliente !== null
+            && (int) $periodo->id_cliente !== (int) $empleado->id_cliente
+        ) {
+            throw new AuthorizationException(
+                'El periodo no corresponde al cliente del empleado.'
+            );
+        }
         try {
             // Buscar si ya existe un registro con ese empleado y periodo
             $registro = PreNominaEmpleado::where('id_empleado', $validated['idEmpleado'])
@@ -326,17 +414,47 @@ class LaboralesController extends Controller
 
     public function empleadosMasivoPrenomina(Request $request)
     {
-        $idPortal     = (int) $request->input('id_portal');
-        $idPeriodo    = $request->filled('id_periodo') ? (int) $request->input('id_periodo') : null;
-        $idClienteStr = (string) $request->input('id_cliente');
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $idPeriodo     = $request->filled('id_periodo')
+            ? (int) $request->input('id_periodo')
+            : null;
+        $idClientes = $this->normalizeClientIds(
+            $request->input('id_cliente')
+        );
         $periodicidad = $request->input('periodicidad_pago');
 
-        if (! $idClienteStr || ! $idPortal) {
-            return response()->json(['message' => 'Faltan parámetros.'], 400);
+        if ($idClientes === []) {
+            return response()->json([
+                'message' => 'Faltan sucursales válidas.',
+            ], 422);
         }
 
-        $idClientes = array_filter(array_map('intval', explode(',', $idClienteStr)));
-        $cn         = DB::connection('portal_main');
+        $idClientes = $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            $idClientes
+        );
+
+        if ($idPeriodo !== null) {
+            $periodo = PeriodoNomina::query()
+                ->where('id', $idPeriodo)
+                ->where('id_portal', $idPortal)
+                ->firstOrFail();
+
+            if (
+                $periodo->id_cliente !== null
+                && ! in_array(
+                    (int) $periodo->id_cliente,
+                    $idClientes,
+                    true
+                )
+            ) {
+                throw new AuthorizationException(
+                    'El periodo no corresponde a las sucursales solicitadas.'
+                );
+            }
+        }
+        $cn = DB::connection('portal_main');
 
         /**
          * 🔑 SUBQUERY:
@@ -471,31 +589,20 @@ class LaboralesController extends Controller
     }
     public function obtenerPeriodicidadesDisponibles(Request $request)
     {
-        $idPortal      = (int) $request->query('id_portal');
-        $idClientesRaw = $request->query('id_cliente', []);
-        $idClientes    = [];
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $idClientes    = $this->normalizeClientIds(
+            $request->query('id_cliente', [])
+        );
 
-        if (! $idPortal) {
-            return response()->json(['message' => 'Faltan parámetros.'], 400);
-        }
-
-        if (is_string($idClientesRaw)) {
-            $decoded = json_decode($idClientesRaw, true);
-
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $idClientes = $decoded;
-            } elseif (! empty($idClientesRaw)) {
-                $idClientes = explode(',', $idClientesRaw);
-            }
-        } elseif (is_array($idClientesRaw)) {
-            $idClientes = $idClientesRaw;
-        }
-
-        $idClientes = array_filter(array_map('intval', $idClientes));
-
-        if (empty($idClientes)) {
+        if ($idClientes === []) {
             return response()->json([]);
         }
+
+        $idClientes = $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            $idClientes
+        );
 
         $cn = DB::connection('portal_main');
 
@@ -515,11 +622,11 @@ class LaboralesController extends Controller
             ->distinct()
             ->orderBy('s.clave')
             ->get();
-       
+
         return response()->json($rows);
     }
 
-        /*  traer prenomina   anterior
+    /*  traer prenomina   anterior
         public function empleadosMasivoPrenomina(Request $request)
         {
         $idPortal     = (int) $request->input('id_portal');
@@ -740,6 +847,54 @@ class LaboralesController extends Controller
 
         $idPeriodoNomina = (int) $request->input('id_periodo_nomina');
         $datos           = $request->input('datos', []);
+        $administrator   = $this->administrator($request);
+        $idPortal        = (int) $administrator->id_portal;
+
+        $periodo = PeriodoNomina::query()
+            ->where('id', $idPeriodoNomina)
+            ->where('id_portal', $idPortal)
+            ->firstOrFail();
+
+        $employeeIds = collect($datos)
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        $employees = Empleado::query()
+            ->whereIn('id', $employeeIds->all())
+            ->where('id_portal', $idPortal)
+            ->get(['id', 'id_cliente']);
+
+        if ($employees->count() !== $employeeIds->count()) {
+            throw new AuthorizationException(
+                'Uno o más empleados no pertenecen al portal autenticado.'
+            );
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            $employees
+                ->pluck('id_cliente')
+                ->map(fn($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->all()
+        );
+
+        if (
+            $periodo->id_cliente !== null
+            && $employees->contains(
+                fn($employee) =>
+                (int) $employee->id_cliente !==
+                (int) $periodo->id_cliente
+            )
+        ) {
+            throw new AuthorizationException(
+                'Uno o más empleados no corresponden al cliente del periodo.'
+            );
+        }
         Log::info('PrenominaMasiva: datos_count', ['count' => is_array($datos) ? count($datos) : 0]);
         if (is_array($datos) && count($datos) > 0) {
             Log::info('PrenominaMasiva: datos[0]_keys', ['keys' => array_keys($datos[0])]);

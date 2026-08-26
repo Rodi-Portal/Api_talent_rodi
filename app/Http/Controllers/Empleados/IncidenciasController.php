@@ -2,7 +2,10 @@
 namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
 use App\Services\Asistencia\ResolverPolitica;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -13,12 +16,26 @@ class IncidenciasController extends Controller
 {
     private string $CONN          = 'portal_main';
     private string $TABLA_EVENTOS = 'calendario_eventos'; // o 'eventos_option'
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
 
+    private function administrator(Request $request): AdministradorAuth
+    {
+        $administrator = $request->user('sanctum');
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'No existe una sesión administrativa válida.'
+            );
+        }
+
+        return $administrator;
+    }
     public function preview(Request $request, ResolverPolitica $resolver)
     {
         // 1) Validación suave
         $v = Validator::make($request->all(), [
-            'id_portal'            => ['required', 'integer'],
             'cliente_ids'          => ['required', 'array', 'min:1'],
             'cliente_ids.*'        => ['integer'],
             'periodo'              => ['required', 'array'],
@@ -33,14 +50,27 @@ class IncidenciasController extends Controller
             Log::warning('[Incidencias/preview] validation failed', $v->errors()->toArray());
             return response()->json(['ok' => false, 'errors' => $v->errors(), 'items' => []], 200);
         }
+        $administrator = $this->administrator($request);
+        $portalId      = (int) $administrator->id_portal;
 
+        $clienteIds = collect(
+            (array) $request->input('cliente_ids', [])
+        )
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        $clienteIds = $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            $clienteIds
+        );
         // 2) Inputs
-        $portalId   = (int) $request->integer('id_portal');
-        $clienteIds = array_map('intval', (array) $request->input('cliente_ids', []));
-        $empIds     = array_map('intval', (array) $request->input('empleados', []));
-        $per        = (array) $request->input('periodo', []);
-        $fi         = substr((string) ($per['fecha_inicio'] ?? ''), 0, 10);
-        $ff         = substr((string) ($per['fecha_fin'] ?? ''), 0, 10);
+        $empIds = array_map('intval', (array) $request->input('empleados', []));
+        $per    = (array) $request->input('periodo', []);
+        $fi     = substr((string) ($per['fecha_inicio'] ?? ''), 0, 10);
+        $ff     = substr((string) ($per['fecha_fin'] ?? ''), 0, 10);
 
         Log::info('[Incidencias/preview] received', compact('portalId', 'clienteIds', 'empIds', 'fi', 'ff'));
 
@@ -64,7 +94,23 @@ class IncidenciasController extends Controller
             ->get()
             ->keyBy('id');
 
-        $empConsiderados = $empIds;
+        $authorizedEmployeeIds = $infoByEmp
+            ->keys()
+            ->map(fn($id) => (int) $id)
+            ->values()
+            ->all();
+
+        $missingEmployeeIds = array_values(
+            array_diff($empIds, $authorizedEmployeeIds)
+        );
+
+        if ($missingEmployeeIds !== []) {
+            throw new AuthorizationException(
+                'Uno o más empleados no pertenecen al alcance autorizado.'
+            );
+        }
+
+        $empConsiderados = $authorizedEmployeeIds;
 
         /* --------------------------------------------------------------------
      * 4) Calendario (JOIN eventos_option.name como tipo_txt)
@@ -271,7 +317,7 @@ class IncidenciasController extends Controller
         $__retardos_resid_por_evento = [];
         $__mins_retardo_por_evento   = []; // << NUEVO: minutos de retardos NO convertidos a falta
 
-        $eventosPorEmpleado = [];
+        $eventosPorEmpleado  = [];
 
         foreach ($empIds as $empId) { // PRIMER foreach
             $lista = ($evRowsFull->get($empId) ?? collect())->values();
@@ -321,7 +367,7 @@ class IncidenciasController extends Controller
             $incidencias = [];
 
             // 1) Expandir "otros" (no-retardos)
-     // 1) Registrar "otros" (no-retardos) SIN expandir por día
+            // 1) Registrar "otros" (no-retardos) SIN expandir por día
             foreach ($otros as $ev) {
                 // Fechas del evento (rango original)
                 $ini = substr((string) $ev->inicio, 0, 10);
@@ -511,15 +557,15 @@ class IncidenciasController extends Controller
                 if ($firstIn) {
                     $limiteTol = (clone $entradaEsperada)->modify("+{$pol->tolerancia_min} minutes");
                     if ($firstIn > $limiteTol) {
-                        $retardosDias += 1;
-                        $minsLate = (int) floor(($firstIn->getTimestamp() - $limiteTol->getTimestamp()) / 60);
+                        $retardosDias  += 1;
+                        $minsLate       = (int) floor(($firstIn->getTimestamp() - $limiteTol->getTimestamp()) / 60);
                         $minsLateTotal += max(0, $minsLate);
                     }
                 }
 
                 // Salida temprano (si política lo pide)
                 if ($pol->contar_salida_temprano && $lastOut && $lastOut < $salidaEsperada) {
-                    $minsEarly = (int) floor(($salidaEsperada->getTimestamp() - $lastOut->getTimestamp()) / 60);
+                    $minsEarly       = (int) floor(($salidaEsperada->getTimestamp() - $lastOut->getTimestamp()) / 60);
                     $minsEarlyTotal += max(0, $minsEarly);
                 }
 
@@ -569,9 +615,9 @@ class IncidenciasController extends Controller
                 $sueldoDia
             );
 
-            $descuentoPctTotal  = round($pctRet + $pctFal, 6);
-            $descuentoDiasTotal = round($diasRet + $diasFal, 6);
-            $descuentoMontoTot  = round($montoRet + $montoFal, 2);
+            $descuentoPctTotal   = round($pctRet + $pctFal, 6);
+            $descuentoDiasTotal  = round($diasRet + $diasFal, 6);
+            $descuentoMontoTot   = round($montoRet + $montoFal, 2);
 
             // ---------- Calendario del periodo (vacaciones, ausencias, festivos, HX) ----------
             $c = $evAgg[$empId] ?? null;

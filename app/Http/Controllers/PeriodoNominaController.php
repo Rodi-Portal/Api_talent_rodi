@@ -1,36 +1,67 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Models\Auth\AdministradorAuth;
 use App\Models\ClienteTalent;
 use App\Models\PeriodoNomina;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 
 // asegúrate de importar esto
 
 class PeriodoNominaController extends Controller
 {
-    public function index(Request $request)
-    {
-        // Normalizar id_cliente
-        $idClientesRaw = $request->input('id_cliente');
-        $idClientes    = [];
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
 
-        if (is_string($idClientesRaw)) {
-            $decoded = json_decode($idClientesRaw, true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $idClientes = $decoded;
-            } elseif (! empty($idClientesRaw)) {
-                $idClientes = [$idClientesRaw];
-            }
-        } elseif (is_array($idClientesRaw)) {
-            $idClientes = $idClientesRaw;
+    private function administrator(Request $request): AdministradorAuth
+    {
+        $administrator = $request->user('sanctum');
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'No existe una sesión administrativa válida.'
+            );
         }
 
-        $idClientes = array_filter(array_map('intval', $idClientes));
-        $request->merge(['id_cliente' => $idClientes]);
-        $request->merge(['id_portal' => (int) $request->input('id_portal')]);
+        return $administrator;
+    }
 
+    private function normalizeClientIds(mixed $value): array
+    {
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+
+            $value = json_last_error() === JSON_ERROR_NONE && is_array($decoded)
+                ? $decoded
+                : explode(',', $value);
+        }
+
+        return collect((array) $value)
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
+    public function index(Request $request)
+    {
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $idClientes    = $this->normalizeClientIds(
+            $request->input('id_cliente', [])
+        );
+
+        if ($idClientes !== []) {
+            $idClientes = $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                $idClientes
+            );
+        }
+
+        $request->merge(['id_cliente' => $idClientes]);
         // Validación
         $request->validate([
             'id_cliente'   => ['array'],
@@ -43,12 +74,11 @@ class PeriodoNominaController extends Controller
             'tipo_nomina'  => ['nullable', 'string'],
             'fecha_inicio' => ['nullable', 'date'],
             'fecha_fin'    => ['nullable', 'date'],
-            'id_portal'    => ['required', 'integer'],
         ]);
 
         // Filtros base para periodos
-        $aplicarFiltros = function ($query) use ($request) {
-            $query->where('id_portal', $request->id_portal);
+        $aplicarFiltros = function ($query) use ($request, $idPortal) {
+            $query->where('id_portal', $idPortal);
 
             if ($request->filled('estatus')) {
                 $query->where('estatus', $request->estatus);
@@ -81,7 +111,7 @@ class PeriodoNominaController extends Controller
 
         // Periodos generales (id_cliente = null)
         $periodosGenerales = PeriodoNomina::whereNull('id_cliente')
-            ->where('id_portal', $request->id_portal)
+            ->where('id_portal', $idPortal)
             ->when($request->filled('estatus'), fn($q) => $q->where('estatus', $request->estatus))
             ->when($request->filled('tipo_nomina'), fn($q) => $q->where('tipo_nomina', $request->tipo_nomina))
             ->when($request->filled('fecha_inicio'), fn($q) => $q->whereDate('fecha_inicio', '>=', $request->fecha_inicio))
@@ -178,7 +208,7 @@ class PeriodoNominaController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'id_portal'    => 'required|integer',
+
             'id_cliente'   => 'present|array',
             'id_cliente.*' => [
                 'nullable',
@@ -195,7 +225,19 @@ class PeriodoNominaController extends Controller
             'tipo_nomina'  => 'required|in:ordinaria,extraordinaria',
             'estatus'      => 'required|in:pendiente,cerrado,cancelado',
         ]);
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
 
+        $requestedClients = $this->normalizeClientIds(
+            $request->input('id_cliente', [])
+        );
+
+        if ($requestedClients !== []) {
+            $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                $requestedClients
+            );
+        }
         $clientes = $request->id_cliente;
 
         if (empty($clientes)) {
@@ -218,7 +260,7 @@ class PeriodoNominaController extends Controller
 
             // 3️⃣ Validación de traslapes
             if ($request->tipo_nomina !== 'extraordinaria') {
-                $existe = PeriodoNomina::where('id_portal', $request->id_portal)
+                $existe = PeriodoNomina::where('id_portal', $idPortal)
                     ->where('tipo_nomina', $request->tipo_nomina)
                     ->where(function ($q) use ($id_cliente) {
                         $q->where('id_cliente', $id_cliente)
@@ -239,9 +281,9 @@ class PeriodoNominaController extends Controller
 
             // 4️⃣ Crear el periodo
             $periodo = PeriodoNomina::create([
-                'id_portal'             => $request->id_portal,
+                'id_portal'             => $idPortal,
                 'id_cliente'            => $id_cliente,
-                'id_usuario'            => $request->id_usuario,
+                'id_usuario'            => (int) $administrator->id,
                 'fecha_inicio'          => $request->fecha_inicio,
                 'fecha_fin'             => $request->fecha_fin,
                 'fecha_pago'            => $request->fecha_pago,
@@ -255,7 +297,7 @@ class PeriodoNominaController extends Controller
                 // 🎯 Guardamos arreglo de periodos
                 'periodo_num'           => json_encode($periodos),
 
-                'creado_por'            => auth()->id() ?? 1,
+                'creado_por'            => (int) $administrator->id,
             ]);
 
             $creados[] = $periodo;
@@ -276,8 +318,19 @@ class PeriodoNominaController extends Controller
             'tipo_nomina'  => 'required|in:ordinaria,extraordinaria',
             'estatus'      => 'required|in:pendiente,cerrado,cancelado',
         ]);
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $periodo       = PeriodoNomina::query()
+            ->where('id', (int) $id)
+            ->where('id_portal', $idPortal)
+            ->firstOrFail();
 
-        $periodo = PeriodoNomina::findOrFail($id);
+        if ($periodo->id_cliente !== null) {
+            $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                [(int) $periodo->id_cliente]
+            );
+        }
 
         // 🔹 Detectar periodicidad automáticamente con tus reglas
         $periodicidad = $this->detectarPeriodicidad(
@@ -314,7 +367,7 @@ class PeriodoNominaController extends Controller
 
         // 🔹 Guardar cambios
         $periodo->update([
-            'id_usuario'            => $request->id_usuario,
+            'id_usuario'            => (int) $administrator->id,
             'fecha_inicio'          => $request->fecha_inicio,
             'fecha_fin'             => $request->fecha_fin,
             'fecha_pago'            => $request->fecha_pago,
@@ -332,29 +385,19 @@ class PeriodoNominaController extends Controller
     {
         //Log::debug('Request recibido en periodosConPrenomina:', $request->all());
 
-        $clientes = $request->input('id_cliente');
-        Log::debug('Valor inicial de id_cliente:', ['id_cliente' => $clientes]);
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $clientes      = $this->normalizeClientIds(
+            $request->input('id_cliente', [])
+        );
 
-        if (! is_array($clientes)) {
-            $clientes = [$clientes];
-        }
-
-        foreach ($clientes as $clienteId) {
-            if (! is_numeric($clienteId)) {
-                return response()->json([
-                    'message' => "El id_cliente debe ser numérico.",
-                ], 422);
-            }
-
-            if (! ClienteTalent::where('id', $clienteId)->exists()) {
-                return response()->json([
-                    'message' => "El cliente con id {$clienteId} no existe.",
-                ], 422);
-            }
-        }
+        $clientes = $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            $clientes
+        );
 
         $query = PeriodoNomina::with('prenominaEmpleados', 'cliente')
-            ->where('id_portal', $request->id_portal)
+            ->where('id_portal', $idPortal)
             ->where('estatus', 'pendiente')
 
             ->where(function ($q) use ($clientes) {
@@ -393,23 +436,19 @@ class PeriodoNominaController extends Controller
     public function obtenerPeriodosPendientes(Request $request)
     {
         //  Log::debug('Request recibido en periodosConPrenomina:', $request->all());
-        $idPortal      = (int) $request->query('id_portal');
-        $idClientesRaw = $request->query('id_cliente', []);
-        $idClientes    = [];
 
-        // Normalizar id_cliente a array de enteros
-        if (is_string($idClientesRaw)) {
-            $decoded = json_decode($idClientesRaw, true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $idClientes = $decoded;
-            } elseif (! empty($idClientesRaw)) {
-                $idClientes = [$idClientesRaw];
-            }
-        } elseif (is_array($idClientesRaw)) {
-            $idClientes = $idClientesRaw;
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $idClientes    = $this->normalizeClientIds(
+            $request->query('id_cliente', [])
+        );
+
+        if ($idClientes !== []) {
+            $idClientes = $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                $idClientes
+            );
         }
-
-        $idClientes = array_filter(array_map('intval', $idClientes));
 
         // Base query
         $query = PeriodoNomina::with('cliente')

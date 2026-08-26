@@ -335,28 +335,132 @@ Route::middleware(['api'])->group(function () {
     // ruta para eliminar EMpleados
     Route::delete('/delempleados/{id}', [EmpleadoController::class, 'deleteEmpleado']);
 
-    //***************  Ruta para  los  laborales del empleado ************************/
+/**************** Ruta para los laborales del empleado ****************/
 
-    Route::get('/empleado/{id_empleado}/laborales', [LaboralesController::class, 'obtenerDatosLaborales']);
-    Route::post('/empleados/laborales', [LaboralesController::class, 'guardarDatosLaborales']);
-    Route::put('/empleados/laborales/{id_empleado}', [LaboralesController::class, 'actualizarDatosLaborales']);
+    Route::get(
+        '/empleado/{id_empleado}/laborales',
+        [LaboralesController::class, 'obtenerDatosLaborales']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.laborales.ver',
+    ]);
 
-    //peridodos_nomina
-    Route::post('/periodos-nomina-get', [PeriodoNominaController::class, 'index']);
-    Route::post('/periodos-nomina-con-datos', [PeriodoNominaController::class, 'periodosConPrenomina']);
-    Route::post('/periodos-nomina', [PeriodoNominaController::class, 'store']);
-    Route::put('/periodos-nomina/{id}', [PeriodoNominaController::class, 'update']);
-    Route::get('/periodos-nomina-pre-nomina-registro', [PeriodoNominaController::class, 'obtenerPeriodosPendientes']);
+    Route::post(
+        '/empleados/laborales',
+        [LaboralesController::class, 'guardarDatosLaborales']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.laborales.crear',
+    ]);
 
-    //Pre Nomina Empleados //
-    Route::post('/empleados/registro_prenomina', [LaboralesController::class, 'guardarPrenomina']);
-    Route::get('/empleados/obtener_prenomina_masiva_ultima', [LaboralesController::class, 'empleadosMasivoPrenomina']);
-    Route::get('/empleados/periodicidades-disponibles', [LaboralesController::class, 'obtenerPeriodicidadesDisponibles']);
-    Route::post('/empleados/registro_prenomina_masiva', [LaboralesController::class, 'guardarPrenominaMasiva']);
-    // Incidencias pre nomina
-    Route::post('/incidencias/preview', [IncidenciasController::class, 'preview']);
+    Route::put(
+        '/empleados/laborales/{id_empleado}',
+        [LaboralesController::class, 'actualizarDatosLaborales']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.laborales.editar',
+    ]);
 
-    //***************  Fin para  los  laborales del empleado ********************/
+// Periodos de nómina
+
+    Route::post(
+        '/periodos-nomina-get',
+        [PeriodoNominaController::class, 'index']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:comunicacion.nomina.periodos.ver',
+    ]);
+
+    Route::post(
+        '/periodos-nomina-con-datos',
+        [PeriodoNominaController::class, 'periodosConPrenomina']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:comunicacion.nomina.historial.ver',
+    ]);
+
+    Route::post(
+        '/periodos-nomina',
+        [PeriodoNominaController::class, 'store']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.laborales.prenomina_editar,comunicacion.nomina.periodos.crear',
+    ]);
+
+    Route::put(
+        '/periodos-nomina/{id}',
+        [PeriodoNominaController::class, 'update']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.laborales.prenomina_editar,comunicacion.nomina.periodos.editar',
+    ]);
+
+    Route::get(
+        '/periodos-nomina-pre-nomina-registro',
+        [PeriodoNominaController::class, 'obtenerPeriodosPendientes']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.laborales.prenomina_ver,comunicacion.nomina.prenomina.ver',
+    ]);
+
+// Prenómina de empleados
+
+    Route::post(
+        '/empleados/registro_prenomina',
+        [LaboralesController::class, 'guardarPrenomina']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.laborales.prenomina_editar',
+    ]);
+
+    Route::get(
+        '/empleados/obtener_prenomina_masiva_ultima',
+        [LaboralesController::class, 'empleadosMasivoPrenomina']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.laborales.prenomina_ver,comunicacion.nomina.prenomina.ver',
+    ]);
+
+    Route::get(
+        '/empleados/periodicidades-disponibles',
+        [LaboralesController::class, 'obtenerPeriodicidadesDisponibles']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:comunicacion.nomina.prenomina.ver',
+    ]);
+
+    Route::post(
+        '/empleados/registro_prenomina_masiva',
+        [LaboralesController::class, 'guardarPrenominaMasiva']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:empleados.expediente.laborales.prenomina_editar,comunicacion.nomina.prenomina.modificar_celdas',
+    ]);
+
+// Incidencias de prenómina
+
+    Route::post(
+        '/incidencias/preview',
+        [IncidenciasController::class, 'preview']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:comunicacion.nomina.prenomina.ver',
+    ]);
+
+/**************** Fin para los laborales del empleado ****************/
 
     //***************  Inicio para  los  catalogos del SAT ********************/
 
@@ -972,7 +1076,7 @@ Route::middleware(['api'])->group(function () {
 
     Route::get('/notificaciones/consultarex/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultarExempleo']);
 
-       //*************** Inicio Checador ****************/
+    //*************** Inicio Checador ****************/
 
     Route::prefix('checador')
         ->middleware([
