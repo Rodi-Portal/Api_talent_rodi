@@ -388,7 +388,11 @@ class CalendarioController extends Controller
                 'entidad_tipo'     => 'calendario_evento',
                 'entidad_id'       => (int) $evento->id,
                 'accion'           => $request->hasFile('archivo')
-                    ? 'archivo_evento_reemplazado'
+                    ? (
+                    $oldStoredPath !== ''
+                        ? 'archivo_evento_reemplazado'
+                        : 'archivo_evento_cargado'
+                )
                     : 'evento_actualizado',
                 'resultado'        => 'fallido',
                 'descripcion'      => $exception->getMessage(),
@@ -449,11 +453,19 @@ class CalendarioController extends Controller
             'entidad_tipo'     => 'calendario_evento',
             'entidad_id'       => (int) $evento->id,
             'accion'           => $newFileMetadata
-                ? 'archivo_evento_reemplazado'
+                ? (
+                $oldStoredPath !== ''
+                    ? 'archivo_evento_reemplazado'
+                    : 'archivo_evento_cargado'
+            )
                 : 'evento_actualizado',
             'resultado'        => 'exitoso',
             'descripcion'      => $newFileMetadata
-                ? 'Se reemplazó la evidencia de un evento.'
+                ? (
+                $oldStoredPath !== ''
+                    ? 'Se reemplazó la evidencia de un evento.'
+                    : 'Se cargó una evidencia a un evento existente.'
+            )
                 : 'Se actualizaron los datos de un evento.',
             'datos_anteriores' => $previousData,
             'datos_nuevos'     => $newData,
