@@ -474,7 +474,7 @@ Route::middleware(['api'])->group(function () {
 
     //***************  Ruta para  los  Configuracion Columnas del empleado ******************/
 
-     //*************** Ruta para Calendario ************************/
+    //*************** Ruta para Calendario ************************/
 
     Route::middleware([
         'auth:sanctum',
@@ -937,21 +937,85 @@ Route::middleware(['api'])->group(function () {
     //***************  Fin  Checador  ****************/
 
     //***************  Inicio Recordatorios ****************/
-    Route::prefix('comunicacion')->group(function () {
-        Route::get('recordatorios', [RecordatorioController::class, 'index']);
-        Route::delete('recordatorios/{id}', [RecordatorioController::class, 'destroy']);
-        Route::get('recordatorios/{id}/evidencias', [RecordatorioController::class, 'evidenciasIndex']);
-        Route::post('recordatorios/{id}/evidencias', [RecordatorioController::class, 'evidenciasStore']);
-        Route::delete('recordatorios/evidencias/{docId}', [RecordatorioController::class, 'evidenciasDestroy']);
-        Route::patch('recordatorios/{id}/estado', [RecordatorioController::class, 'toggle']);
-        Route::get('recordatorios/evidencias/{docId}/ver', [RecordatorioController::class, 'evidenciasShow']);
-        Route::get('recordatorios/evidencias/{docId}/descargar', [RecordatorioController::class, 'evidenciasDownload']);
-    });
+    Route::middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:module.comunicacion.ver',
+    ])->group(function () {
+        Route::prefix('comunicacion')->group(function () {
+            Route::get(
+                'recordatorios',
+                [RecordatorioController::class, 'index']
+            )->middleware(
+                'admin.permission:comunicacion.recordatorios.ver'
+            );
 
-    // Rutas especiales para guardar con portal/cliente en el path (como pediste)
-    Route::prefix('_recordadorios')->group(function () {
-        Route::post('{idPortal}/{idCliente}', [RecordatorioController::class, 'storeForPortalCliente']);
-        Route::put('{idPortal}/{idCliente}/{id}', [RecordatorioController::class, 'updateForPortalCliente']);
+            Route::delete(
+                'recordatorios/{id}',
+                [RecordatorioController::class, 'destroy']
+            )->middleware(
+                'admin.permission:comunicacion.recordatorios.eliminar'
+            );
+
+            Route::get(
+                'recordatorios/{id}/evidencias',
+                [RecordatorioController::class, 'evidenciasIndex']
+            )->middleware(
+                'admin.permission:comunicacion.recordatorios.ver'
+            );
+
+            Route::post(
+                'recordatorios/{id}/evidencias',
+                [RecordatorioController::class, 'evidenciasStore']
+            )->middleware(
+                'admin.permission:comunicacion.recordatorios.editar'
+            );
+
+            Route::delete(
+                'recordatorios/evidencias/{docId}',
+                [RecordatorioController::class, 'evidenciasDestroy']
+            )->middleware(
+                'admin.permission:comunicacion.recordatorios.eliminar'
+            );
+
+            Route::patch(
+                'recordatorios/{id}/estado',
+                [RecordatorioController::class, 'toggle']
+            )->middleware(
+                'admin.permission:comunicacion.recordatorios.editar'
+            );
+
+            Route::get(
+                'recordatorios/evidencias/{docId}/ver',
+                [RecordatorioController::class, 'evidenciasShow']
+            )->middleware(
+                'admin.permission:comunicacion.recordatorios.ver'
+            );
+
+            Route::get(
+                'recordatorios/evidencias/{docId}/descargar',
+                [RecordatorioController::class, 'evidenciasDownload']
+            )->middleware(
+                'admin.permission:comunicacion.recordatorios.ver'
+            );
+        });
+
+        // Se conserva el nombre existente por compatibilidad con el frontend.
+        Route::prefix('_recordadorios')->group(function () {
+            Route::post(
+                '{idPortal}/{idCliente}',
+                [RecordatorioController::class, 'storeForPortalCliente']
+            )->middleware(
+                'admin.permission:comunicacion.recordatorios.crear'
+            );
+
+            Route::put(
+                '{idPortal}/{idCliente}/{id}',
+                [RecordatorioController::class, 'updateForPortalCliente']
+            )->middleware(
+                'admin.permission:comunicacion.recordatorios.editar'
+            );
+        });
     });
 
     //***************  Fin Recordatorios ****************/

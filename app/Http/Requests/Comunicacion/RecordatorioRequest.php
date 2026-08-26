@@ -1,14 +1,14 @@
 <?php
 namespace App\Http\Requests\Comunicacion;
 
+use App\Models\Auth\AdministradorAuth;
 use Illuminate\Foundation\Http\FormRequest;
 
 class RecordatorioRequest extends FormRequest
 {
-    public function authorize()
+    public function authorize(): bool
     {
-        // Pon lógica de permisos si la necesitas; por ahora, true
-        return true;
+        return $this->user('sanctum') instanceof AdministradorAuth;
     }
 
     public function rules()
