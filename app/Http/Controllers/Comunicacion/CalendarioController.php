@@ -2,21 +2,39 @@
 namespace App\Http\Controllers\Comunicacion;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\CalendarioEvento;
 use App\Models\ClienteTalent;
 use App\Models\Empleado;
 use App\Models\EventosOption;
+use App\Services\Asistencia\AsistenciaServicio;
+use App\Services\Auditoria\AuditoriaService;
+use App\Services\Auth\AdminClientScopeService;
+use App\Services\Documents\EmployeeDocumentPathService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Response;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 class CalendarioController extends Controller
 {
+    private const DOCUMENT_CATEGORY = '_incidencias';
+    private const VACATION_TYPE_ID  = 1;
+    public function __construct(
+        private AdminClientScopeService $clientScope,
+        private EmployeeDocumentPathService $documentPaths,
+        private AuditoriaService $auditoria
+    ) {}
     //
     public function colaboradoresPorSucursal(Request $request)
     {
-        $raw = $request->query('id_cliente', []);
+        $administrator = $this->administrator($request);
+        $raw           = $request->query('id_cliente', []);
 
         if (! is_array($raw)) {
             $raw = is_string($raw) ? explode(',', $raw) : [$raw];
@@ -35,13 +53,24 @@ class CalendarioController extends Controller
                 'empleados' => [],
             ]);
         }
-
-        $clientes = ClienteTalent::whereIn('id', $ids->all())
+        $authorizedClientIds =
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            $ids->all()
+        );
+        $clientes = ClienteTalent::whereIn(
+            'id',
+            $authorizedClientIds
+        )
             ->select('id', 'nombre')
             ->get();
 
         $empleados = Empleado::with('cliente')
-            ->whereIn('id_cliente', $ids->all())
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->whereIn('id_cliente', $authorizedClientIds)
             ->where('status', 1)
             ->select('id', 'id_empleado', 'nombre', 'paterno', 'materno', 'id_cliente')
             ->get()
@@ -61,12 +90,12 @@ class CalendarioController extends Controller
         return response()->json([
             'clientes'  => $clientes,
             'empleados' => $empleados,
-            'ids_debug' => $ids->all(),
         ]);
     }
 
     public function getEventosPorClientes(Request $request)
     {
+        $administrator = $this->administrator($request);
                                            // --- Lee rango (end exclusivo por convención de calendar) ---
         $start = $request->input('start'); // "YYYY-MM-DD HH:MM:SS" o "YYYY-MM-DD"
         $end   = $request->input('end');
@@ -80,32 +109,18 @@ class CalendarioController extends Controller
             $end .= ' 00:00:00';
         }
 
-        // Construye query base según filtros de empleado/cliente
-        $query = CalendarioEvento::with('tipo')->where('eliminado', 0);
+        $employeeIds = $this->authorizedEmployeeIds(
+            $request,
+            $administrator
+        );
 
-        if ($request->has('id_empleado')) {
-            $ids = $request->input('id_empleado');
-            if (is_string($ids)) {$ids = explode(',', $ids);}
-            if (! is_array($ids)) {$ids = [$ids];}
-            $ids = array_filter($ids);
-            $query->whereIn('id_empleado', $ids ?: [-1]); // evita todo si vacío
-        } else {
-            $cli = $request->input('id_cliente');
-            if (is_string($cli)) {$cli = explode(',', $cli);}
-            if (! is_array($cli)) {$cli = [$cli];}
-            $cli = array_filter($cli);
-
-            if (! empty($cli)) {
-                $empleadosIds = Empleado::whereIn('id_cliente', $cli)->pluck('id');
-                if ($empleadosIds->isEmpty()) {
-                    return response()->json(['eventos' => []]);
-                }
-                $query->whereIn('id_empleado', $empleadosIds);
-            } else {
-                // si no hay ni empleado ni cliente -> sin resultados
-                return response()->json(['eventos' => []]);
-            }
+        if ($employeeIds === []) {
+            return response()->json(['eventos' => []]);
         }
+
+        $query = CalendarioEvento::with(['tipo', 'empleado'])
+            ->where('eliminado', 0)
+            ->whereIn('id_empleado', $employeeIds);
 
         // --- Filtro por rango (usa tu índice idx_eliminado_rango e idx_emp_rango) ---
         if ($start && $end) {
@@ -144,60 +159,23 @@ class CalendarioController extends Controller
 
     public function getUltimoMesConEventos(Request $request)
     {
-        $query = CalendarioEvento::where('eliminado', 0);
+        $administrator = $this->administrator($request);
 
-        if ($request->has('id_empleado')) {
-            $ids = $request->input('id_empleado');
+        $employeeIds = $this->authorizedEmployeeIds(
+            $request,
+            $administrator
+        );
 
-            if (is_string($ids)) {
-                $ids = explode(',', $ids);
-            }
-
-            if (! is_array($ids)) {
-                $ids = [$ids];
-            }
-
-            $ids = array_filter($ids);
-
-            if (empty($ids)) {
-                return response()->json([
-                    'ok'   => true,
-                    'date' => null,
-                ]);
-            }
-
-            $query->whereIn('id_empleado', $ids);
-        } else {
-            $cli = $request->input('id_cliente');
-
-            if (is_string($cli)) {
-                $cli = explode(',', $cli);
-            }
-
-            if (! is_array($cli)) {
-                $cli = [$cli];
-            }
-
-            $cli = array_filter($cli);
-
-            if (empty($cli)) {
-                return response()->json([
-                    'ok'   => true,
-                    'date' => null,
-                ]);
-            }
-
-            $empleadosIds = Empleado::whereIn('id_cliente', $cli)->pluck('id');
-
-            if ($empleadosIds->isEmpty()) {
-                return response()->json([
-                    'ok'   => true,
-                    'date' => null,
-                ]);
-            }
-
-            $query->whereIn('id_empleado', $empleadosIds);
+        if ($employeeIds === []) {
+            return response()->json([
+                'ok'   => true,
+                'date' => null,
+            ]);
         }
+
+        $query = CalendarioEvento::query()
+            ->where('eliminado', 0)
+            ->whereIn('id_empleado', $employeeIds);
 
         $ultimoInicio = $query->max('inicio');
 
@@ -215,393 +193,520 @@ class CalendarioController extends Controller
             'date' => $date,
         ]);
     }
-/*
-    public function setEventos(Request $request)
-    {
-        \Log::info('Payload completo recibido en setEventos: ' . json_encode($request->all()));
 
-        $eventos    = $request->input('eventos');
-        $id_portal  = $request->input('id_portal');
-        $id_usuario = $request->input('id_usuario');
-        $id_periodo = $request->input('periodo_nomina_id');
-
-        if (! is_array($eventos)) {
-            return response()->json(['error' => 'El campo eventos debe ser un array.'], 400);
-        }
-
-        $eventosGuardados  = [];
-        $eventosDuplicados = [];
-        $combosVistos      = [];
-
-        foreach ($eventos as $i => $evento) {
-            // 1. Buscar o crear el tipo de evento si es personalizado
-            $tipoId = $evento['tipoId'] ?? null;
-            if (! $tipoId && ! empty($evento['tipoNombre'])) {
-                $nuevoTipo = \App\Models\EventosOption::firstOrCreate(
-                    [
-                        'name'      => $evento['tipoNombre'],
-                        'id_portal' => $id_portal ?? null,
-                    ],
-                    [
-                        'color'    => $evento['backgroundColor'] ?? '#a78bfa',
-                        'creacion' => now(),
-                    ]
-                );
-                $tipoId = $nuevoTipo->id;
-            }
-
-            $inicio = $evento['start'];
-            $fin    = $evento['end'];
-
-            // --- Duplicado dentro del MISMO payload ---
-            $comboKey = ($evento['colaboradorId'] ?? 'null') . '|' .
-                ($tipoId ?? 'null') . '|' .
-                $inicio . '|' .
-                $fin;
-
-            if (in_array($comboKey, $combosVistos, true)) {
-                $eventosDuplicados[] = [
-                    'index'       => $i,
-                    'id_empleado' => $evento['colaboradorId'] ?? null,
-                    'id_tipo'     => $tipoId,
-                    'inicio'      => $inicio,
-                    'fin'         => $fin,
-                    'motivo'      => 'Duplicado en el mismo payload',
-                ];
-                continue;
-            }
-            $combosVistos[] = $comboKey;
-
-            // 2. Archivo
-            $archivoNombre = null;
-            $archivo       = $request->file("eventos.$i.archivo");
-            if ($archivo && $archivo->isValid()) {
-                $extension         = $archivo->getClientOriginalExtension();
-                $archivoNombre     = "portal{$id_portal}_emp{$evento['colaboradorId']}_" . time() . "_" . uniqid() . "." . $extension;
-                $directorioDestino = rtrim(env('LOCAL_IMAGE_PATH'), '/') . '/_archivo_calendario';
-                if (! file_exists($directorioDestino)) {
-                    mkdir($directorioDestino, 0777, true);
-                }
-                $archivo->move($directorioDestino, $archivoNombre);
-            }
-
-            $fechaInicio = new \DateTime($inicio);
-            $fechaFin    = new \DateTime($fin);
-            $dias        = $fechaInicio->diff($fechaFin)->days + 1;
-
-            // 3. Sanitizar tipo_incapacidad_sat
-            $tipoIncapSat = $evento['tipo_incapacidad_sat'] ?? null;
-            if ($tipoIncapSat !== null && ! in_array($tipoIncapSat, ['01', '02', '03', '04'], true)) {
-                $tipoIncapSat = null;
-            }
-
-            // 4. Duplicado en BD
-            $existe = CalendarioEvento::where('id_empleado', $evento['colaboradorId'])
-                ->where('id_tipo', $tipoId)
-                ->where('inicio', $inicio)
-                ->where('fin', $fin)
-                ->where('eliminado', 0)
-                ->exists();
-
-            if ($existe) {
-                $eventosDuplicados[] = [
-                    'index'       => $i,
-                    'id_empleado' => $evento['colaboradorId'],
-                    'id_tipo'     => $tipoId,
-                    'inicio'      => $inicio,
-                    'fin'         => $fin,
-                    'motivo'      => 'Ya existe un evento igual en la base de datos',
-                ];
-                continue;
-            }
-
-            // 5. Crear evento
-            $eventoGuardado = CalendarioEvento::create([
-                'id_usuario'           => $id_usuario,
-                'id_empleado'          => $evento['colaboradorId'],
-                'id_tipo'              => $tipoId,
-                'inicio'               => $inicio,
-                'fin'                  => $fin,
-                'dias_evento'          => $dias,
-                'descripcion'          => $evento['descripcion'] ?? '',
-                'archivo'              => $archivoNombre,
-                'eliminado'            => 0,
-                'tipo_incapacidad_sat' => $tipoIncapSat,
-            ]);
-
-            $eventosGuardados[] = $eventoGuardado;
-
-            // Lógica prenómina futura...
-        }
-
-        // --- Resumen para el front ---
-        $totalGuardados  = count($eventosGuardados);
-        $totalDuplicados = count($eventosDuplicados);
-
-        if ($totalGuardados === 0 && $totalDuplicados > 0) {
-            // Solo duplicados, nada guardado
-            return response()->json([
-                'ok'                 => false,
-                'message'            => 'No se guardó ningún evento porque ya existían con el mismo empleado, tipo y fechas.',
-                'eventos'            => [],
-                'eventos_duplicados' => $eventosDuplicados,
-            ], 200);
-        }
-
-        if ($totalGuardados > 0 && $totalDuplicados > 0) {
-            // Parcial: algunos guardados, otros duplicados
-            return response()->json([
-                'ok'      => true,
-                'message' => "Se guardaron {$totalGuardados} evento(s). {$totalDuplicados} se omitieron por ser duplicados.",
-                'eventos'            => $eventosGuardados,
-                'eventos_duplicados' => $eventosDuplicados,
-            ], 200);
-        }
-
-        // Caso normal: todos guardados, sin duplicados
-        return response()->json([
-            'ok'      => true,
-            'message' => "Se guardaron {$totalGuardados} evento(s) correctamente.",
-            'eventos'            => $eventosGuardados,
-            'eventos_duplicados' => $eventosDuplicados,
-        ], 200);
-    }
-*/
     public function actualizarEvento(Request $request, $id)
     {
-        \Log::info('>>> [actualizarEvento] REQUEST', [
-            'id'     => $id,
-            'inputs' => $request->all(),
-            'files'  => $request->allFiles(),
-            'method' => $request->method(),
+        $administrator = $this->administrator($request);
+
+        $data = $request->validate([
+            'id_empleado'          => ['nullable', 'integer', 'min:1'],
+            'id_tipo'              => ['nullable', 'integer', 'min:1'],
+            'inicio'               => ['nullable', 'date'],
+            'fin'                  => ['nullable', 'date'],
+            'descripcion'          => ['nullable', 'string', 'max:5000'],
+            'tipo_incapacidad_sat' => [
+                'nullable',
+                'string',
+                'in:01,02,03,04',
+            ],
+            'archivo'              => [
+                'nullable',
+                'file',
+                'mimes:pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt',
+                'max:10240',
+            ],
         ]);
 
-        if ($request->isMethod('put') || $request->isMethod('patch')) {
-            \Log::info('>>> [actualizarEvento] Método PUT/PATCH. Reagregando archivos...');
-            $request->files->add($request->allFiles());
+        $evento = CalendarioEvento::query()
+            ->where('id', (int) $id)
+            ->where('eliminado', 0)
+            ->firstOrFail();
+
+        $originalEmployee = $this->authorizeEvent(
+            $administrator,
+            $evento
+        );
+
+        $targetEmployeeId = (int) (
+            $data['id_empleado'] ?? $evento->id_empleado
+        );
+
+        $targetEmployee = $this->authorizeEmployee(
+            $administrator,
+            $targetEmployeeId
+        );
+
+        $targetTypeId = (int) (
+            $data['id_tipo'] ?? $evento->id_tipo
+        );
+
+        $typeAuthorized = EventosOption::query()
+            ->where('id', $targetTypeId)
+            ->where(function ($query) use ($administrator) {
+                $query
+                    ->whereNull('id_portal')
+                    ->orWhere(
+                        'id_portal',
+                        (int) $administrator->id_portal
+                    );
+            })
+            ->exists();
+
+        if (! $typeAuthorized) {
+            throw ValidationException::withMessages([
+                'id_tipo' =>
+                'El tipo de evento no pertenece al portal autenticado.',
+            ]);
         }
 
-        $evento = CalendarioEvento::find($id);
-        \Log::info('>>> [actualizarEvento] Evento encontrado:', $evento ? $evento->toArray() : ['null']);
+        $previousData = [
+            'id_usuario'           => $evento->id_usuario,
+            'id_empleado'          => $evento->id_empleado,
+            'id_portal'            => $evento->id_portal,
+            'id_cliente'           => $evento->id_cliente,
+            'id_tipo'              => $evento->id_tipo,
+            'inicio'               => $evento->inicio,
+            'fin'                  => $evento->fin,
+            'dias_evento'          => $evento->dias_evento,
+            'descripcion'          => $evento->descripcion,
+            'tipo_incapacidad_sat' =>
+            $evento->tipo_incapacidad_sat,
+            'archivo'              => $evento->archivo,
+        ];
 
-        if (! $evento) {
-            \Log::warning('>>> [actualizarEvento] No se encontró el evento con ID: ' . $id);
-            return response()->json(['error' => 'No se encontró el evento'], 404);
+        $evento->id_usuario  = (int) $administrator->id;
+        $evento->id_portal   = (int) $administrator->id_portal;
+        $evento->id_cliente  = (int) $targetEmployee->id_cliente;
+        $evento->id_empleado = $targetEmployeeId;
+        $evento->id_tipo     = $targetTypeId;
+
+        if (array_key_exists('inicio', $data)) {
+            $evento->inicio = $data['inicio'];
         }
 
-        // (Opcional) validar tipo_incapacidad_sat
-        $tipoIncapSat = $request->input('tipo_incapacidad_sat');
-        if ($tipoIncapSat !== null && $tipoIncapSat !== '') {
-            if (! in_array($tipoIncapSat, ['01', '02', '03', '04'], true)) {
-                \Log::warning('>>> [actualizarEvento] tipo_incapacidad_sat inválido: ' . $tipoIncapSat);
-                $tipoIncapSat = $evento->tipo_incapacidad_sat; // conservamos el anterior
-            }
+        if (array_key_exists('fin', $data)) {
+            $evento->fin = $data['fin'];
         }
 
-        // 4. Asignar campos NUEVOS (lo que viene del front)
-        $evento->id_usuario           = $request->input('id_usuario', $evento->id_usuario);
-        $evento->id_empleado          = $request->input('id_empleado', $evento->id_empleado);
-        $evento->id_tipo              = $request->input('id_tipo', $evento->id_tipo);
-        $evento->inicio               = $request->input('inicio', $evento->inicio);
-        $evento->fin                  = $request->input('fin', $evento->fin);
-        $evento->descripcion          = $request->input('descripcion', $evento->descripcion);
-        $evento->tipo_incapacidad_sat = $request->input('tipo_incapacidad_sat', $evento->tipo_incapacidad_sat);
-
-        if ($tipoIncapSat !== null) {
-            $evento->tipo_incapacidad_sat = $tipoIncapSat === '' ? null : $tipoIncapSat;
+        if (array_key_exists('descripcion', $data)) {
+            $evento->descripcion = $data['descripcion'];
         }
 
-        \Log::info('>>> [actualizarEvento] Datos para actualizar (antes de checar duplicado):', $evento->toArray());
+        if (array_key_exists('tipo_incapacidad_sat', $data)) {
+            $evento->tipo_incapacidad_sat =
+                $data['tipo_incapacidad_sat'];
+        }
 
-        // 🔴 VERIFICAR DUPLICADO: mismo empleado + tipo + fechas, distinto id, no eliminado
-        $existeDuplicado = CalendarioEvento::where('id_empleado', $evento->id_empleado)
+        if (
+            new \DateTime($evento->fin)
+            < new \DateTime($evento->inicio)
+        ) {
+            throw ValidationException::withMessages([
+                'fin' =>
+                'La fecha final debe ser posterior o igual a la inicial.',
+            ]);
+        }
+
+        $duplicateExists = CalendarioEvento::query()
+            ->where('id_empleado', $evento->id_empleado)
             ->where('id_tipo', $evento->id_tipo)
             ->where('inicio', $evento->inicio)
             ->where('fin', $evento->fin)
             ->where('eliminado', 0)
-            ->where('id', '!=', $evento->id)
+            ->where('id', '<>', $evento->id)
             ->exists();
 
-        if ($existeDuplicado) {
-            \Log::warning('>>> [actualizarEvento] Intento de duplicar evento (empleado, tipo, fechas).', [
-                'id_empleado' => $evento->id_empleado,
-                'id_tipo'     => $evento->id_tipo,
-                'inicio'      => $evento->inicio,
-                'fin'         => $evento->fin,
+        if ($duplicateExists) {
+            throw ValidationException::withMessages([
+                'evento' =>
+                'Ya existe otro evento igual para el empleado.',
             ]);
-
-            return response()->json([
-                'ok'    => false,
-                'error' => 'Ya existe otro evento con el mismo empleado, tipo e intervalo de fechas.',
-            ], 422);
         }
 
-        // 5. Calcula días del evento
-        try {
-            $fechaInicio         = new \DateTime($evento->inicio);
-            $fechaFin            = new \DateTime($evento->fin);
-            $dias                = $fechaInicio->diff($fechaFin)->days + 1;
-            $evento->dias_evento = $dias;
-            \Log::info(">>> [actualizarEvento] Calculados días evento: $dias");
-        } catch (\Exception $e) {
-            $evento->dias_evento = 1;
-            \Log::warning('>>> [actualizarEvento] Error calculando días evento: ' . $e->getMessage());
-        }
+        $evento->dias_evento =
+        (new \DateTime($evento->inicio))
+            ->diff(new \DateTime($evento->fin))
+            ->days + 1;
 
-        // 6. Manejo de archivo (tu código igual)
-        \Log::info('>>> [actualizarEvento] hasFile(archivo): ' . ($request->hasFile('archivo') ? 'SI' : 'NO'));
+        $oldStoredPath     = (string) ($evento->archivo ?? '');
+        $newFileMetadata   = null;
+        $updatedFileEvents = 0;
 
-        if ($request->hasFile('archivo')) {
-            if ($evento->archivo) {
-                $directorioDestino = rtrim(env('LOCAL_IMAGE_PATH'), '/') . '/_archivo_calendario';
-                $rutaArchivo       = $directorioDestino . '/' . $evento->archivo;
-                if (file_exists($rutaArchivo)) {
-                    unlink($rutaArchivo);
-                    \Log::info(">>> [actualizarEvento] Archivo anterior borrado: $rutaArchivo");
-                } else {
-                    \Log::warning(">>> [actualizarEvento] Archivo anterior NO encontrado para borrar: $rutaArchivo");
-                }
-            }
-
-            $archivo           = $request->file('archivo');
-            $extension         = $archivo->getClientOriginalExtension();
-            $archivoNombre     = "portal{$evento->id_usuario}_emp{$evento->id_empleado}_" . time() . "_" . uniqid() . "." . $extension;
-            $directorioDestino = rtrim(env('LOCAL_IMAGE_PATH'), '/') . '/_archivo_calendario';
-            if (! file_exists($directorioDestino)) {
-                mkdir($directorioDestino, 0777, true);
-                \Log::info(">>> [actualizarEvento] Carpeta creada: $directorioDestino");
-            }
-            $archivo->move($directorioDestino, $archivoNombre);
-            $evento->archivo = $archivoNombre;
-            \Log::info(">>> [actualizarEvento] Archivo nuevo guardado: $archivoNombre");
-        } else {
-            \Log::info('>>> [actualizarEvento] No se envió archivo nuevo.');
-        }
-
-        $evento->save();
-        \Log::info('>>> [actualizarEvento] Evento actualizado y guardado', $evento->toArray());
-
-        return response()->json(['ok' => true, 'evento' => $evento]);
-    }
- 
-    public function eliminarEvento(Request $request, $id)
-    {
-        $CONN               = 'portal_main';
-        $ID_TIPO_VACACIONES = 1;
-
-        $regresarVacaciones = (int) $request->input('regresar_vacaciones', 0) === 1;
-        $idUsuario          = (int) $request->input('id_usuario', 0);
-
-        DB::connection($CONN)->beginTransaction();
+        DB::connection('portal_main')->beginTransaction();
 
         try {
-            /** @var \App\Models\CalendarioEvento $evento */
-            $evento = \App\Models\CalendarioEvento::where('id', $id)
-                ->where('eliminado', 0)
-                ->firstOrFail();
+            if ($request->hasFile('archivo')) {
+                $newFileMetadata = $this->storeEventFile(
+                    $request->file('archivo'),
+                    $targetEmployee
+                );
 
-            $esVacaciones     = ((int) $evento->id_tipo === $ID_TIPO_VACACIONES);
-            $diasReintegrados = 0;
+                $evento->archivo =
+                    $newFileMetadata['storage_path'];
 
-            // 1) Si es vacaciones y el usuario confirmó reintegrar saldo
-            if ($esVacaciones && $regresarVacaciones) {
-                $diasARestaurar = (float) ($evento->dias_evento ?? 0);
+                $updatedFileEvents = 1;
 
-                if ($diasARestaurar > 0) {
-                    $laboral = DB::connection($CONN)
-                        ->table('laborales_empleado')
-                        ->where('id_empleado', $evento->id_empleado)
-                        ->lockForUpdate()
-                        ->first();
-
-                    if (! $laboral) {
-                        throw new \RuntimeException('No se encontró el registro laboral del empleado.');
-                    }
-
-                    $saldoActual = (float) ($laboral->vacaciones_disponibles ?? 0);
-                    $nuevoSaldo  = $saldoActual + $diasARestaurar;
-
-                    DB::connection($CONN)
-                        ->table('laborales_empleado')
-                        ->where('id_empleado', $evento->id_empleado)
+                if ($oldStoredPath !== '') {
+                    $updatedFileEvents += CalendarioEvento::query()
+                        ->where(
+                            'id_empleado',
+                            (int) $previousData['id_empleado']
+                        )
+                        ->where('archivo', $oldStoredPath)
+                        ->where('eliminado', 0)
+                        ->where('id', '<>', (int) $evento->id)
                         ->update([
-                            'vacaciones_disponibles' => $nuevoSaldo,
+                            'archivo'    =>
+                            $newFileMetadata['storage_path'],
+                            'id_usuario' =>
+                            (int) $administrator->id,
                         ]);
-
-                    $diasReintegrados = $diasARestaurar;
                 }
-            }
-
-            // 2) Soft delete del evento
-            $evento->eliminado = 1;
-
-            if ($idUsuario > 0 && isset($evento->id_usuario)) {
-                $evento->id_usuario = $idUsuario;
             }
 
             $evento->save();
 
-            DB::connection($CONN)->commit();
+            DB::connection('portal_main')->commit();
+        } catch (\Throwable $exception) {
+            DB::connection('portal_main')->rollBack();
 
-        } catch (\Throwable $e) {
-            DB::connection($CONN)->rollBack();
+            if (
+                $newFileMetadata
+                && is_file($newFileMetadata['absolute_path'])
+            ) {
+                @unlink($newFileMetadata['absolute_path']);
+            }
 
-            Log::error('[Calendario] Error al eliminar evento', [
-                'evento_id' => $id,
-                'msg'       => $e->getMessage(),
-                'line'      => $e->getLine(),
-                'file'      => $e->getFile(),
-            ]);
+            $this->auditoria->registrar([
+                'id_portal'        => (int) $administrator->id_portal,
+                'id_cliente'       => (int) $targetEmployee->id_cliente,
+                'actor_tipo'       => 'administrador',
+                'actor_id'         => (int) $administrator->id,
+                'actor_nombre'     =>
+                $this->administratorName($administrator),
+                'modulo'           => 'comunicacion_interna',
+                'entidad_tipo'     => 'calendario_evento',
+                'entidad_id'       => (int) $evento->id,
+                'accion'           => $request->hasFile('archivo')
+                    ? 'archivo_evento_reemplazado'
+                    : 'evento_actualizado',
+                'resultado'        => 'fallido',
+                'descripcion'      => $exception->getMessage(),
+                'datos_anteriores' => $previousData,
+            ], $request);
 
-            return response()->json([
-                'ok'      => false,
-                'message' => $e->getMessage(),
-            ], 500);
+            throw $exception;
         }
 
-        // 3) Compensación + re-evaluación de asistencia
+        $trashPath = null;
+
+        if (
+            $newFileMetadata
+            && $oldStoredPath !== ''
+        ) {
+            try {
+                $trashPath = $this->documentPaths->moveToTrash(
+                    self::DOCUMENT_CATEGORY,
+                    $originalEmployee,
+                    (int) $evento->id,
+                    $oldStoredPath,
+                    'reemplazados'
+                );
+            } catch (\Throwable $exception) {
+                Log::warning(
+                    'No se pudo mover la evidencia anterior del evento.',
+                    [
+                        'evento_id' => (int) $evento->id,
+                        'message'   => $exception->getMessage(),
+                    ]
+                );
+            }
+        }
+
+        $newData = [
+            'id_usuario'           => $evento->id_usuario,
+            'id_empleado'          => $evento->id_empleado,
+            'id_portal'            => $evento->id_portal,
+            'id_cliente'           => $evento->id_cliente,
+            'id_tipo'              => $evento->id_tipo,
+            'inicio'               => $evento->inicio,
+            'fin'                  => $evento->fin,
+            'dias_evento'          => $evento->dias_evento,
+            'descripcion'          => $evento->descripcion,
+            'tipo_incapacidad_sat' =>
+            $evento->tipo_incapacidad_sat,
+            'archivo'              => $evento->archivo,
+        ];
+
+        $this->auditoria->registrar([
+            'id_portal'        => (int) $administrator->id_portal,
+            'id_cliente'       => (int) $targetEmployee->id_cliente,
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     =>
+            $this->administratorName($administrator),
+            'modulo'           => 'comunicacion_interna',
+            'entidad_tipo'     => 'calendario_evento',
+            'entidad_id'       => (int) $evento->id,
+            'accion'           => $newFileMetadata
+                ? 'archivo_evento_reemplazado'
+                : 'evento_actualizado',
+            'resultado'        => 'exitoso',
+            'descripcion'      => $newFileMetadata
+                ? 'Se reemplazó la evidencia de un evento.'
+                : 'Se actualizaron los datos de un evento.',
+            'datos_anteriores' => $previousData,
+            'datos_nuevos'     => $newData,
+            'metadatos'        => $newFileMetadata
+                ? [
+                'archivo_anterior'     => $oldStoredPath,
+                'respaldo_anterior'    => $trashPath,
+                'eventos_actualizados' => $updatedFileEvents,
+                'storage_path'         =>
+                $newFileMetadata['storage_path'],
+                'nombre_original'      =>
+                $newFileMetadata['original_name'],
+                'nombre_fisico'        =>
+                $newFileMetadata['physical_name'],
+                'mime_type'            =>
+                $newFileMetadata['mime_type'],
+                'size_bytes'           =>
+                $newFileMetadata['size_bytes'],
+            ]
+                : null,
+        ], $request);
+
+        return response()->json([
+            'ok'     => true,
+            'evento' => $evento->fresh([
+                'tipo:id,name,color',
+                'empleado:id,id_empleado,nombre,paterno,materno,id_cliente',
+            ]),
+        ]);
+    }
+
+    public function eliminarEvento(Request $request, $id)
+    {
+        $administrator = $this->administrator($request);
+
+        $data = $request->validate([
+            'regresar_vacaciones' => ['nullable', 'boolean'],
+        ]);
+
+        $connection     = 'portal_main';
+        $vacationTypeId = self::VACATION_TYPE_ID;
+
+        $returnVacations = (int) (
+            $data['regresar_vacaciones'] ?? 0
+        ) === 1;
+
+        $evento       = null;
+        $employee     = null;
+        $previousData = null;
+        $daysReturned = 0;
+        $isVacation   = false;
+
+        DB::connection($connection)->beginTransaction();
+
         try {
-            /** @var AsistenciaServicio $svc */
-            $svc = app(AsistenciaServicio::class)->withConnection($CONN);
-            $svc->handleCalendarEventDeletion((int) $evento->id);
+            $evento = CalendarioEvento::query()
+                ->where('id', (int) $id)
+                ->where('eliminado', 0)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        } catch (\Throwable $e) {
-            Log::error('[Calendario] Error en compensación post-delete', [
-                'evento_id' => $id,
-                'msg'       => $e->getMessage(),
-            ]);
-            // No interrumpimos la respuesta; el evento ya se borró.
+            $employee = $this->authorizeEvent(
+                $administrator,
+                $evento
+            );
+
+            $previousData = [
+                'id_usuario'  => $evento->id_usuario,
+                'id_empleado' => $evento->id_empleado,
+                'id_portal'   => $evento->id_portal,
+                'id_cliente'  => $evento->id_cliente,
+                'id_tipo'     => $evento->id_tipo,
+                'inicio'      => $evento->inicio,
+                'fin'         => $evento->fin,
+                'dias_evento' => $evento->dias_evento,
+                'descripcion' => $evento->descripcion,
+                'archivo'     => $evento->archivo,
+                'eliminado'   => $evento->eliminado,
+            ];
+
+            $isVacation =
+            (int) $evento->id_tipo === $vacationTypeId;
+
+            if ($isVacation && $returnVacations) {
+                $daysToReturn = (float) (
+                    $evento->dias_evento ?? 0
+                );
+
+                if ($daysToReturn > 0) {
+                    $laboral = DB::connection($connection)
+                        ->table('laborales_empleado')
+                        ->where(
+                            'id_empleado',
+                            (int) $evento->id_empleado
+                        )
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (! $laboral) {
+                        throw new RuntimeException(
+                            'No se encontró el registro laboral del empleado.'
+                        );
+                    }
+
+                    $newBalance = (float) (
+                        $laboral->vacaciones_disponibles ?? 0
+                    ) + $daysToReturn;
+
+                    DB::connection($connection)
+                        ->table('laborales_empleado')
+                        ->where(
+                            'id_empleado',
+                            (int) $evento->id_empleado
+                        )
+                        ->update([
+                            'vacaciones_disponibles' =>
+                            $newBalance,
+                        ]);
+
+                    $daysReturned = $daysToReturn;
+                }
+            }
+
+            $evento->id_usuario = (int) $administrator->id;
+            $evento->eliminado  = 1;
+            $evento->save();
+
+            DB::connection($connection)->commit();
+        } catch (\Throwable $exception) {
+            DB::connection($connection)->rollBack();
+
+            $this->auditoria->registrar([
+                'id_portal'        => (int) $administrator->id_portal,
+                'id_cliente'       => $employee
+                    ? (int) $employee->id_cliente
+                    : null,
+                'actor_tipo'       => 'administrador',
+                'actor_id'         => (int) $administrator->id,
+                'actor_nombre'     =>
+                $this->administratorName($administrator),
+                'modulo'           => 'comunicacion_interna',
+                'entidad_tipo'     => 'calendario_evento',
+                'entidad_id'       => is_numeric($id)
+                    ? (int) $id
+                    : null,
+                'accion'           => 'evento_eliminado',
+                'resultado'        => 'fallido',
+                'descripcion'      => $exception->getMessage(),
+                'datos_anteriores' => $previousData,
+            ], $request);
+
+            throw $exception;
         }
+
+        try {
+            app(AsistenciaServicio::class)
+                ->withConnection($connection)
+                ->handleCalendarEventDeletion(
+                    (int) $evento->id
+                );
+        } catch (\Throwable $exception) {
+            Log::error(
+                '[Calendario] Error en compensación post-delete',
+                [
+                    'evento_id' => (int) $evento->id,
+                    'message'   => $exception->getMessage(),
+                ]
+            );
+        }
+
+        $this->auditoria->registrar([
+            'id_portal'        => (int) $administrator->id_portal,
+            'id_cliente'       => (int) $employee->id_cliente,
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     =>
+            $this->administratorName($administrator),
+            'modulo'           => 'comunicacion_interna',
+            'entidad_tipo'     => 'calendario_evento',
+            'entidad_id'       => (int) $evento->id,
+            'accion'           => 'evento_eliminado',
+            'resultado'        => 'exitoso',
+            'descripcion'      =>
+            'Se eliminó lógicamente un evento.',
+            'datos_anteriores' => $previousData,
+            'datos_nuevos'     => [
+                'eliminado'  => 1,
+                'id_usuario' => (int) $administrator->id,
+            ],
+            'metadatos'        => [
+                'archivo_conservado'      =>
+                ! empty($evento->archivo),
+                'storage_path'            => $evento->archivo,
+                'vacaciones_reintegradas' =>
+                $isVacation && $returnVacations,
+                'dias_reintegrados'       => $daysReturned,
+            ],
+        ], $request);
 
         return response()->json([
             'ok'                      => true,
             'message'                 => 'Evento eliminado correctamente.',
             'evento_id'               => (int) $evento->id,
-            'vacaciones_reintegradas' => $esVacaciones && $regresarVacaciones,
-            'dias_reintegrados'       => $diasReintegrados,
-        ], 200);
+            'vacaciones_reintegradas' =>
+            $isVacation && $returnVacations,
+            'dias_reintegrados'       => $daysReturned,
+        ]);
     }
 
     public function setEventos(Request $request)
     {
-        \Log::info('Payload completo recibido en setEventos: ' . json_encode($request->all()));
+        $administrator = $this->administrator($request);
 
-        $eventos             = $request->input('eventos');
-        $id_portal           = (int) $request->input('id_portal');
-        $id_usuario          = (int) $request->input('id_usuario');
-        $id_periodo          = $request->input('periodo_nomina_id');
-        $descontarVacaciones = (int) $request->input('descontar_vacaciones', 0) === 1;
+        $data = $request->validate([
+            'eventos'                        => ['required', 'array', 'min:1'],
+            'eventos.*.colaboradorId'        => ['required', 'integer', 'min:1'],
+            'eventos.*.tipoId'               => ['nullable', 'integer', 'min:1'],
+            'eventos.*.tipoNombre'           => ['nullable', 'string', 'max:150'],
+            'eventos.*.backgroundColor'      => ['nullable', 'string', 'max:30'],
+            'eventos.*.start'                => ['required', 'date'],
+            'eventos.*.end'                  => ['required', 'date'],
+            'eventos.*.descripcion'          => ['nullable', 'string', 'max:5000'],
+            'eventos.*.tipo_incapacidad_sat' => [
+                'nullable',
+                'string',
+                'in:01,02,03,04',
+            ],
+            'eventos.*.archivo'              => [
+                'nullable',
+                'file',
+                'mimes:pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt',
+                'max:10240',
+            ],
+            'periodo_nomina_id'              => ['nullable', 'integer', 'min:1'],
+            'descontar_vacaciones'           => ['nullable', 'boolean'],
+        ]);
 
-        $ID_TIPO_VACACIONES = 1;
+        $eventos = $data['eventos'];
 
-        if (! is_array($eventos)) {
-            return response()->json(['error' => 'El campo eventos debe ser un array.'], 400);
-        }
+        $id_portal  = (int) $administrator->id_portal;
+        $id_usuario = (int) $administrator->id;
+
+        $id_periodo = $data['periodo_nomina_id'] ?? null;
+
+        $descontarVacaciones = (int) (
+            $data['descontar_vacaciones'] ?? 0
+        ) === 1;
 
         $eventosGuardados  = [];
         $eventosDuplicados = [];
         $combosVistos      = [];
-
+        $writtenFiles      = [];
+        $eventFileMetadata = [];
         DB::connection('portal_main')->beginTransaction();
 
         try {
@@ -638,22 +743,31 @@ class CalendarioController extends Controller
                     ];
                     continue;
                 }
+                $employee = $this->authorizeEmployee(
+                    $administrator,
+                    $idEmpleado
+                );
 
-                // 2. Archivo
-                $archivoNombre = null;
-                $archivo       = $request->file("eventos.$i.archivo");
+                $tipoAutorizado = EventosOption::query()
+                    ->where('id', (int) $tipoId)
+                    ->where(function ($query) use ($id_portal) {
+                        $query
+                            ->whereNull('id_portal')
+                            ->orWhere('id_portal', $id_portal);
+                    })
+                    ->exists();
 
-                if ($archivo && $archivo->isValid()) {
-                    $extension         = $archivo->getClientOriginalExtension();
-                    $archivoNombre     = "portal{$id_portal}_emp{$idEmpleado}_" . time() . "_" . uniqid() . "." . $extension;
-                    $directorioDestino = rtrim(env('LOCAL_IMAGE_PATH'), '/') . '/_archivo_calendario';
-
-                    if (! file_exists($directorioDestino)) {
-                        mkdir($directorioDestino, 0777, true);
-                    }
-
-                    $archivo->move($directorioDestino, $archivoNombre);
+                if (! $tipoAutorizado) {
+                    throw ValidationException::withMessages([
+                        "eventos.{$i}.tipoId" =>
+                        'El tipo de evento no pertenece al portal autenticado.',
+                    ]);
                 }
+                // 2. Archivo validado; se escribirá solo si el evento
+                // realmente supera las comprobaciones de duplicidad.
+                $archivoNombre   = null;
+                $archivoMetadata = null;
+                $archivo         = $request->file("eventos.$i.archivo");
 
                 // 3. Sanitizar tipo_incapacidad_sat
                 $tipoIncapSat = $evento['tipo_incapacidad_sat'] ?? null;
@@ -661,7 +775,8 @@ class CalendarioController extends Controller
                     $tipoIncapSat = null;
                 }
 
-                $esVacaciones = ((int) $tipoId === $ID_TIPO_VACACIONES);
+                $esVacaciones =
+                (int) $tipoId === self::VACATION_TYPE_ID;
 
                 // =====================================================
                 // VACACIONES: fragmentar y guardar bloques válidos
@@ -757,10 +872,27 @@ class CalendarioController extends Controller
                             ];
                             continue;
                         }
+                        if (
+                            $archivo
+                            && $archivo->isValid()
+                            && $archivoNombre === null
+                        ) {
+                            $archivoMetadata = $this->storeEventFile(
+                                $archivo,
+                                $employee
+                            );
 
+                            $archivoNombre =
+                                $archivoMetadata['storage_path'];
+
+                            $writtenFiles[] =
+                                $archivoMetadata['absolute_path'];
+                        }
                         $eventoGuardado = CalendarioEvento::create([
                             'id_usuario'           => $id_usuario,
                             'id_empleado'          => $idEmpleado,
+                            'id_portal'            => $id_portal,
+                            'id_cliente'           => (int) $employee->id_cliente,
                             'id_tipo'              => $tipoId,
                             'inicio'               => $bloqueInicio,
                             'fin'                  => $bloqueFin,
@@ -771,8 +903,10 @@ class CalendarioController extends Controller
                             'tipo_incapacidad_sat' => $tipoIncapSat,
                         ]);
 
-                        $eventosGuardados[]  = $eventoGuardado;
-                        $diasDescontables   += $diasBloque;
+                        $eventosGuardados[]                           = $eventoGuardado;
+                        $eventFileMetadata[(int) $eventoGuardado->id] =
+                            $archivoMetadata;
+                        $diasDescontables += $diasBloque;
                     }
 
                     // Descontar saldo si el usuario confirmó
@@ -831,10 +965,28 @@ class CalendarioController extends Controller
                     ];
                     continue;
                 }
+                if (
+                    $archivo
+                    && $archivo->isValid()
+                    && $archivoNombre === null
+                ) {
+                    $archivoMetadata = $this->storeEventFile(
+                        $archivo,
+                        $employee
+                    );
+
+                    $archivoNombre =
+                        $archivoMetadata['storage_path'];
+
+                    $writtenFiles[] =
+                        $archivoMetadata['absolute_path'];
+                }
 
                 $eventoGuardado = CalendarioEvento::create([
                     'id_usuario'           => $id_usuario,
                     'id_empleado'          => $idEmpleado,
+                    'id_portal'            => $id_portal,
+                    'id_cliente'           => (int) $employee->id_cliente,
                     'id_tipo'              => $tipoId,
                     'inicio'               => $inicio,
                     'fin'                  => $fin,
@@ -845,13 +997,37 @@ class CalendarioController extends Controller
                     'tipo_incapacidad_sat' => $tipoIncapSat,
                 ]);
 
-                $eventosGuardados[] = $eventoGuardado;
+                $eventosGuardados[]                           = $eventoGuardado;
+                $eventFileMetadata[(int) $eventoGuardado->id] =
+                    $archivoMetadata;
             }
 
             DB::connection('portal_main')->commit();
-
         } catch (\Throwable $e) {
             DB::connection('portal_main')->rollBack();
+
+            foreach (array_reverse($writtenFiles) as $writtenFile) {
+                if (is_file($writtenFile)) {
+                    @unlink($writtenFile);
+                }
+            }
+
+            $this->auditoria->registrar([
+                'id_portal'    => (int) $administrator->id_portal,
+                'actor_tipo'   => 'administrador',
+                'actor_id'     => (int) $administrator->id,
+                'actor_nombre' =>
+                $this->administratorName($administrator),
+                'modulo'       => 'comunicacion_interna',
+                'entidad_tipo' => 'calendario_evento',
+                'entidad_id'   => null,
+                'accion'       => 'eventos_creados',
+                'resultado'    => 'fallido',
+                'descripcion'  => $e->getMessage(),
+                'metadatos'    => [
+                    'total_solicitados' => count($eventos),
+                ],
+            ], $request);
 
             \Log::error('[setEventos] Error al guardar eventos', [
                 'message' => $e->getMessage(),
@@ -867,7 +1043,58 @@ class CalendarioController extends Controller
                 'file'    => $e->getFile(),
             ], 500);
         }
+        foreach ($eventosGuardados as $createdEvent) {
+            $metadata = $eventFileMetadata[
+                (int) $createdEvent->id
+            ] ?? null;
 
+            $this->auditoria->registrar([
+                'id_portal'    => (int) $administrator->id_portal,
+                'id_cliente'   => (int) $createdEvent->id_cliente,
+                'actor_tipo'   => 'administrador',
+                'actor_id'     => (int) $administrator->id,
+                'actor_nombre' =>
+                $this->administratorName($administrator),
+                'modulo'       => 'comunicacion_interna',
+                'entidad_tipo' => 'calendario_evento',
+                'entidad_id'   => (int) $createdEvent->id,
+                'accion'       => $metadata
+                    ? 'archivo_evento_cargado'
+                    : 'evento_creado',
+                'resultado'    => 'exitoso',
+                'descripcion'  => $metadata
+                    ? 'Se creó un evento con evidencia.'
+                    : 'Se creó un evento.',
+                'datos_nuevos' => [
+                    'id_usuario'  => $createdEvent->id_usuario,
+                    'id_empleado' => $createdEvent->id_empleado,
+                    'id_portal'   => $createdEvent->id_portal,
+                    'id_cliente'  => $createdEvent->id_cliente,
+                    'id_tipo'     => $createdEvent->id_tipo,
+                    'inicio'      => $createdEvent->inicio,
+                    'fin'         => $createdEvent->fin,
+                    'dias_evento' =>
+                    $createdEvent->dias_evento,
+                    'descripcion' =>
+                    $createdEvent->descripcion,
+                    'archivo'     => $createdEvent->archivo,
+                ],
+                'metadatos'    => $metadata
+                    ? [
+                    'storage_path'    =>
+                    $metadata['storage_path'],
+                    'nombre_original' =>
+                    $metadata['original_name'],
+                    'nombre_fisico'   =>
+                    $metadata['physical_name'],
+                    'mime_type'       =>
+                    $metadata['mime_type'],
+                    'size_bytes'      =>
+                    $metadata['size_bytes'],
+                ]
+                    : null,
+            ], $request);
+        }
         $totalGuardados  = count($eventosGuardados);
         $totalDuplicados = count($eventosDuplicados);
 
@@ -1133,201 +1360,489 @@ class CalendarioController extends Controller
     }
     public function getTiposEvento(Request $request)
     {
-        $query = EventosOption::query();
+        $administrator = $this->administrator($request);
+        $portalId      = (int) $administrator->id_portal;
 
-        if ($request->filled('id_portal')) {
-            $id_portal = $request->input('id_portal');
-            $query->where(function ($q) use ($id_portal) {
-                $q->where('id_portal', $id_portal)
+        $tipos = EventosOption::query()
+            ->where(function ($query) use ($portalId) {
+                $query
+                    ->where('id_portal', $portalId)
                     ->orWhereNull('id_portal');
-            });
-        } else {
-            $query->whereNull('id_portal');
-        }
-
-        $tipos = $query->select('id', 'name', 'color')->distinct()->get();
+            })
+            ->select('id', 'name', 'color')
+            ->distinct()
+            ->get();
 
         return response()->json($tipos);
     }
-    private function calendarioBasePath(): string
-    {
-        // Detecta ambiente y toma la variable correcta
-        $base = app()->environment('production')
-            ? config('paths.prod_images', '')
-            : config('paths.local_images', '');
+    private function resolveAuthorizedEventFile(
+        Request $request,
+        int $id
+    ): array {
+        $administrator = $this->administrator($request);
 
-        // Normaliza separadores y quita slashes finales
-        return rtrim(str_replace(['\\', '//'], ['/', '/'], $base), '/');
-    }
+        $evento = CalendarioEvento::query()
+            ->where('id', $id)
+            ->where('eliminado', 0)
+            ->firstOrFail();
 
-    private function joinPaths(string ...$parts): string
-    {
-        $clean = array_map(fn($p) => trim($p, "/ \t\n\r\0\x0B"), $parts);
-        return implode('/', $clean);
-    }
-
-    public function streamArchivoCalendario($id)
-    {
-        $evento = \App\Models\CalendarioEvento::find($id);
-        if (! $evento) {
-            return response()->json(['message' => 'Evento no encontrado'], 404);
-        }
+        $employee = $this->authorizeEvent(
+            $administrator,
+            $evento
+        );
 
         if (empty($evento->archivo)) {
-            return response()->json(['message' => 'Este evento no tiene archivo'], 404);
+            $this->auditEventFileAccess(
+                $request,
+                $administrator,
+                $employee,
+                $evento,
+                'fallido',
+                'El evento no tiene evidencia.'
+            );
+
+            abort(404, 'El evento no tiene archivo.');
         }
 
-        // Base por ambiente (.env)
-        $base = app()->environment('production')
-            ? config('paths.prod_images', '')
-            : config('paths.local_images', '');
-        // Normaliza separadores y quita slashes finales
-        $base = rtrim(str_replace(['\\', '//'], ['/', '/'], $base), '/');
+        try {
+            $absolutePath = $this->documentPaths->absolutePath(
+                self::DOCUMENT_CATEGORY,
+                (string) $evento->archivo
+            );
+        } catch (\Throwable $exception) {
+            $this->auditEventFileAccess(
+                $request,
+                $administrator,
+                $employee,
+                $evento,
+                'fallido',
+                'La ruta documental no es válida.'
+            );
 
-        // Ruta absoluta del archivo
-        $absPath = $base . '/_archivo_calendario/' . $evento->archivo;
-
-        // Seguridad: confirmar que existe y que está dentro de $base
-        $realBase = realpath($base);
-        $realFile = $absPath ? realpath($absPath) : false;
-
-        if (! $realBase || ! $realFile || strpos($realFile, $realBase) !== 0 || ! is_file($realFile)) {
-            return response()->json(['message' => 'Archivo no encontrado en servidor'], 404);
+            abort(404, 'Archivo no encontrado.');
         }
 
-        // Detectar MIME
-        $mime = (function ($path) {
-            $f = finfo_open(FILEINFO_MIME_TYPE);
-            $m = $f ? finfo_file($f, $path) : null;
-            if ($f) {
-                finfo_close($f);
-            }
+        if (! is_file($absolutePath)) {
+            $this->auditEventFileAccess(
+                $request,
+                $administrator,
+                $employee,
+                $evento,
+                'fallido',
+                'El archivo no existe físicamente.'
+            );
 
-            return $m ?: 'application/octet-stream';
-        })($realFile);
+            abort(404, 'Archivo no encontrado.');
+        }
 
-        $filename = $evento->archivo;
-
-        $headers = [
-            'Content-Type'        => $mime,
-            'Content-Disposition' => 'inline; filename="' . addslashes($filename) . '"',
-            'X-Accel-Buffering'   => 'no',
-            'Cache-Control'       => 'private, max-age=0, no-cache, no-store, must-revalidate',
-            'Pragma'              => 'no-cache',
-            'Expires'             => '0',
+        return [
+            'administrator' => $administrator,
+            'employee'      => $employee,
+            'evento'        => $evento,
+            'absolute_path' => $absolutePath,
+            'filename'      => basename($absolutePath),
+            'mime_type'     => $this->eventFileMime($absolutePath),
+            'size_bytes'    => filesize($absolutePath) ?: null,
         ];
-
-        @set_time_limit(0);
-
-        return Response::stream(function () use ($realFile) {
-            $h = fopen($realFile, 'rb');
-            if ($h === false) {
-                return;
-            }
-
-            while (! feof($h)) {
-                echo fread($h, 8192);
-                @ob_flush(); flush();
-            }
-            fclose($h);
-        }, 200, $headers);
     }
 
-    public function downloadArchivoCalendario($id)
+    private function eventFileMime(string $path): string
     {
-        $evento = \App\Models\CalendarioEvento::find($id);
-        if (! $evento) {
-            return response()->json(['message' => 'Evento no encontrado'], 404);
-        }
-        if (empty($evento->archivo)) {
-            return response()->json(['message' => 'Este evento no tiene archivo'], 404);
-        }
-
-        // Base por ambiente (.env)
-        $base = app()->environment('production')
-            ? config('paths.prod_images', '')
-            : config('paths.local_images', '');
-        $base = rtrim(str_replace(['\\', '//'], ['/', '/'], $base), '/');
-
-        // Ruta del archivo
-        $absPath  = $base . '/_archivo_calendario/' . $evento->archivo;
-        $realBase = realpath($base);
-        $realFile = $absPath ? realpath($absPath) : false;
-
-        if (! $realBase || ! $realFile || strpos($realFile, $realBase) !== 0 || ! is_file($realFile)) {
-            return response()->json(['message' => 'Archivo no encontrado en servidor'], 404);
-        }
-
-        // ====== MIME correcto (mejor compatibilidad) ======
-        $mime = null;
         if (function_exists('finfo_open')) {
-            $f = finfo_open(FILEINFO_MIME_TYPE);
-            if ($f) {
-                $mime = finfo_file($f, $realFile) ?: null;
-                finfo_close($f);
+            $resource = finfo_open(FILEINFO_MIME_TYPE);
+
+            if ($resource) {
+                $mime = finfo_file($resource, $path);
+                finfo_close($resource);
+
+                if (is_string($mime) && $mime !== '') {
+                    return $mime;
+                }
             }
         }
-        // Fallback por extensión si finfo no disponible
-        if (! $mime) {
-            $ext = strtolower(pathinfo($realFile, PATHINFO_EXTENSION));
-            $map = [
-                'pdf'  => 'application/pdf',
-                'png'  => 'image/png',
-                'jpg'  => 'image/jpeg',
-                'jpeg' => 'image/jpeg',
-                'gif'  => 'image/gif',
-                'webp' => 'image/webp',
-                'doc'  => 'application/msword',
-                'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'xls'  => 'application/vnd.ms-excel',
-                'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'ppt'  => 'application/vnd.ms-powerpoint',
-                'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-                'txt'  => 'text/plain',
-                'csv'  => 'text/csv',
-                'zip'  => 'application/zip',
-            ];
-            $mime = $map[$ext] ?? 'application/octet-stream';
-        }
 
-        $filename = $evento->archivo;
-
-        // Evita corrupción por buffers/compresión
-        if (function_exists('ini_get') && function_exists('ini_set')) {
-            if (ini_get('zlib.output_compression')) {
-                @ini_set('zlib.output_compression', 'Off');
-            }
-        }
-        while (ob_get_level() > 0) {@ob_end_clean();}
-
-        $headers = [
-            'Content-Type'              => $mime, // 👈 MIME real
-                                                  // Compatibilidad con nombres UTF-8
-            'Content-Disposition'       => 'attachment; filename="' . addslashes($filename) . '"' .
-            "; filename*=UTF-8''" . rawurlencode($filename),
-            'Content-Transfer-Encoding' => 'binary',
-            'X-Accel-Buffering'         => 'no',
-            'Cache-Control'             => 'private, max-age=0, no-cache, no-store, must-revalidate',
-            'Pragma'                    => 'no-cache',
-            'Expires'                   => '0',
-            'Content-Length'            => (string) filesize($realFile),
-            'X-Content-Type-Options'    => 'nosniff',
-        ];
-
-        @set_time_limit(0);
-
-        return Response::stream(function () use ($realFile) {
-            $h = fopen($realFile, 'rb');
-            if ($h === false) {
-                return;
-            }
-
-            while (! feof($h)) {
-                echo fread($h, 8192);
-                @ob_flush(); flush();
-            }
-            fclose($h);
-        }, 200, $headers);
+        return 'application/octet-stream';
     }
 
+    private function auditEventFileAccess(
+        Request $request,
+        AdministradorAuth $administrator,
+        Empleado $employee,
+        CalendarioEvento $evento,
+        string $result,
+        string $description,
+        string $mode = 'visualizacion',
+        ?string $absolutePath = null
+    ): void {
+        $this->auditoria->registrar([
+            'id_portal'    => (int) $administrator->id_portal,
+            'id_cliente'   => (int) (
+                $evento->id_cliente ?: $employee->id_cliente
+            ),
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion_interna',
+            'entidad_tipo' => 'calendario_evento',
+            'entidad_id'   => (int) $evento->id,
+            'accion'       => $mode === 'descarga'
+                ? 'archivo_evento_descargado'
+                : 'archivo_evento_visualizado',
+            'resultado'    => $result,
+            'descripcion'  => $description,
+            'metadatos'    => [
+                'modo'           => $mode,
+                'storage_path'   => $evento->archivo,
+                'storage_origen' =>
+                str_starts_with(
+                    (string) $evento->archivo,
+                    'portales/'
+                )
+                    ? 'nuevo'
+                    : 'legacy',
+                'mime_type'      => $absolutePath
+                    ? $this->eventFileMime($absolutePath)
+                    : null,
+                'size_bytes'     => $absolutePath
+                && is_file($absolutePath)
+                    ? filesize($absolutePath)
+                    : null,
+            ],
+        ], $request);
+    }
+
+    public function streamArchivoCalendario(
+        Request $request,
+        $id
+    ) {
+        $file = $this->resolveAuthorizedEventFile(
+            $request,
+            (int) $id
+        );
+
+        $this->auditEventFileAccess(
+            $request,
+            $file['administrator'],
+            $file['employee'],
+            $file['evento'],
+            'exitoso',
+            'Se visualizó la evidencia de un evento.',
+            'visualizacion',
+            $file['absolute_path']
+        );
+
+        return response()->file(
+            $file['absolute_path'],
+            [
+                'Content-Type'           => $file['mime_type'],
+                'Content-Disposition'    =>
+                'inline; filename="'
+                . addslashes($file['filename'])
+                . '"',
+                'Cache-Control'          =>
+                'private, max-age=0, no-cache, no-store, must-revalidate',
+                'Pragma'                 => 'no-cache',
+                'Expires'                => '0',
+                'X-Content-Type-Options' => 'nosniff',
+            ]
+        );
+    }
+
+    public function downloadArchivoCalendario(
+        Request $request,
+        $id
+    ) {
+        $file = $this->resolveAuthorizedEventFile(
+            $request,
+            (int) $id
+        );
+
+        $this->auditEventFileAccess(
+            $request,
+            $file['administrator'],
+            $file['employee'],
+            $file['evento'],
+            'exitoso',
+            'Se descargó la evidencia de un evento.',
+            'descarga',
+            $file['absolute_path']
+        );
+
+        return response()->download(
+            $file['absolute_path'],
+            $file['filename'],
+            [
+                'Content-Type'           => $file['mime_type'],
+                'Cache-Control'          =>
+                'private, max-age=0, no-cache, no-store, must-revalidate',
+                'Pragma'                 => 'no-cache',
+                'Expires'                => '0',
+                'X-Content-Type-Options' => 'nosniff',
+            ]
+        );
+    }
+
+    private function administrator(Request $request): AdministradorAuth
+    {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
+    }
+
+    private function employeeForPortal(
+        AdministradorAuth $administrator,
+        int $employeeId
+    ): Empleado {
+        if ($employeeId <= 0) {
+            throw new AuthorizationException(
+                'El empleado solicitado no es válido.'
+            );
+        }
+
+        $employee = Empleado::query()
+            ->where('id', $employeeId)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->first();
+
+        if (! $employee) {
+            throw new AuthorizationException(
+                'El empleado no pertenece al portal autenticado.'
+            );
+        }
+
+        return $employee;
+    }
+
+    private function authorizeEmployee(
+        AdministradorAuth $administrator,
+        int $employeeId
+    ): Empleado {
+        $employee = $this->employeeForPortal(
+            $administrator,
+            $employeeId
+        );
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $employee->id_cliente]
+        );
+
+        return $employee;
+    }
+
+    private function authorizeEvent(
+        AdministradorAuth $administrator,
+        CalendarioEvento $event
+    ): Empleado {
+        $employee = $this->employeeForPortal(
+            $administrator,
+            (int) $event->id_empleado
+        );
+
+        $portalId = (int) (
+            $event->id_portal ?: $employee->id_portal
+        );
+
+        if ($portalId !== (int) $administrator->id_portal) {
+            throw new AuthorizationException(
+                'El evento no pertenece al portal autenticado.'
+            );
+        }
+
+        $clientId = (int) (
+            $event->id_cliente ?: $employee->id_cliente
+        );
+
+        if ($clientId <= 0) {
+            throw new AuthorizationException(
+                'El evento no tiene un cliente válido.'
+            );
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [$clientId]
+        );
+
+        return $employee;
+    }
+    private function storeEventFile(
+        UploadedFile $file,
+        Empleado $employee
+    ): array {
+        $documentsPath = rtrim(
+            (string) config('paths.documents_path'),
+            '/\\'
+        );
+
+        if ($documentsPath === '') {
+            throw new RuntimeException(
+                'La infraestructura documental nueva no está configurada.'
+            );
+        }
+
+        $extension = strtolower(
+            $file->getClientOriginalExtension()
+        );
+
+        $fileName = 'evento_'
+        . Str::uuid()
+            . ($extension !== '' ? '.' . $extension : '');
+
+        $relativeDirectory = $this->documentPaths->uploadFolder(
+            self::DOCUMENT_CATEGORY,
+            $employee
+        );
+
+        $storedPath = $this->documentPaths->storedPath(
+            self::DOCUMENT_CATEGORY,
+            $employee,
+            $fileName
+        );
+
+        $absoluteDirectory = $documentsPath
+        . DIRECTORY_SEPARATOR
+        . str_replace(
+            '/',
+            DIRECTORY_SEPARATOR,
+            $relativeDirectory
+        );
+
+        if (
+            ! is_dir($absoluteDirectory)
+            && ! @mkdir($absoluteDirectory, 0755, true)
+            && ! is_dir($absoluteDirectory)
+        ) {
+            throw new RuntimeException(
+                'No se pudo crear el directorio de incidencias.'
+            );
+        }
+
+        $size         = $file->getSize();
+        $mime         = $file->getMimeType();
+        $originalName = basename(
+            $file->getClientOriginalName()
+        );
+
+        $file->move($absoluteDirectory, $fileName);
+
+        $absolutePath = $absoluteDirectory
+            . DIRECTORY_SEPARATOR
+            . $fileName;
+
+        @chmod($absolutePath, 0664);
+
+        return [
+            'storage_path'  => $storedPath,
+            'absolute_path' => $absolutePath,
+            'original_name' => $originalName,
+            'physical_name' => $fileName,
+            'mime_type'     => $mime,
+            'size_bytes'    => $size,
+        ];
+    }
+    private function positiveIds(mixed $raw): array
+    {
+        if (! is_array($raw)) {
+            $raw = is_string($raw)
+                ? explode(',', $raw)
+                : [$raw];
+        }
+
+        return collect($raw)
+            ->filter(fn($value) => $value !== null && $value !== '')
+            ->map(fn($value) => (int) $value)
+            ->filter(fn($value) => $value > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function authorizedEmployeeIds(
+        Request $request,
+        AdministradorAuth $administrator
+    ): array {
+        if ($request->has('id_empleado')) {
+            $requestedIds = $this->positiveIds(
+                $request->input('id_empleado')
+            );
+
+            if ($requestedIds === []) {
+                return [];
+            }
+
+            $employees = Empleado::query()
+                ->where(
+                    'id_portal',
+                    (int) $administrator->id_portal
+                )
+                ->whereIn('id', $requestedIds)
+                ->get(['id', 'id_cliente']);
+
+            if ($employees->count() !== count($requestedIds)) {
+                throw new AuthorizationException(
+                    'Uno o más empleados no pertenecen al portal autenticado.'
+                );
+            }
+
+            $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                $employees
+                    ->pluck('id_cliente')
+                    ->map(fn($id) => (int) $id)
+                    ->unique()
+                    ->values()
+                    ->all()
+            );
+
+            return $employees
+                ->pluck('id')
+                ->map(fn($id) => (int) $id)
+                ->all();
+        }
+
+        $clientIds = $this->positiveIds(
+            $request->input('id_cliente', [])
+        );
+
+        if ($clientIds === []) {
+            return [];
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            $clientIds
+        );
+
+        return Empleado::query()
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->whereIn('id_cliente', $clientIds)
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->all();
+    }
+    private function administratorName(
+        AdministradorAuth $administrator
+    ): ?string {
+        $name = trim(implode(' ', array_filter([
+            $administrator->nombre ?? null,
+            $administrator->paterno ?? null,
+            $administrator->materno ?? null,
+        ])));
+
+        return $name !== '' ? $name : null;
+    }
 }

@@ -1,6 +1,7 @@
 <?php
 namespace App\Services\Documents;
 
+use App\Models\CalendarioEvento;
 use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\Empleado;
@@ -127,6 +128,9 @@ class EmployeeDocumentPathService
                 'Las rutas documentales no están configuradas.'
             );
         }
+        $legacyCategoryFolder = $categoryFolder === '_incidencias'
+            ? '_archivo_calendario'
+            : $categoryFolder;
 
         /*
      * Legacy:
@@ -135,11 +139,36 @@ class EmployeeDocumentPathService
         if (! str_contains($storedValue, '/')) {
             return $imagesPath
             . DIRECTORY_SEPARATOR
-            . $categoryFolder
+            . $legacyCategoryFolder
             . DIRECTORY_SEPARATOR
             . basename($storedValue);
         }
 
+        /*
+         * Incidencias legacy:
+         * portals/{portal}/clientes/{cliente}/empleados/{empleado}/
+         * incidencias/{archivo}
+         *
+         * Físicamente continúa dentro de _archivo_calendario.
+         */
+        if (
+            $categoryFolder === '_incidencias'
+            && preg_match(
+                '#^portals/[1-9][0-9]*/clientes/[1-9][0-9]*/'
+                . 'empleados/[1-9][0-9]*/incidencias/#',
+                $storedValue
+            )
+        ) {
+            return $imagesPath
+            . DIRECTORY_SEPARATOR
+            . '_archivo_calendario'
+            . DIRECTORY_SEPARATOR
+            . str_replace(
+                '/',
+                DIRECTORY_SEPARATOR,
+                $storedValue
+            );
+        }
         $quotedCategory = preg_quote(
             $categoryFolder,
             '#'
@@ -454,6 +483,7 @@ class EmployeeDocumentPathService
             'portales',
             (int) $employee->id_portal,
             '_borrados',
+            $reason,
             $categoryFolder,
             'clientes',
             (int) $employee->id_cliente,
@@ -557,6 +587,13 @@ class EmployeeDocumentPathService
         int $documentId,
         string $storedValue
     ): bool {
+        if ($categoryFolder === '_incidencias') {
+            return CalendarioEvento::query()
+                ->where('id', '<>', $documentId)
+                ->where('archivo', $storedValue)
+                ->where('eliminado', 0)
+                ->exists();
+        }
         $modelClass = match ($categoryFolder) {
             '_documentEmpleado' => DocumentEmpleado::class,
             '_cursos'           => CursoEmpleado::class,

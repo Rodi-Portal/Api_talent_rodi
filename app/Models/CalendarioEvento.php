@@ -24,6 +24,8 @@ class CalendarioEvento extends Model
     protected $fillable = [
         'id_usuario',
         'id_empleado',
+        'id_portal',
+        'id_cliente',
         'id_tipo',
         'inicio',
         'fin',

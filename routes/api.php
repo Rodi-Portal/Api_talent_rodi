@@ -474,20 +474,79 @@ Route::middleware(['api'])->group(function () {
 
     //***************  Ruta para  los  Configuracion Columnas del empleado ******************/
 
-    //*************** Ruta para Calendario  ************************/
+     //*************** Ruta para Calendario ************************/
 
-    Route::get('/colaboradores-por-sucursal', [CalendarioController::class, 'colaboradoresPorSucursal']);
-    Route::post('/setEventos', [CalendarioController::class, 'setEventos']);
-    Route::put('/eventos/{id}', [CalendarioController::class, 'actualizarEvento']);
-    Route::delete('/eventos/{id}', [CalendarioController::class, 'eliminarEvento']);
+    Route::middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:module.comunicacion.ver',
+        'admin.permission:comunicacion.calendario',
+    ])->group(function () {
+        Route::get(
+            '/colaboradores-por-sucursal',
+            [CalendarioController::class, 'colaboradoresPorSucursal']
+        )->middleware(
+            'admin.permission:comunicacion.calendario.ver_meses,comunicacion.calendario.registrar_evento,comunicacion.calendario.guardar_eventos'
+        );
 
-    Route::get('/eventos/tipos', [CalendarioController::class, 'getTiposEvento']);
-    Route::get('/eventos', [CalendarioController::class, 'getEventosPorClientes']);
-    Route::get('/eventos/ultimo-mes', [CalendarioController::class, 'getUltimoMesConEventos']);
-    Route::get('/archivos/calendario/{id}/stream', [CalendarioController::class, 'streamArchivoCalendario']);
-    Route::get('/archivos/{id}/download', [CalendarioController::class, 'downloadArchivoCalendario']);
+        Route::post(
+            '/setEventos',
+            [CalendarioController::class, 'setEventos']
+        )->middleware(
+            'admin.permission:comunicacion.calendario.guardar_eventos'
+        );
 
-    //***************  FIN Calendario  ****************/
+        Route::put(
+            '/eventos/{id}',
+            [CalendarioController::class, 'actualizarEvento']
+        )->middleware(
+            'admin.permission:comunicacion.calendario.guardar_eventos'
+        );
+
+        Route::delete(
+            '/eventos/{id}',
+            [CalendarioController::class, 'eliminarEvento']
+        )->middleware(
+            'admin.permission:comunicacion.calendario.eliminar_evento'
+        );
+
+        Route::get(
+            '/eventos/tipos',
+            [CalendarioController::class, 'getTiposEvento']
+        )->middleware(
+            'admin.permission:comunicacion.calendario.ver_meses,comunicacion.calendario.registrar_evento,comunicacion.calendario.guardar_eventos'
+        );
+
+        Route::get(
+            '/eventos',
+            [CalendarioController::class, 'getEventosPorClientes']
+        )->middleware(
+            'admin.permission:comunicacion.calendario.ver_meses,comunicacion.calendario.ver_dia'
+        );
+
+        Route::get(
+            '/eventos/ultimo-mes',
+            [CalendarioController::class, 'getUltimoMesConEventos']
+        )->middleware(
+            'admin.permission:comunicacion.calendario.ver_meses'
+        );
+
+        Route::get(
+            '/archivos/calendario/{id}/stream',
+            [CalendarioController::class, 'streamArchivoCalendario']
+        )->middleware(
+            'admin.permission:comunicacion.calendario.descargar_evento'
+        );
+
+        Route::get(
+            '/archivos/{id}/download',
+            [CalendarioController::class, 'downloadArchivoCalendario']
+        )->middleware(
+            'admin.permission:comunicacion.calendario.descargar_evento'
+        );
+    });
+
+    //*************** FIN Calendario ****************/
 
     //***************  Inicio Politicas Asitencia  ****************/
     Route::get('/politicas-asistencia', [PoliticasAsistenciaController::class, 'index']);
