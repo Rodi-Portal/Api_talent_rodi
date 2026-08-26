@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Comunicacion;
 use App\Http\Controllers\Controller;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use App\Models\Auth\AdministradorAuth;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -12,7 +15,9 @@ class ChecadasController extends Controller
 {
     private string $CHECADAS_CONN  = 'portal_main'; // ajusta si la conexión se llama distinto
     private string $CHECADAS_TABLE = 'checadas';
-
+        public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
     private function checadasQB()
     {
         return DB::connection($this->CHECADAS_CONN)->table($this->CHECADAS_TABLE);
@@ -33,6 +38,7 @@ class ChecadasController extends Controller
      */
     public function listChecadas(Request $req)
     {
+        [$portalId, $clientIds] = $this->authenticatedScope($req);
         $v = $req->validate([
             'id_portal'     => 'required|integer',
             'id_cliente'    => 'nullable',
@@ -47,8 +53,7 @@ class ChecadasController extends Controller
             'tipo'          => 'nullable',
         ]);
 
-        $portalId  = (int) $v['id_portal'];
-        $clientIds = $this->normalizeIdClienteParam($req->input('id_cliente'));
+
         $order     = Arr::get($v, 'order', 'asc');
         $limit     = (int) Arr::get($v, 'limit', 50);
         $page      = max(1, (int) Arr::get($v, 'page', 1));
@@ -62,7 +67,7 @@ class ChecadasController extends Controller
 
         $baseQuery = $this->checadasQB()
             ->where('id_portal', $portalId)
-            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->whereIn('id_cliente', $clientIds)
             ->when(! empty($empFilter), fn($q) => $q->whereIn('id_empleado', $empFilter))
             ->when(! empty($clases), fn($q) => $q->whereIn('clase', $clases))
             ->when(! empty($tipos), fn($q) => $q->whereIn('tipo', $tipos))
@@ -135,17 +140,17 @@ class ChecadasController extends Controller
      */
     public function ultimoDiaChecadas(Request $req)
     {
+        [$portalId, $clientIds] = $this->authenticatedScope($req);
         $req->validate([
             'id_portal'  => 'required|integer',
             'id_cliente' => 'nullable',
         ]);
 
-        $portalId  = (int) $req->id_portal;
-        $clientIds = $this->normalizeIdClienteParam($req->input('id_cliente'));
+
 
         $fecha = $this->checadasQB()
             ->where('id_portal', $portalId)
-            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->whereIn('id_cliente', $clientIds)
             ->max('fecha'); // 👈 clave
 
         return response()->json([
@@ -155,6 +160,7 @@ class ChecadasController extends Controller
     }
     public function checadasPorRango(Request $req)
     {
+        [$portalId, $clientIds] = $this->authenticatedScope($req);
         $v = $req->validate([
             'id_portal'     => 'required|integer',
             'id_cliente'    => 'nullable',
@@ -167,8 +173,7 @@ class ChecadasController extends Controller
             'tipo'          => 'nullable',
         ]);
 
-        $portalId  = (int) $v['id_portal'];
-        $clientIds = $this->normalizeIdClienteParam($req->input('id_cliente'));
+
         $order     = Arr::get($v, 'order', 'asc');
         $withEmp   = filter_var(Arr::get($v, 'with_empleado', true), FILTER_VALIDATE_BOOLEAN);
 
@@ -179,7 +184,7 @@ class ChecadasController extends Controller
 
         $rows = $this->checadasQB()
             ->where('id_portal', $portalId)
-            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->whereIn('id_cliente', $clientIds)
             ->when(! empty($empFilter), fn($q) => $q->whereIn('id_empleado', $empFilter))
             ->when(! empty($clases), fn($q) => $q->whereIn('clase', $clases))
             ->when(! empty($tipos), fn($q) => $q->whereIn('tipo', $tipos))
@@ -253,6 +258,7 @@ class ChecadasController extends Controller
      */
     public function checadasPorDia(Request $req)
     {
+        [$portalId, $clientIds] = $this->authenticatedScope($req);
         $v = $req->validate([
             'id_portal'     => 'required|integer',
             'id_cliente'    => 'nullable',
@@ -264,8 +270,7 @@ class ChecadasController extends Controller
             'tipo'          => 'nullable',
         ]);
 
-        $portalId  = (int) $v['id_portal'];
-        $clientIds = $this->normalizeIdClienteParam($req->input('id_cliente'));
+
         $order     = Arr::get($v, 'order', 'asc');
         $withEmp   = filter_var(Arr::get($v, 'with_empleado', true), FILTER_VALIDATE_BOOLEAN);
         $dateStr   = $v['date'];
@@ -277,7 +282,7 @@ class ChecadasController extends Controller
 
         $rows = $this->checadasQB()
             ->where('id_portal', $portalId)
-            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->whereIn('id_cliente', $clientIds)
             ->when(! empty($empFilter), fn($q) => $q->whereIn('id_empleado', $empFilter))
             ->when(! empty($clases), fn($q) => $q->whereIn('clase', $clases))
             ->when(! empty($tipos), fn($q) => $q->whereIn('tipo', $tipos))
@@ -333,7 +338,38 @@ class ChecadasController extends Controller
     }
 
     /* ========================= Helpers ========================= */
+    private function authenticatedScope(
+        Request $request
+    ): array {
+        $administrator = $request->user('sanctum');
 
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'La sesión administrativa no es válida.'
+            );
+        }
+
+        $portalId = (int) $administrator->id_portal;
+
+        $request->merge([
+            'id_portal' => $portalId,
+        ]);
+
+        $requestedClientIds = $this->normalizeIdClienteParam(
+            $request->input('id_cliente')
+        );
+
+        $clientIds = $requestedClientIds !== []
+            ? $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                $requestedClientIds
+            )
+            : $this->clientScope->permittedClientIds(
+                $administrator
+            );
+
+        return [$portalId, $clientIds];
+    }
     private function resolveDateRange(?string $day, ?string $from, ?string $to): array
     {
         if ($day) {
@@ -408,7 +444,7 @@ class ChecadasController extends Controller
         $prevRow = $this->checadasQB()
             ->selectRaw('DATE(check_time) as d')
             ->where('id_portal', $portalId)
-            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->whereIn('id_cliente', $clientIds)
             ->when(! empty($empIds), fn($q) => $q->whereIn('id_empleado', $empIds))
             ->where('check_time', '<', $dayStart)
             ->orderBy('check_time', 'desc')
@@ -418,7 +454,7 @@ class ChecadasController extends Controller
         $nextRow = $this->checadasQB()
             ->selectRaw('DATE(check_time) as d')
             ->where('id_portal', $portalId)
-            ->when(! empty($clientIds), fn($q) => $q->whereIn('id_cliente', $clientIds))
+            ->whereIn('id_cliente', $clientIds)
             ->when(! empty($empIds), fn($q) => $q->whereIn('id_empleado', $empIds))
             ->where('check_time', '>', $dayEnd)
             ->orderBy('check_time', 'asc')

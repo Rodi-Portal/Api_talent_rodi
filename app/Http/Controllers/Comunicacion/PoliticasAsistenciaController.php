@@ -2,14 +2,21 @@
 namespace App\Http\Controllers\Comunicacion;
 
 use App\Http\Controllers\Controller;
-use App\Models\PoliticaAsistencia; // ⬅️ festivos
+use App\Models\Auth\AdministradorAuth; // ⬅️ festivos
+use App\Models\PoliticaAsistencia;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class PoliticasAsistenciaController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
     /* ============================================================
      * GET /api/politicas-asistencia
      * Filtros: id_portal (req), id_cliente (opt), estado (opt), q (opt), per_page (opt)
@@ -17,6 +24,9 @@ class PoliticasAsistenciaController extends Controller
      * ============================================================ */
     public function index(Request $request)
     {
+        $administrator = $this->enforceAuthenticatedPortal(
+            $request
+        );
         $data = $request->validate([
             'id_portal'  => ['required', 'integer'],
             'id_cliente' => ['nullable', 'integer'],
@@ -25,7 +35,12 @@ class PoliticasAsistenciaController extends Controller
             'per_page'   => ['nullable', 'integer', 'min:1', 'max:200'],
             'include'    => ['nullable', 'string'], // e.g. 'pivots'
         ]);
-
+        if (isset($data['id_cliente'])) {
+            $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                [(int) $data['id_cliente']]
+            );
+        }
         $perPage = $data['per_page'] ?? 20;
 
         $q = PoliticaAsistencia::query()
@@ -87,6 +102,9 @@ class PoliticasAsistenciaController extends Controller
      * ============================================================ */
     public function show(Request $request, int $id)
     {
+        $administrator = $this->enforceAuthenticatedPortal(
+            $request
+        );
         $data = $request->validate([
             'id_portal' => ['required', 'integer'],
         ]);
@@ -99,7 +117,10 @@ class PoliticasAsistenciaController extends Controller
         if (! $politica) {
             return response()->json(['ok' => false, 'message' => 'Política no encontrada.'], 404);
         }
-
+        $this->authorizePolicyScope(
+            $administrator,
+            $politica
+        );
         $conn = $this->pivotConn();
 
         $idsEmps = $conn->table('politica_asistencia_empleado')
@@ -131,6 +152,7 @@ class PoliticasAsistenciaController extends Controller
      * ============================================================ */
     public function store(Request $request)
     {
+        $this->enforceAuthenticatedPortal($request);
         $v = $this->validatedData($request);
 
         // ⬅️ nombre único por portal (ajusta si quieres por scope)
@@ -164,6 +186,9 @@ class PoliticasAsistenciaController extends Controller
      * ============================================================ */
     public function update(Request $request, int $id)
     {
+        $administrator = $this->enforceAuthenticatedPortal(
+            $request
+        );
         $v = $this->validatedData($request);
 
         // ⬅️ nombre único por portal excluyendo el propio id
@@ -177,7 +202,10 @@ class PoliticasAsistenciaController extends Controller
         if (! $politica) {
             return response()->json(['ok' => false, 'message' => 'Política no encontrada.'], 404);
         }
-
+        $this->authorizePolicyScope(
+            $administrator,
+            $politica
+        );
         DB::connection($this->modelConnName())->beginTransaction();
         try {
             $politica->fill($this->mapFillable($v));
@@ -208,6 +236,9 @@ class PoliticasAsistenciaController extends Controller
      * ============================================================ */
     public function destroy(Request $request, int $id)
     {
+        $administrator = $this->enforceAuthenticatedPortal(
+            $request
+        );
         $data = $request->validate([
             'id_portal' => ['required', 'integer'],
         ]);
@@ -220,7 +251,10 @@ class PoliticasAsistenciaController extends Controller
         if (! $politica) {
             return response()->json(['ok' => false, 'message' => 'Política no encontrada.'], 404);
         }
-
+        $this->authorizePolicyScope(
+            $administrator,
+            $politica
+        );
         $conn = $this->pivotConn();
 
         DB::connection($this->modelConnName())->beginTransaction();
@@ -255,6 +289,9 @@ class PoliticasAsistenciaController extends Controller
      */
     public function listHolidays(Request $request, int $id)
     {
+        $administrator = $this->enforceAuthenticatedPortal(
+            $request
+        );
         $data = $request->validate([
             'id_portal' => ['required', 'integer'],
             'year'      => ['nullable', 'digits:4'],
@@ -268,7 +305,10 @@ class PoliticasAsistenciaController extends Controller
         if (! $politica) {
             return response()->json(['ok' => false, 'message' => 'Política no encontrada.'], 404);
         }
-
+        $this->authorizePolicyScope(
+            $administrator,
+            $politica
+        );
         $conn = DB::connection($this->modelConnName());
 
         $q = $conn->table('politica_festivos')
@@ -297,6 +337,9 @@ class PoliticasAsistenciaController extends Controller
      */
     public function saveHolidays(Request $request, int $id)
     {
+        $administrator = $this->enforceAuthenticatedPortal(
+            $request
+        );
         $data = $request->validate([
             'id_portal'              => ['required', 'integer'],
             'festivos'               => ['required', 'array', 'min:0'],
@@ -314,7 +357,10 @@ class PoliticasAsistenciaController extends Controller
         if (! $politica) {
             return response()->json(['ok' => false, 'message' => 'Política no encontrada.'], 404);
         }
-
+        $this->authorizePolicyScope(
+            $administrator,
+            $politica
+        );
         $conn  = DB::connection($this->modelConnName());
         $table = $conn->table('politica_festivos');
 
@@ -366,6 +412,9 @@ class PoliticasAsistenciaController extends Controller
     }
     public function destroyHoliday(Request $request, int $id, int $festivoId)
     {
+        $administrator = $this->enforceAuthenticatedPortal(
+            $request
+        );
         $data = $request->validate([
             'id_portal' => ['required', 'integer'],
         ]);
@@ -378,7 +427,10 @@ class PoliticasAsistenciaController extends Controller
         if (! $politica) {
             return response()->json(['ok' => false, 'message' => 'Política no encontrada.'], 404);
         }
-
+        $this->authorizePolicyScope(
+            $administrator,
+            $politica
+        );
         $conn = DB::connection($this->modelConnName());
 
         // valida que el festivo pertenezca a esta política
@@ -445,6 +497,9 @@ class PoliticasAsistenciaController extends Controller
     /** Valida + normaliza (match con payload del front) */
     protected function validatedData(Request $req): array
     {
+        $administrator = $this->enforceAuthenticatedPortal(
+            $req
+        );
         $v = $req->validate([
             'id_portal'                    => ['required', 'integer'],
             'scope'                        => ['required', Rule::in(['PORTAL', 'SUCURSAL', 'EMPLEADO'])],
@@ -512,7 +567,71 @@ class PoliticasAsistenciaController extends Controller
         if ($v['scope'] === 'SUCURSAL' && empty($v['ids_clientes']) && isset($v['id_cliente'])) {
             $v['ids_clientes'] = [(int) $v['id_cliente']];
         }
+        if ($v['scope'] === 'SUCURSAL') {
+            if ($v['ids_clientes'] === []) {
+                throw ValidationException::withMessages([
+                    'ids_clientes' =>
+                    'Debe seleccionar al menos una sucursal.',
+                ]);
+            }
 
+            $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                $v['ids_clientes']
+            );
+        }
+
+        if ($v['scope'] === 'EMPLEADO') {
+            $employeeIds = collect($v['ids_empleados'])
+                ->map(fn($employeeId) => (int) $employeeId)
+                ->filter(fn($employeeId) => $employeeId > 0)
+                ->unique()
+                ->values();
+
+            if (
+                $employeeIds->count()
+                !== count($v['ids_empleados'])
+            ) {
+                throw ValidationException::withMessages([
+                    'ids_empleados' =>
+                    'Uno o más empleados no son válidos.',
+                ]);
+            }
+
+            $employees = DB::connection(
+                $this->modelConnName()
+            )
+                ->table('empleados')
+                ->where(
+                    'id_portal',
+                    (int) $administrator->id_portal
+                )
+                ->whereIn('id', $employeeIds->all())
+                ->get(['id', 'id_cliente']);
+
+            if (
+                $employees->count()
+                !== $employeeIds->count()
+            ) {
+                throw ValidationException::withMessages([
+                    'ids_empleados' =>
+                    'Uno o más empleados no pertenecen al portal autenticado.',
+                ]);
+            }
+
+            $clientIds = $employees
+                ->pluck('id_cliente')
+                ->map(fn($clientId) => (int) $clientId)
+                ->filter(fn($clientId) => $clientId > 0)
+                ->unique()
+                ->values()
+                ->all();
+
+            $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                $clientIds
+            );
+        }
         return $v;
     }
 
@@ -632,5 +751,123 @@ class PoliticasAsistenciaController extends Controller
         if ($q->exists()) {
             abort(Response::HTTP_CONFLICT, 'Ya existe una política con ese nombre en este portal.');
         }
+    }
+    protected function authorizePolicyScope(
+        AdministradorAuth $administrator,
+        PoliticaAsistencia $policy
+    ): void {
+        if ($policy->scope === 'PORTAL') {
+            return;
+        }
+
+        if ($policy->scope === 'SUCURSAL') {
+            $clientIds = $this->pivotConn()
+                ->table('politica_asistencia_cliente')
+                ->where(
+                    'id_politica_asistencia',
+                    (int) $policy->id
+                )
+                ->pluck('id_cliente')
+                ->map(fn($clientId) => (int) $clientId)
+                ->filter(fn($clientId) => $clientId > 0)
+                ->unique()
+                ->values()
+                ->all();
+
+            if (
+                $clientIds === []
+                && (int) $policy->id_cliente > 0
+            ) {
+                $clientIds = [
+                    (int) $policy->id_cliente,
+                ];
+            }
+
+            $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                $clientIds
+            );
+
+            return;
+        }
+
+        if ($policy->scope === 'EMPLEADO') {
+            $employeeIds = $this->pivotConn()
+                ->table('politica_asistencia_empleado')
+                ->where(
+                    'id_politica_asistencia',
+                    (int) $policy->id
+                )
+                ->pluck('id_empleado')
+                ->map(fn($employeeId) => (int) $employeeId)
+                ->filter(fn($employeeId) => $employeeId > 0)
+                ->unique()
+                ->values();
+
+            if (
+                $employeeIds->isEmpty()
+                && (int) $policy->id_empleado > 0
+            ) {
+                $employeeIds = collect([
+                    (int) $policy->id_empleado,
+                ]);
+            }
+
+            if ($employeeIds->isEmpty()) {
+                throw new AuthorizationException(
+                    'La política no tiene empleados válidos asignados.'
+                );
+            }
+
+            $employees = DB::connection(
+                $this->modelConnName()
+            )
+                ->table('empleados')
+                ->where(
+                    'id_portal',
+                    (int) $administrator->id_portal
+                )
+                ->whereIn('id', $employeeIds->all())
+                ->get(['id', 'id_cliente']);
+
+            if (
+                $employees->count()
+                !== $employeeIds->count()
+            ) {
+                throw new AuthorizationException(
+                    'Uno o más empleados de la política no son válidos.'
+                );
+            }
+
+            $clientIds = $employees
+                ->pluck('id_cliente')
+                ->map(fn($clientId) => (int) $clientId)
+                ->filter(fn($clientId) => $clientId > 0)
+                ->unique()
+                ->values()
+                ->all();
+
+            $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                $clientIds
+            );
+        }
+    }
+    protected function enforceAuthenticatedPortal(
+        Request $request
+    ): AdministradorAuth {
+        $administrator = $request->user('sanctum');
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'La sesión administrativa no es válida.'
+            );
+        }
+
+        $request->merge([
+            'id_portal' => (int) $administrator->id_portal,
+        ]);
+
+        return $administrator;
     }
 }

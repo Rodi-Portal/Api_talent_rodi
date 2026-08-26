@@ -2,8 +2,11 @@
 namespace App\Http\Controllers\Comunicacion;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\Comunicacion\ChecadorMapping;
 use App\Services\Asistencia\AsistenciaServicio;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -12,14 +15,46 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class ChecadorController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
     /** ========================= MAPPINGS ========================= */
     public function indexMappings(Request $req)
     {
-        $portalId   = (int) ($req->query('id_portal') ?? $req->query('portal_id'));
-        $sucursalId = ($req->query('id_cliente') ?? $req->query('sucursal_id'));
+        $administrator = $this->administrator($req);
+        $portalId      = (int) $administrator->id_portal;
 
-        $items = ChecadorMapping::portal($portalId)
-            ->sucursal($sucursalId ? (int) $sucursalId : null)
+        $requestedClient = $req->query(
+            'id_cliente',
+            $req->query('sucursal_id')
+        );
+
+        $sucursalId = $this->authorizedOptionalClient(
+            $administrator,
+            $requestedClient
+        );
+
+        $query = ChecadorMapping::portal($portalId);
+
+        if ($sucursalId !== null) {
+            $query->where('sucursal_id', $sucursalId);
+        } else {
+            $permittedClientIds =
+            $this->clientScope->permittedClientIds(
+                $administrator
+            );
+
+            $query->where(function ($scope) use (
+                $permittedClientIds
+            ) {
+                $scope->whereNull('sucursal_id')
+                    ->orWhereIn(
+                        'sucursal_id',
+                        $permittedClientIds
+                    );
+            });
+        }
+        $items = $query
             ->orderByDesc('activo')
             ->orderByDesc('id')
             ->get();
@@ -29,6 +64,11 @@ class ChecadorController extends Controller
 
     public function storeMapping(Request $req)
     {
+        $administrator = $this->administrator($req);
+
+        $req->merge([
+            'id_portal' => (int) $administrator->id_portal,
+        ]);
         $data = $req->validate([
             'id_portal'           => 'required|integer',
             'id_cliente'          => 'nullable|integer',
@@ -36,14 +76,17 @@ class ChecadorController extends Controller
             'headers_fingerprint' => 'nullable|string|max:255',
             'config_json'         => 'required',
         ]);
-
+        $sucursalId = $this->authorizedOptionalClient(
+            $administrator,
+            $data['id_cliente'] ?? null
+        );
         if (is_string($data['config_json'])) {
             $data['config_json'] = json_decode($data['config_json'], true);
         }
 
         $row = ChecadorMapping::create([
-            'portal_id'           => (int) $data['id_portal'],
-            'sucursal_id'         => $data['id_cliente'] ?? null,
+            'portal_id'           => (int) $administrator->id_portal,
+            'sucursal_id'         => $sucursalId,
             'nombre'              => $data['nombre'],
             'headers_fingerprint' => $data['headers_fingerprint'] ?? null,
             'config_json'         => $data['config_json'],
@@ -53,242 +96,13 @@ class ChecadorController extends Controller
         return response()->json(['ok' => true, 'id' => $row->id]);
     }
 
-    /** ========================= IMPORT ========================= */
-    /*
-        public function import(Request $req)
-        {
-            $debug = filter_var($req->input('debug', $req->query('debug', false)), FILTER_VALIDATE_BOOLEAN);
-            $CONN  = 'portal_main';
-
-            // ===== Validación =====
-            $req->validate([
-                'id_portal'   => 'required|integer',
-                'id_cliente'  => 'required|integer',
-                'file'        => 'required|file|mimes:csv,txt,xlsx,xls',
-                'config_json' => 'required',
-            ]);
-
-            $portalId   = (int) $req->input('id_portal');
-            $sucursalId = (int) $req->input('id_cliente');
-            $file       = $req->file('file');
-
-            Log::info('[ChecadorImport] inicio', [
-                'portal'  => $portalId,
-                'cliente' => $sucursalId,
-                'file'    => $file ? $file->getClientOriginalName() : null,
-                'ext'     => $file ? strtolower($file->getClientOriginalExtension()) : null,
-                'size'    => $file ? $file->getSize() : null,
-                'debug'   => $debug,
-            ]);
-
-            // ===== Config =====
-            $cfg = $this->parseConfigFromRequest($req);
-            if (! is_array($cfg) || empty($cfg)) {
-                return response()->json(['ok' => false, 'msg' => 'config_json vacío o inválido'], 422);
-            }
-            $cfg['datetime']                  = $cfg['datetime'] ?? [];
-            $cfg['datetime']['mode']          = $cfg['datetime']['mode'] ?? 'single';
-            $cfg['datetime']['excelBase']     = $cfg['datetime']['excelBase'] ?? '1900';
-            $cfg['datetime']['offsetMinutes'] = (int) ($cfg['datetime']['offsetMinutes'] ?? 0);
-            $cfg['datetime']['format']        = $cfg['datetime']['format'] ?? 'Y-m-d H:i:s';
-            $cfg['datetime']['dateFmt']       = $cfg['datetime']['dateFmt'] ?? 'Y-m-d';
-            $cfg['datetime']['timeFmt']       = $cfg['datetime']['timeFmt'] ?? 'H:i:s';
-
-            Log::info('[ChecadorImport] cfg columnas', [
-                'emp_col'   => $cfg['employee_key']['col'] ?? '',
-                'name_col'  => $cfg['employee_name']['col'] ?? '',
-                'dt_mode'   => $cfg['datetime']['mode'] ?? '',
-                'dt_col'    => $cfg['datetime']['col'] ?? '',
-                'dateCol'   => $cfg['datetime']['dateCol'] ?? '',
-                'timeCol'   => $cfg['datetime']['timeCol'] ?? '',
-                'serialCol' => $cfg['datetime']['serialCol'] ?? '',
-                'excelBase' => $cfg['datetime']['excelBase'] ?? '1900',
-                'type_col'  => $cfg['type']['col'] ?? '',
-            ]);
-
-            // ===== Archivo → filas =====
-            $rows    = $this->readFileToRows($file);
-            $headers = array_keys($rows[0] ?? []);
-            Log::info('[ChecadorImport] archivo leído', ['rows' => count($rows), 'headers' => $headers]);
-            if (! count($rows)) {
-                return response()->json(['ok' => false, 'msg' => 'Archivo vacío o sin encabezados reconocibles'], 422);
-            }
-
-            // ===== Validación previa (muestra) — solo si existe el helper =====
-            if (is_callable([$this, 'validatePreview'])) {
-                $sample                   = array_slice($rows, 0, 50);
-                [$okPreview, $errPreview] = $this->validatePreview($sample, $cfg);
-                if (! $okPreview) {
-                    Log::warning('[ChecadorImport] validatePreview FALLÓ', ['reason' => $errPreview]);
-                    return response()->json(['ok' => false, 'msg' => $errPreview], 422);
-                }
-            } else {
-                Log::warning('[ChecadorImport] validatePreview no existe en el controlador; se omite esta verificación.');
-            }
-
-            // ===== Índices de empleados (por id_empleado y por nombre normalizado) =====
-            // Nota: este helper debe ser el que te pasé (firma: ($conn, $portalId, $sucursalId) => [byKey, byName])
-            [$empByKey, $empByName] = $this->buildEmployeeIndexes($CONN, $portalId, $sucursalId);
-
-            // ===== Bucle principal (UPSERT) =====
-            $insertados   = 0;
-            $actualizados = 0;
-            $errores      = 0;
-            $WHY_MAX      = 120;
-            $why          = [];
-
-            foreach ($rows as $idx => $row) {
-                $norm = $this->normalizeRow($row, $cfg);
-
-                // --- Resolver empleado: por key o por nombre ---
-                $ek    = trim((string) ($norm['employee_key'] ?? ''));
-                $empId = null;
-
-                if ($ek !== '' && isset($empByKey[$ek])) {
-                    $empId = (int) $empByKey[$ek];
-                }
-                if (! $empId && ! empty($cfg['employee_name']['col'])) {
-                    $nombreRaw = (string) ($row[$cfg['employee_name']['col']] ?? '');
-                    if ($nombreRaw !== '') {
-                        $nomKey = $this->normalizeName($nombreRaw); // <- quita acentos y puntuación (incl. ".")
-                        $empId  = isset($empByName[$nomKey]) ? (int) $empByName[$nomKey] : null;
-                    }
-                }
-                if (! $empId) {
-                    $errores++;
-                    if ($debug && count($why) < $WHY_MAX) {
-                        $why[] = ['i' => $idx, 'reason' => 'empleado_no_encontrado', 'ek' => $ek, 'name' => ($row[$cfg['employee_name']['col'] ?? ''] ?? null)];
-                    }
-                    continue;
-                }
-
-                // --- datetime ---
-                $dt = trim((string) ($norm['datetime'] ?? ''));
-                if ($dt === '') {
-                    $errores++;
-                    if ($debug && count($why) < $WHY_MAX) {
-                        $why[] = ['i' => $idx, 'reason' => 'sin_datetime', 'raw_dt' => $this->whyRawDatetime($row, $cfg)];
-                    }
-                    continue;
-                }
-                $fecha = substr($dt, 0, 10);
-
-                // --- tipo/clase tolerante ---
-                $typeCol        = $cfg['type']['col'] ?? '';
-                $typeRaw        = $typeCol ? (string) ($row[$typeCol] ?? '') : ($norm['type_raw'] ?? '');
-                $typeNor        = $this->mapTypeTolerant((string) $typeRaw, $cfg['type']['dict'] ?? []);
-                [$tipo, $clase] = $this->mapTipoYClase($typeNor, $typeRaw);
-
-                // Fallback mínimo porque 'tipo' es NOT NULL en tu tabla
-                if ($tipo === null) {
-                    $needle = $this->normalizeText((string) $typeRaw);
-                    if ($needle !== '') {
-                        if (str_contains($needle, 'entrada') || str_contains($needle, 'in')) {
-                            $tipo = 'in';
-                        } elseif (str_contains($needle, 'salida') || str_contains($needle, 'out')) {
-                            $tipo = 'out';
-                        }
-                    }
-                    if ($tipo === null) {
-                        $tipo = 'in';
-                    }
-
-                    if ($clase === null) {
-                        $clase = 'work';
-                    }
-
-                }
-
-                // --- UPSERT por llave natural (portal+cliente+empleado+check_time) ---
-                $uniq = [
-                    'id_portal'   => $portalId,
-                    'id_cliente'  => $sucursalId,
-                    'id_empleado' => $empId,
-                    'check_time'  => $dt,
-                ];
-
-                try {
-                    $existing = DB::connection($CONN)->table('checadas')->where($uniq)->first();
-
-                    if (! $existing) {
-                        // INSERT NUEVO
-                        DB::connection($CONN)->table('checadas')->insert([
-                            'id_portal'   => $uniq['id_portal'],
-                            'id_cliente'  => $uniq['id_cliente'],
-                            'id_empleado' => $uniq['id_empleado'],
-                            'check_time'  => $uniq['check_time'],
-                            'fecha'       => $fecha,
-                            'tipo'        => $tipo, // NOT NULL
-                            'clase'       => $clase ?? 'work',
-                            'dispositivo' => $norm['device'] ?: null,
-                            'origen'      => $this->originFromFile($file),
-                            'observacion' => null,
-                            'hash'        => sha1($portalId . '|' . $sucursalId . '|' . $empId . '|' . $dt),
-                            'creado_en'   => now(),
-                        ]);
-                        $insertados++;
-                    } else {
-                        // UPDATE EXISTENTE (no pisar con nulls; no usamos 'actualizado_en' pues no existe en la tabla)
-                        $update = [
-                            'fecha'  => $fecha,
-                            'origen' => $this->originFromFile($file),
-                        ];
-                        if (! empty($norm['device'])) {
-                            $update['dispositivo'] = $norm['device'];
-                        }
-
-                        if ($tipo !== null) {
-                            $update['tipo'] = $tipo;
-                        }
-
-                        if ($clase !== null) {
-                            $update['clase'] = $clase;
-                        }
-
-                        DB::connection($CONN)->table('checadas')->where($uniq)->update($update);
-                        $actualizados++;
-                    }
-                } catch (\Throwable $e) {
-                    $errores++;
-                    Log::error('[ChecadorImport] error en UPSERT', [
-                        'i'    => $idx, 'error' => $e->getMessage(),
-                        'uniq' => $uniq, 'dt'   => $dt, 'tipo' => $tipo, 'clase' => $clase,
-                    ]);
-                    if ($debug && count($why) < $WHY_MAX) {
-                        $why[] = ['i' => $idx, 'reason' => 'db_error', 'msg' => $e->getMessage(), 'uniq' => $uniq];
-                    }
-                }
-            }
-
-            Log::info('[ChecadorImport] fin', [
-                'insertados'   => $insertados,
-                'actualizados' => $actualizados,
-                'errores'      => $errores,
-            ]);
-            if ($debug && $why) {
-                Log::debug('[ChecadorImport] detalles de descarte (muestra)', ['why' => array_slice($why, 0, 30)]);
-            }
-
-            // ===== Respuesta =====
-            if ($insertados === 0 && $actualizados === 0) {
-                return response()->json([
-                    'ok'    => false,
-                    'msg'   => 'Nada importado. Revisa ID/nombre de empleado, fecha/hora y tipo.',
-                    'stats' => compact('insertados', 'actualizados', 'errores'),
-                    'why'   => $debug ? array_slice($why, 0, 30) : null,
-                ], 422);
-            }
-
-            return response()->json([
-                'ok'    => true,
-                'msg'   => $errores ? 'Importado con observaciones' : 'Importación completa',
-                'stats' => compact('insertados', 'actualizados', 'errores'),
-                'why'   => $debug ? array_slice($why, 0, 30) : null,
-            ], $errores ? 207 : 200);
-        }
-    */
     public function import(Request $req)
     {
+        $administrator = $this->administrator($req);
+
+        $req->merge([
+            'id_portal' => (int) $administrator->id_portal,
+        ]);
         $debug = filter_var($req->input('debug', $req->query('debug', false)), FILTER_VALIDATE_BOOLEAN);
         $CONN  = 'portal_main';
 
@@ -299,10 +113,19 @@ class ChecadorController extends Controller
             'file'        => 'required|file|mimes:csv,txt,xlsx,xls',
             'config_json' => 'required',
         ]);
+        $portalId = (int) $administrator->id_portal;
 
-        $portalId   = (int) $req->input('id_portal');
-        $sucursalId = (int) $req->input('id_cliente');
-        $file       = $req->file('file');
+        $sucursalId = $this->authorizedOptionalClient(
+            $administrator,
+            $req->input('id_cliente')
+        );
+
+        if ($sucursalId === null) {
+            throw new AuthorizationException(
+                'Debe seleccionar una sucursal válida para importar.'
+            );
+        }
+        $file = $req->file('file');
 
         Log::info('[ChecadorImport] inicio', [
             'portal'  => $portalId,
@@ -325,7 +148,6 @@ class ChecadorController extends Controller
         $cfg['datetime']['format']        = $cfg['datetime']['format'] ?? 'Y-m-d H:i:s';
         $cfg['datetime']['dateFmt']       = $cfg['datetime']['dateFmt'] ?? 'Y-m-d';
         $cfg['datetime']['timeFmt']       = $cfg['datetime']['timeFmt'] ?? 'H:i:s';
-
         Log::info('[ChecadorImport] cfg columnas', [
             'emp_col'   => $cfg['employee_key']['col'] ?? '',
             'name_col'  => $cfg['employee_name']['col'] ?? '',
@@ -337,7 +159,6 @@ class ChecadorController extends Controller
             'excelBase' => $cfg['datetime']['excelBase'] ?? '1900',
             'type_col'  => $cfg['type']['col'] ?? '',
         ]);
-
         // ===== Archivo → filas =====
         $rows    = $this->readFileToRows($file);
         $headers = array_keys($rows[0] ?? []);
@@ -604,7 +425,36 @@ class ChecadorController extends Controller
             'why'   => $debug ? array_slice($why, 0, 30) : null,
         ], $errores ? 207 : 200);
     }
+    private function administrator(
+        Request $request
+    ): AdministradorAuth {
+        $administrator = $request->user('sanctum');
 
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'La sesión administrativa no es válida.'
+            );
+        }
+
+        return $administrator;
+    }
+
+    private function authorizedOptionalClient(
+        AdministradorAuth $administrator,
+        mixed $clientId
+    ): ?int {
+        if ($clientId === null || $clientId === '') {
+            return null;
+        }
+
+        $authorized = $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                [(int) $clientId]
+            );
+
+        return $authorized[0];
+    }
     /** ========================= HELPERS ========================= */
 
     /** Lee config_json soportando string, array o archivo (Blob) */
@@ -1073,8 +923,8 @@ class ChecadorController extends Controller
     }
     // === Añade esto dentro de ChecadorController ===
 
-/** Valida una muestra antes de importar.
- * Acepta que falte employee_key si viene nombre; exige fecha/hora parseada. */
+    /** Valida una muestra antes de importar.
+     * Acepta que falte employee_key si viene nombre; exige fecha/hora parseada. */
     private function validatePreview(array $sample, array $cfg): array
     {
         if (! $sample) {
@@ -1112,7 +962,7 @@ class ChecadorController extends Controller
         return [true, null];
     }
 
-/** Devuelve el valor “crudo” de fecha/hora según el modo declarado, para diagnóstico. */
+    /** Devuelve el valor “crudo” de fecha/hora según el modo declarado, para diagnóstico. */
     private function whyRawDatetime(array $row, array $cfg)
     {
         $mode = $cfg['datetime']['mode'] ?? 'single';

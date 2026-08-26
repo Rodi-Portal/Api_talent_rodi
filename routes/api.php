@@ -549,16 +549,70 @@ Route::middleware(['api'])->group(function () {
     //*************** FIN Calendario ****************/
 
     //***************  Inicio Politicas Asitencia  ****************/
-    Route::get('/politicas-asistencia', [PoliticasAsistenciaController::class, 'index']);
-    Route::get('/politicas-asistencia/{id}', [PoliticasAsistenciaController::class, 'show']);
-    Route::post('/politicas-asistencia', [PoliticasAsistenciaController::class, 'store']);
-    Route::put('/politicas-asistencia/{id}', [PoliticasAsistenciaController::class, 'update']);
-    Route::delete('/politicas-asistencia/{id}', [PoliticasAsistenciaController::class, 'destroy']);
-    // Festivos por política
-    Route::get('/politicas-asistencia/{id}/festivos', [PoliticasAsistenciaController::class, 'listHolidays']);
-    Route::match(['PUT', 'POST'], '/politicas-asistencia/{id}/festivos', [PoliticasAsistenciaController::class, 'saveHolidays']);
-    Route::delete('/politicas-asistencia/{id}/festivos/{festivoId}',
-        [PoliticasAsistenciaController::class, 'destroyHoliday']);
+    Route::prefix('politicas-asistencia')
+        ->middleware([
+            'auth:sanctum',
+            'admin.session',
+            'admin.permission:module.comunicacion.ver',
+        ])
+        ->group(function () {
+            Route::get(
+                '/',
+                [PoliticasAsistenciaController::class, 'index']
+            )->middleware(
+                'admin.permission:comunicacion.politicas_asistencia.ver'
+            );
+
+            Route::get(
+                '/{id}',
+                [PoliticasAsistenciaController::class, 'show']
+            )->middleware(
+                'admin.permission:comunicacion.politicas_asistencia.ver'
+            );
+
+            Route::post(
+                '/',
+                [PoliticasAsistenciaController::class, 'store']
+            )->middleware(
+                'admin.permission:comunicacion.politicas_asistencia.crear'
+            );
+
+            Route::put(
+                '/{id}',
+                [PoliticasAsistenciaController::class, 'update']
+            )->middleware(
+                'admin.permission:comunicacion.politicas_asistencia.editar'
+            );
+
+            Route::delete(
+                '/{id}',
+                [PoliticasAsistenciaController::class, 'destroy']
+            )->middleware(
+                'admin.permission:comunicacion.politicas_asistencia.eliminar'
+            );
+
+            Route::get(
+                '/{id}/festivos',
+                [PoliticasAsistenciaController::class, 'listHolidays']
+            )->middleware(
+                'admin.permission:comunicacion.politicas_asistencia.ver'
+            );
+
+            Route::match(
+                ['PUT', 'POST'],
+                '/{id}/festivos',
+                [PoliticasAsistenciaController::class, 'saveHolidays']
+            )->middleware(
+                'admin.permission:comunicacion.politicas_asistencia.editar'
+            );
+
+            Route::delete(
+                '/{id}/festivos/{festivoId}',
+                [PoliticasAsistenciaController::class, 'destroyHoliday']
+            )->middleware(
+                'admin.permission:comunicacion.politicas_asistencia.eliminar'
+            );
+        });
 
     //***************  Fin Politicas Asitencia  ****************/
 
@@ -918,23 +972,66 @@ Route::middleware(['api'])->group(function () {
 
     Route::get('/notificaciones/consultarex/{id_portal}/{id_cliente}/{status}', [NotificacionController::class, 'consultarExempleo']);
 
-    //***************  Inicio Checador  ****************/
-    Route::get('/checador/mappings', [ChecadorController::class, 'indexMappings']);
-    Route::post('/checador/mappings', [ChecadorController::class, 'storeMapping']);
-    Route::post('/checador/import', [ChecadorController::class, 'import']);
-    Route::get('/checador/ultimo-dia', [ChecadasController::class, 'ultimoDiaChecadas']);
+       //*************** Inicio Checador ****************/
 
-    Route::prefix('checador')->group(function () {
-        // crudas (lista simple, ordenadas por fecha/hora)
-        Route::get('/checadas', [ChecadasController::class, 'listChecadas']);
+    Route::prefix('checador')
+        ->middleware([
+            'auth:sanctum',
+            'admin.session',
+            'admin.permission:module.comunicacion.ver',
+        ])
+        ->group(function () {
+            Route::get(
+                'mappings',
+                [ChecadorController::class, 'indexMappings']
+            )->middleware(
+                'admin.permission:comunicacion.checador.configurar_mapeos'
+            );
 
-        // agrupadas por día (y empleado)
-        Route::get('/checadas/rango', [ChecadasController::class, 'checadasPorRango']);
+            Route::post(
+                'mappings',
+                [ChecadorController::class, 'storeMapping']
+            )->middleware(
+                'admin.permission:comunicacion.checador.configurar_mapeos'
+            );
 
-        // un día con navegación (prev/next)
-        Route::get('/checadas/dia', [ChecadasController::class, 'checadasPorDia']);
-    });
-    //***************  Fin  Checador  ****************/
+            Route::post(
+                'import',
+                [ChecadorController::class, 'import']
+            )->middleware(
+                'admin.permission:comunicacion.checador.importar'
+            );
+
+            Route::get(
+                'ultimo-dia',
+                [ChecadasController::class, 'ultimoDiaChecadas']
+            )->middleware(
+                'admin.permission:comunicacion.checador.ver'
+            );
+
+            Route::get(
+                'checadas',
+                [ChecadasController::class, 'listChecadas']
+            )->middleware(
+                'admin.permission:comunicacion.checador.ver'
+            );
+
+            Route::get(
+                'checadas/rango',
+                [ChecadasController::class, 'checadasPorRango']
+            )->middleware(
+                'admin.permission:comunicacion.checador.ver'
+            );
+
+            Route::get(
+                'checadas/dia',
+                [ChecadasController::class, 'checadasPorDia']
+            )->middleware(
+                'admin.permission:comunicacion.checador.ver'
+            );
+        });
+
+    //*************** Fin Checador ****************/
 
     //***************  Inicio Recordatorios ****************/
     Route::middleware([
