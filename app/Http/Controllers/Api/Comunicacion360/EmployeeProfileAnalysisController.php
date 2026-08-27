@@ -2,27 +2,64 @@
 namespace App\Http\Controllers\Api\Comunicacion360;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
+use App\Services\Auth\AdminClientScopeService;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class EmployeeProfileAnalysisController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
+
     public function show(Request $request, int $id)
     {
+        $validated = $request->validate([
+            'fecha_inicio' => [
+                'nullable',
+                'date_format:Y-m-d',
+            ],
+            'fecha_fin'    => [
+                'nullable',
+                'date_format:Y-m-d',
+                'after_or_equal:fecha_inicio',
+            ],
+        ]);
+
+        $administrator = $this->administrator($request);
+
         $employee = DB::connection('portal_main')
             ->table('empleados')
-            ->select('id', 'id_portal', 'id_cliente', 'status')
+            ->select(
+                'id',
+                'id_portal',
+                'id_cliente',
+                'status'
+            )
             ->where('id', $id)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where('eliminado', 0)
             ->first();
 
-        if (! $employee) {
+        if (! $employee || ! $employee->id_cliente) {
             return response()->json([
                 'ok'   => false,
                 'code' => 'employee_not_found',
             ], 404);
         }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $employee->id_cliente]
+        );
 
         $timezone = DB::connection('portal_main')
             ->table('checador_asignaciones as ca')
@@ -45,19 +82,34 @@ class EmployeeProfileAnalysisController extends Controller
 
         $today = now($timezone)->toDateString();
 
-        $fechaInicio = $request->input(
-            'fecha_inicio',
-            now($timezone)->subDays(29)->toDateString()
-        );
+        $fechaInicio = $validated['fecha_inicio'] ?? now($timezone)->subDays(29)->toDateString();
 
-        $fechaFin = $request->input(
-            'fecha_fin',
-            $today
-        );
+        $fechaFin = $validated['fecha_fin'] ?? $today;
 
-        $periodType = $request->filled('fecha_inicio') || $request->filled('fecha_fin')
-            ? 'custom'
-            : 'last_30_days';
+        $periodStart = Carbon::createFromFormat(
+            'Y-m-d',
+            $fechaInicio,
+            $timezone
+        )->startOfDay();
+
+        $periodEnd = Carbon::createFromFormat(
+            'Y-m-d',
+            $fechaFin,
+            $timezone
+        )->startOfDay();
+
+        if ($periodStart->diffInDays($periodEnd) > 366) {
+            throw ValidationException::withMessages([
+                'fecha_fin' => [
+                    'El periodo de análisis no puede superar 366 días.',
+                ],
+            ]);
+        }
+
+        $periodType = isset($validated['fecha_inicio'])
+            || isset($validated['fecha_fin'])
+                ? 'custom'
+                : 'last_30_days';
 
         $tasksBaseQuery = DB::connection('portal_main')
             ->table('comunicacion360_empleado_tareas')
@@ -217,7 +269,6 @@ class EmployeeProfileAnalysisController extends Controller
         $scheduledWorkDays = 0;
         $justifiedDays     = 0;
         $workedDays        = 0;
-
 
         foreach (CarbonPeriod::create($fechaInicio, $fechaFin) as $date) {
             $currentDate = $date->toDateString();
@@ -578,5 +629,19 @@ class EmployeeProfileAnalysisController extends Controller
                 'daily_summary' => $dailySummary,
             ],
         ]);
+    }
+
+    private function administrator(
+        Request $request
+    ): AdministradorAuth {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
     }
 }
