@@ -2,6 +2,7 @@
 namespace App\Http\Controllers\Api\Empleado;
 
 use App\Http\Controllers\Controller;
+use App\Services\Checador\TaskEvidencePathService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -357,39 +358,54 @@ class EmpleadoTareasController extends Controller
     ): array {
         $mes = Carbon::parse($fecha)->format('Y-m');
 
-        $relativeDir = "_evidenciasTarea/{$idPortal}/{$idCliente}/{$idEmpleado}/{$mes}";
+        $evidencePaths = app(
+            TaskEvidencePathService::class
+        );
 
-        $basePath = app()->environment('production')
-            ? config('paths.prod_images')
-            : config('paths.local_images');
+        $relativeDir = $evidencePaths
+            ->newRelativeDirectory(
+                $idPortal,
+                $idCliente,
+                $idEmpleado,
+                $mes
+            );
 
-        $fullDir = rtrim($basePath, DIRECTORY_SEPARATOR)
-        . DIRECTORY_SEPARATOR
-        . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
+        $fullDir = $evidencePaths->newFullDirectory(
+            $idPortal,
+            $idCliente,
+            $idEmpleado,
+            $mes
+        );
 
         if (! File::exists($fullDir)) {
-            File::makeDirectory($fullDir, 0755, true);
+            File::makeDirectory(
+                $fullDir,
+                0755,
+                true
+            );
         }
 
-        $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension());
+        $extension = strtolower(
+            $file->getClientOriginalExtension()
+                ?: $file->extension()
+        );
 
-        $filename = 'evidencia_tarea_' . now()->format('Ymd_His')
-        . '_' . Str::random(10)
-            . '.' . $extension;
+        $filename = 'evidencia_tarea_'
+        . now()->format('Ymd_His')
+        . '_'
+        . Str::random(10)
+            . '.'
+            . $extension;
 
         $originalName = $file->getClientOriginalName();
         $mimeType     = $file->getClientMimeType();
         $size         = $file->getSize();
-        $extension    = strtolower($file->getClientOriginalExtension() ?: $file->extension());
-
-        $filename = 'evidencia_tarea_' . now()->format('Ymd_His')
-        . '_' . Str::random(10)
-            . '.' . $extension;
 
         $file->move($fullDir, $filename);
 
         return [
-            'relative_path' => $relativeDir . '/' . $filename,
+            'relative_path' =>
+            $relativeDir . '/' . $filename,
             'filename'      => $filename,
             'original_name' => $originalName,
             'extension'     => $extension,
@@ -514,16 +530,13 @@ class EmpleadoTareasController extends Controller
                 'message' => 'Evidencia no encontrada',
             ], 404);
         }
+        $fullPath = app(
+            TaskEvidencePathService::class
+        )->resolveExisting(
+            $evidencia->ruta_archivo
+        );
 
-        $basePath = app()->environment('production')
-            ? config('paths.prod_images')
-            : config('paths.local_images');
-
-        $fullPath = rtrim($basePath, DIRECTORY_SEPARATOR)
-        . DIRECTORY_SEPARATOR
-        . str_replace('/', DIRECTORY_SEPARATOR, $evidencia->ruta_archivo);
-
-        if (! File::exists($fullPath)) {
+        if ($fullPath === null) {
             return response()->json([
                 'ok'      => false,
                 'message' => 'Archivo no encontrado',

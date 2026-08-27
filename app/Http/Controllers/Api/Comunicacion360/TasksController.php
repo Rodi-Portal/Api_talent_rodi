@@ -6,6 +6,7 @@ use App\Models\Auth\AdministradorAuth;
 use App\Models\Comunicacion360\Tareas;
 use App\Services\Auditoria\AuditoriaService;
 use App\Services\Auth\AdminClientScopeService;
+use App\Services\Checador\TaskEvidencePathService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -13,9 +14,10 @@ use Illuminate\Support\Facades\DB;
 
 class TasksController extends Controller
 {
-    public function __construct(
+      public function __construct(
         private AdminClientScopeService $clientScope,
-        private AuditoriaService $auditoria
+        private AuditoriaService $auditoria,
+        private TaskEvidencePathService $evidencePaths
     ) {}
     /**
      * GET /api/comunicacion360/tasks
@@ -199,22 +201,39 @@ class TasksController extends Controller
                 $evidencias->get($tarea->id, [])
             )->first();
             $evidenciaBase64 = null;
+                if (
+                    $evidenciaActual
+                    && ! empty($evidenciaActual->ruta_archivo)
+                ) {
+                    $fullPath = $this->evidencePaths
+                        ->resolveExisting(
+                            $evidenciaActual->ruta_archivo
+                        );
 
-            if ($evidenciaActual && ! empty($evidenciaActual->ruta_archivo)) {
-                $basePath = app()->environment('production')
-                    ? config('paths.prod_images')
-                    : config('paths.local_images');
+                    if ($fullPath !== null) {
+                        $size = filesize($fullPath);
 
-                $fullPath = rtrim($basePath, DIRECTORY_SEPARATOR)
-                . DIRECTORY_SEPARATOR
-                . str_replace('/', DIRECTORY_SEPARATOR, $evidenciaActual->ruta_archivo);
+                        if (
+                            $size !== false
+                            && $size <= 20 * 1024 * 1024
+                        ) {
+                            $content = file_get_contents(
+                                $fullPath
+                            );
 
-                if (file_exists($fullPath)) {
-                    $mime = mime_content_type($fullPath);
+                            if ($content !== false) {
+                                $mime = mime_content_type(
+                                    $fullPath
+                                ) ?: 'application/octet-stream';
 
-                    $evidenciaBase64 = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($fullPath));
+                                $evidenciaBase64 =
+                                    'data:' . $mime
+                                    . ';base64,'
+                                    . base64_encode($content);
+                            }
+                        }
+                    }
                 }
-            }
 
             return [
                 'id'                 => (int) $tarea->id,
