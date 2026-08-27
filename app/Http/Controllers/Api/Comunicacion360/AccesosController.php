@@ -2,6 +2,9 @@
 namespace App\Http\Controllers\Api\Comunicacion360;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -11,21 +14,52 @@ use Illuminate\Validation\Rules\Password;
 
 class AccesosController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
+
     public function index(Request $request)
     {
-        $idPortal   = (int) $request->query('id_portal');
-        $idUsuario  = (int) $request->query('id_usuario');
-        $sucursales = $request->query('sucursales', []);
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
 
-        if (! is_array($sucursales)) {
-            $sucursales = [$sucursales];
+        $sucursalesSolicitadas = $request->query(
+            'sucursales',
+            []
+        );
+
+        if (! is_array($sucursalesSolicitadas)) {
+            $sucursalesSolicitadas = [
+                $sucursalesSolicitadas,
+            ];
         }
 
-        $sucursales = collect($sucursales)
+        $sucursalesSolicitadas = collect(
+            $sucursalesSolicitadas
+        )
             ->map(fn($id) => (int) $id)
             ->filter(fn($id) => $id > 0)
+            ->unique()
             ->values()
             ->all();
+
+        $clientIds = $sucursalesSolicitadas === []
+            ? $this->clientScope
+            ->permittedClientIds($administrator)
+            : $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                $sucursalesSolicitadas
+            );
+
+        if ($clientIds === []) {
+            return response()->json([
+                'ok'      => true,
+                'message' =>
+                'Accesos obtenidos correctamente',
+                'data'    => [],
+            ]);
+        }
 
         $query = DB::connection('portal_main')
             ->table('empleados as e')
@@ -50,10 +84,10 @@ class AccesosController extends Controller
             ->where('e.id_portal', $idPortal)
             ->where('e.status', 1)
             ->where('e.eliminado', 0);
-
-        if (! empty($sucursales)) {
-            $query->whereIn('e.id_cliente', $sucursales);
-        }
+        $query->whereIn(
+            'e.id_cliente',
+            $clientIds
+        );
 
         $empleados = $query
             ->orderBy('e.nombre')
@@ -61,7 +95,64 @@ class AccesosController extends Controller
             ->orderBy('e.materno')
             ->get();
 
-        $data = $empleados->map(function ($item) {
+        $employeeIds = $empleados
+            ->pluck('id')
+            ->map(fn($id) => (int) $id)
+            ->values()
+            ->all();
+
+        $eventosHoy = $employeeIds === []
+            ? collect()
+            : DB::connection('portal_main')
+            ->table('calendario_eventos as ce')
+            ->join(
+                'eventos_option as eo',
+                'eo.id',
+                '=',
+                'ce.id_tipo'
+            )
+            ->whereIn(
+                'ce.id_empleado',
+                $employeeIds
+            )
+            ->where('ce.eliminado', 0)
+            ->whereIn('ce.estado_aprobacion', [
+                'no_requiere',
+                'aprobado',
+            ])
+            ->whereDate(
+                'ce.inicio',
+                '<=',
+                now()->toDateString()
+            )
+            ->whereDate(
+                'ce.fin',
+                '>=',
+                now()->toDateString()
+            )
+            ->select([
+                'ce.id',
+                'ce.id_empleado',
+                'ce.id_tipo',
+                'ce.inicio',
+                'ce.fin',
+                'ce.estado_aprobacion',
+                'eo.name as tipo_nombre',
+                'eo.color as tipo_color',
+                'eo.id_portal as tipo_id_portal',
+            ])
+            ->orderByDesc('ce.id')
+            ->get()
+            ->groupBy(
+                fn($evento) => (int) $evento->id_empleado
+            )
+            ->map(
+                fn($eventos) => $eventos->first()
+            );
+
+        $data = $empleados->map(function ($item) use (
+            $eventosHoy
+        ) {
             $nombreCompleto = trim(collect([
                 $item->nombre,
                 $item->paterno,
@@ -101,6 +192,9 @@ class AccesosController extends Controller
                 ->whereDate('fecha', now()->toDateString())
                 ->orderByDesc('check_time')
                 ->first();
+            $eventoHoy = $eventosHoy->get(
+                (int) $item->id
+            );
 
             $checadorEstado      = 'sin_checada';
             $checadorEstadoLabel = 'Sin checada';
@@ -122,6 +216,11 @@ class AccesosController extends Controller
                     $checadorEstado      = 'salida_registrada';
                     $checadorEstadoLabel = 'Salida registrada';
                 }
+            }
+            if (! $ultimaChecada && $eventoHoy) {
+                $checadorEstado      = 'evento_calendario';
+                $checadorEstadoLabel =
+                (string) $eventoHoy->tipo_nombre;
             }
             $basePath = app()->environment('production')
                 ? config('paths.prod_images')
@@ -193,8 +292,7 @@ class AccesosController extends Controller
                                 ? substr($detalle->hora_salida, 0, 5)
                                 : null,
                         ];
-                    })
-                    ->values();
+                    })->values();
             }
 
             $diasLabora = $horarioDetalles
@@ -237,6 +335,21 @@ class AccesosController extends Controller
                 'tiene_tareas_hoy'          => $tareasTotal > 0,
                 'checador_estado'           => $checadorEstado,
                 'checador_estado_label'     => $checadorEstadoLabel,
+                'evento_vigente'            => (bool) $eventoHoy,
+                'evento_id'                 => $eventoHoy
+                    ? (int) $eventoHoy->id
+                    : null,
+                'evento_tipo_id'            => $eventoHoy
+                    ? (int) $eventoHoy->id_tipo
+                    : null,
+                'evento_tipo_global'        => (bool) (
+                    $eventoHoy &&
+                    $eventoHoy->tipo_id_portal === null
+                ),
+                'evento_tipo'               => $eventoHoy?->tipo_nombre,
+                'evento_color'              => $eventoHoy?->tipo_color,
+                'evento_inicio'             => $eventoHoy?->inicio,
+                'evento_fin'                => $eventoHoy?->fin,
                 'ultima_checada'            => $ultimaChecada?->check_time,
                 'ultima_checada_tipo'       => $ultimaChecada?->tipo,
                 'ultima_checada_clase'      => $ultimaChecada?->clase,
@@ -1234,6 +1347,19 @@ class AccesosController extends Controller
         shuffle($password);
 
         return implode('', $password);
+    }
+    private function administrator(
+        Request $request
+    ): AdministradorAuth {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
     }
 
 }
