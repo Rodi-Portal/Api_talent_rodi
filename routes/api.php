@@ -1682,12 +1682,65 @@ Route::prefix('checador')->group(function () {
         'admin.permission:module.comunicacion360.ver',
     ])
         ->group(function () {
-            Route::get('/ubicaciones', [ChecadorUbicacionesController::class, 'index']);
-            Route::post('/ubicaciones', [ChecadorUbicacionesController::class, 'store']);
-            Route::put('/ubicaciones/{id}', [ChecadorUbicacionesController::class, 'update']);
-            Route::delete('/ubicaciones/{id}', [ChecadorUbicacionesController::class, 'destroy']);
-            Route::post('/qr/generar', [ChecadorQrController::class, 'generar']);
-            Route::get('/qr/fijo/{ubicacionId}', [ChecadorQrController::class, 'mostrarFijo']);
+            Route::get(
+                '/ubicaciones',
+                [
+                    ChecadorUbicacionesController::class,
+                    'index',
+                ]
+            )->middleware(
+                'admin.permission:comunicacion360.checador.ubicaciones.ver'
+            );
+
+            Route::post(
+                '/ubicaciones',
+                [
+                    ChecadorUbicacionesController::class,
+                    'store',
+                ]
+            )->middleware(
+                'admin.permission:comunicacion360.checador.ubicaciones.crear'
+            );
+
+            Route::put(
+                '/ubicaciones/{id}',
+                [
+                    ChecadorUbicacionesController::class,
+                    'update',
+                ]
+            )->middleware(
+                'admin.permission:comunicacion360.checador.ubicaciones.editar'
+            );
+
+            Route::delete(
+                '/ubicaciones/{id}',
+                [
+                    ChecadorUbicacionesController::class,
+                    'destroy',
+                ]
+            )->middleware(
+                'admin.permission:comunicacion360.checador.ubicaciones.eliminar'
+            );
+
+            Route::post(
+                '/qr/generar',
+                [
+                    ChecadorQrController::class,
+                    'generar',
+                ]
+            )->middleware(
+                'admin.permission:comunicacion360.checador.ubicaciones.generar_qr'
+            );
+
+            Route::get(
+                '/qr/fijo/{ubicacionId}',
+                [
+                    ChecadorQrController::class,
+                    'mostrarFijo',
+                ]
+            )->middleware(
+                'admin.permission:comunicacion360.checador.ubicaciones.ver_qr'
+            );
             Route::get(
                 '/aprobadores-disponibles',
                 [
