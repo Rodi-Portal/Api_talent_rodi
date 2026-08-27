@@ -1870,7 +1870,9 @@ Route::prefix('checador')->group(function () {
         Route::get('/metodos', [
             ChecadorMetodoController::class,
             'index',
-        ]);
+        ])->middleware(
+            'admin.permission:comunicacion360.checador.plantillas.ver'
+        );
 
         // Plantillas para el checador
         Route::get('/plantillas-checada', [
