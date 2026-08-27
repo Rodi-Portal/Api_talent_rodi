@@ -2,11 +2,21 @@
 namespace App\Http\Controllers\Api\Comunicacion360;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\Comunicacion360\Tareas;
+use App\Services\Auditoria\AuditoriaService;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class TasksController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope,
+        private AuditoriaService $auditoria
+    ) {}
     /**
      * GET /api/comunicacion360/tasks
      */
@@ -106,16 +116,22 @@ class TasksController extends Controller
      */
     public function empleado(Request $request, int $id)
     {
-        $validated = $request->validate([
-            'id_portal' => ['required', 'integer'],
-        ]);
+        $administrator = $this->administrator($request);
 
-        $conexion = \DB::connection('portal_main');
+        $employee = $this->authorizedEmployee(
+            $administrator,
+            $id
+        );
+
+        $conexion = DB::connection('portal_main');
 
         $tareas = $conexion
             ->table('comunicacion360_empleado_tareas')
-            ->where('empleado_id', $id)
-            ->where('id_portal', $validated['id_portal'])
+            ->where('empleado_id', (int) $employee->id)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
             ->whereNull('deleted_at')
             ->whereDate('created_at', now()->toDateString())
             ->orderBy('orden')
@@ -133,7 +149,10 @@ class TasksController extends Controller
 
         $comentarios = $conexion
             ->table('comunicacion360_empleado_tarea_comentarios')
-            ->where('id_portal', $validated['id_portal'])
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
             ->whereIn('empleado_tarea_id', $tareaIds)
             ->whereNull('deleted_at')
             ->orderBy('created_at', 'desc')
@@ -142,7 +161,10 @@ class TasksController extends Controller
 
         $evidencias = $conexion
             ->table('comunicacion360_empleado_tarea_evidencias')
-            ->where('id_portal', $validated['id_portal'])
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
             ->whereIn('empleado_tarea_id', $tareaIds)
             ->where('activo', 1)
             ->whereNull('deleted_at')
@@ -162,8 +184,11 @@ class TasksController extends Controller
 
                         'origen'     => $comentario->origen,
                         'texto'      => $comentario->comentario,
-                        'fecha'      => optional($comentario->created_at)
-                            ->format('Y-m-d H:i'),
+                        'fecha'      => $comentario->created_at
+                            ? Carbon::parse(
+                            $comentario->created_at
+                        )->format('Y-m-d H:i')
+                            : null,
 
                         'created_at' => $comentario->created_at,
                     ];
@@ -238,85 +263,122 @@ class TasksController extends Controller
     /**
      * POST /api/comunicacion360/tasks/empleado-tarea/{id}/comentarios
      */
-    public function storeComentarioEmpleado(Request $request, int $id)
-    {
+    public function storeComentarioEmpleado(
+        Request $request,
+        int $id
+    ) {
         $validated = $request->validate([
-            'id_portal'  => ['required', 'integer'],
-            'comentario' => ['required', 'string', 'max:2000'],
+            'comentario' => [
+                'required',
+                'string',
+                'max:2000',
+            ],
         ]);
 
-        $conexion = \DB::connection('portal_main');
+        $administrator = $this->administrator($request);
 
-        $tarea = $conexion
-            ->table('comunicacion360_empleado_tareas')
-            ->where('id', $id)
-            ->where('id_portal', $validated['id_portal'])
-            ->whereNull('deleted_at')
-            ->first();
+        $task = $this->authorizedEmployeeTask(
+            $administrator,
+            $id
+        );
 
-        if (! $tarea) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'Tarea no encontrada',
-            ], 404);
-        }
+        $conexion = DB::connection('portal_main');
 
-        $comentarioId = $conexion
-            ->table('comunicacion360_empleado_tarea_comentarios')
-            ->insertGetId([
-                'id_portal'         => $validated['id_portal'],
-                'empleado_tarea_id' => $tarea->id,
-                'id_usuario'        => null,
+        $commentId = $conexion->transaction(
+            function () use (
+                $conexion,
+                $administrator,
+                $task,
+                $validated
+            ) {
+                $commentId = $conexion
+                    ->table(
+                        'comunicacion360_empleado_tarea_comentarios'
+                    )
+                    ->insertGetId([
+                        'id_portal'         =>
+                        (int) $administrator->id_portal,
+                        'empleado_tarea_id' => (int) $task->id,
+                        'id_usuario'        =>
+                        (int) $administrator->id,
+                        'origen'            => 'admin',
+                        'comentario'        =>
+                        $validated['comentario'],
+                        'created_at'        => now(),
+                        'updated_at'        => now(),
+                    ]);
+
+                $conexion
+                    ->table('comunicacion360_empleado_tareas')
+                    ->where('id', (int) $task->id)
+                    ->where(
+                        'id_portal',
+                        (int) $administrator->id_portal
+                    )
+                    ->whereNull('deleted_at')
+                    ->increment('total_comentarios');
+
+                return (int) $commentId;
+            }
+        );
+
+        $this->auditoria->registrar([
+            'id_portal'    =>
+            (int) $administrator->id_portal,
+            'id_cliente'   =>
+            (int) $task->alcance_id_cliente,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'tarea_empleado_comentario',
+            'entidad_id'   => $commentId,
+            'accion'       => 'crear_comentario',
+            'resultado'    => 'exitoso',
+            'descripcion'  =>
+            'Comentario administrativo agregado a una tarea.',
+            'datos_nuevos' => [
+                'empleado_tarea_id' => (int) $task->id,
+                'empleado_id'       => (int) $task->empleado_id,
                 'origen'            => 'admin',
-                'comentario'        => $validated['comentario'],
-                'created_at'        => now(),
-                'updated_at'        => now(),
-            ]);
-
-        $conexion
-            ->table('comunicacion360_empleado_tareas')
-            ->where('id', $tarea->id)
-            ->increment('total_comentarios');
+            ],
+        ], $request);
 
         return response()->json([
             'ok'   => true,
             'data' => [
-                'id'     => $comentarioId,
-                'texto'  => $validated['comentario'],
-                'fecha'  => now()->format('Y-m-d H:i'),
-                'origen' => 'admin',
+                'id'         => $commentId,
+                'id_usuario' => (int) $administrator->id,
+                'texto'      => $validated['comentario'],
+                'fecha'      => now()->format('Y-m-d H:i'),
+                'origen'     => 'admin',
             ],
-        ]);
+        ], 201);
     }
 
     /**
      * POST /api/comunicacion360/tasks/empleado-tarea/{id}/reabrir
      */
-    public function reabrirTareaEmpleado(Request $request, int $id)
-    {
-        $validated = $request->validate([
-            'id_portal' => ['required', 'integer'],
-        ]);
+    public function reabrirTareaEmpleado(
+        Request $request,
+        int $id
+    ) {
+        $administrator = $this->administrator($request);
 
-        $conexion = \DB::connection('portal_main');
+        $task = $this->authorizedEmployeeTask(
+            $administrator,
+            $id
+        );
 
-        $tarea = $conexion
+        DB::connection('portal_main')
             ->table('comunicacion360_empleado_tareas')
-            ->where('id', $id)
-            ->where('id_portal', $validated['id_portal'])
+            ->where('id', (int) $task->id)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
             ->whereNull('deleted_at')
-            ->first();
-
-        if (! $tarea) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'Tarea no encontrada',
-            ], 404);
-        }
-
-        $conexion
-            ->table('comunicacion360_empleado_tareas')
-            ->where('id', $tarea->id)
             ->update([
                 'estatus'           => 'pendiente',
                 'porcentaje_avance' => 0,
@@ -324,60 +386,185 @@ class TasksController extends Controller
                 'updated_at'        => now(),
             ]);
 
+        $this->auditoria->registrar([
+            'id_portal'        =>
+            (int) $administrator->id_portal,
+            'id_cliente'       =>
+            (int) $task->alcance_id_cliente,
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     =>
+            $this->administratorName($administrator),
+            'modulo'           => 'comunicacion360',
+            'entidad_tipo'     => 'tarea_empleado',
+            'entidad_id'       => (int) $task->id,
+            'accion'           => 'reabrir',
+            'resultado'        => 'exitoso',
+            'descripcion'      =>
+            'Tarea de empleado reabierta por un administrador.',
+            'datos_anteriores' => [
+                'estatus'           => $task->estatus,
+                'porcentaje_avance' =>
+                (int) $task->porcentaje_avance,
+                'fecha_fin'         => $task->fecha_fin,
+            ],
+            'datos_nuevos'     => [
+                'estatus'           => 'pendiente',
+                'porcentaje_avance' => 0,
+                'fecha_fin'         => null,
+                'empleado_id'       => (int) $task->empleado_id,
+            ],
+        ], $request);
+
         return response()->json([
             'ok'      => true,
-            'message' => 'La tarea fue reabierta correctamente.',
+            'message' =>
+            'La tarea fue reabierta correctamente.',
         ]);
     }
     /**
      * DELETE /api/comunicacion360/tasks/comentarios/{id}
      */
-    public function deleteComentarioEmpleado(Request $request, int $id)
-    {
-        $validated = $request->validate([
-            'id_portal' => ['required', 'integer'],
-        ]);
+    public function deleteComentarioEmpleado(
+        Request $request,
+        int $id
+    ) {
+        $administrator = $this->administrator($request);
 
-        $conexion = \DB::connection('portal_main');
+        $conexion = DB::connection('portal_main');
 
-        $comentario = $conexion
-            ->table('comunicacion360_empleado_tarea_comentarios')
-            ->where('id', $id)
-            ->where('id_portal', $validated['id_portal'])
-            ->whereNull('deleted_at')
-            ->first();
-
-        if (! $comentario) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'Comentario no encontrado',
-            ], 404);
-        }
-
-        // SOLO comentarios admin
-        if ($comentario->origen !== 'admin') {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'Solo se pueden eliminar comentarios administrativos.',
-            ], 403);
-        }
-
-        $conexion
-            ->table('comunicacion360_empleado_tarea_comentarios')
-            ->where('id', $comentario->id)
-            ->update([
-                'deleted_at' => now(),
-                'updated_at' => now(),
+        $comment = $conexion
+            ->table(
+                'comunicacion360_empleado_tarea_comentarios as c'
+            )
+            ->join(
+                'comunicacion360_empleado_tareas as et',
+                'et.id',
+                '=',
+                'c.empleado_tarea_id'
+            )
+            ->join(
+                'empleados as e',
+                'e.id',
+                '=',
+                'et.empleado_id'
+            )
+            ->where('c.id', $id)
+            ->where(
+                'c.id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'et.id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'e.id_portal',
+                (int) $administrator->id_portal
+            )
+            ->whereNull('c.deleted_at')
+            ->whereNull('et.deleted_at')
+            ->where('e.eliminado', 0)
+            ->first([
+                'c.id',
+                'c.empleado_tarea_id',
+                'c.id_usuario',
+                'c.origen',
+                'c.created_at',
+                'et.empleado_id',
+                'e.id_cliente as alcance_id_cliente',
             ]);
 
-        $conexion
-            ->table('comunicacion360_empleado_tareas')
-            ->where('id', $comentario->empleado_tarea_id)
-            ->decrement('total_comentarios');
+        if (! $comment || ! $comment->alcance_id_cliente) {
+            throw new AuthorizationException(
+                'El comentario no pertenece al alcance administrativo.'
+            );
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $comment->alcance_id_cliente]
+        );
+
+        if ($comment->origen !== 'admin') {
+            throw new AuthorizationException(
+                'Solo se pueden eliminar comentarios administrativos.'
+            );
+        }
+
+        $conexion->transaction(
+            function () use (
+                $conexion,
+                $administrator,
+                $comment
+            ) {
+                $conexion
+                    ->table(
+                        'comunicacion360_empleado_tarea_comentarios'
+                    )
+                    ->where('id', (int) $comment->id)
+                    ->where(
+                        'id_portal',
+                        (int) $administrator->id_portal
+                    )
+                    ->whereNull('deleted_at')
+                    ->update([
+                        'deleted_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+
+                $conexion
+                    ->table('comunicacion360_empleado_tareas')
+                    ->where(
+                        'id',
+                        (int) $comment->empleado_tarea_id
+                    )
+                    ->where(
+                        'id_portal',
+                        (int) $administrator->id_portal
+                    )
+                    ->whereNull('deleted_at')
+                    ->where('total_comentarios', '>', 0)
+                    ->decrement('total_comentarios');
+            }
+        );
+
+        $this->auditoria->registrar([
+            'id_portal'        =>
+            (int) $administrator->id_portal,
+            'id_cliente'       =>
+            (int) $comment->alcance_id_cliente,
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     =>
+            $this->administratorName($administrator),
+            'modulo'           => 'comunicacion360',
+            'entidad_tipo'     => 'tarea_empleado_comentario',
+            'entidad_id'       => (int) $comment->id,
+            'accion'           => 'eliminar_comentario',
+            'resultado'        => 'exitoso',
+            'descripcion'      =>
+            'Comentario administrativo eliminado de una tarea.',
+            'datos_anteriores' => [
+                'empleado_tarea_id' =>
+                (int) $comment->empleado_tarea_id,
+                'empleado_id'       => (int) $comment->empleado_id,
+                'id_usuario'        => $comment->id_usuario !== null
+                    ? (int) $comment->id_usuario
+                    : null,
+                'origen'            => $comment->origen,
+                'created_at'        => $comment->created_at,
+                'deleted_at'        => null,
+            ],
+            'datos_nuevos'     => [
+                'deleted_at' => now(),
+            ],
+        ], $request);
 
         return response()->json([
             'ok'      => true,
-            'message' => 'Comentario eliminado correctamente.',
+            'message' =>
+            'Comentario eliminado correctamente.',
         ]);
     }
     /**
@@ -448,5 +635,101 @@ class TasksController extends Controller
             ],
         ]);
     }
+    private function administrator(Request $request): AdministradorAuth
+    {
+        $administrator = $request->user();
 
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
+    }
+
+    private function administratorName(
+        AdministradorAuth $administrator
+    ): ?string {
+        $name = trim(implode(' ', array_filter([
+            $administrator->nombre ?? null,
+            $administrator->paterno ?? null,
+            $administrator->materno ?? null,
+        ])));
+
+        return $name !== '' ? $name : null;
+    }
+
+    private function authorizedEmployee(
+        AdministradorAuth $administrator,
+        int $employeeId
+    ): object {
+        $employee = DB::connection('portal_main')
+            ->table('empleados')
+            ->where('id', $employeeId)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where('eliminado', 0)
+            ->first([
+                'id',
+                'id_portal',
+                'id_cliente',
+                'id_empleado',
+                'nombre',
+                'paterno',
+                'materno',
+            ]);
+
+        if (! $employee || ! $employee->id_cliente) {
+            throw new AuthorizationException(
+                'El empleado no pertenece al alcance administrativo.'
+            );
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $employee->id_cliente]
+        );
+
+        return $employee;
+    }
+
+    private function authorizedEmployeeTask(
+        AdministradorAuth $administrator,
+        int $taskId
+    ): object {
+        $task = DB::connection('portal_main')
+            ->table('comunicacion360_empleado_tareas as et')
+            ->join('empleados as e', 'e.id', '=', 'et.empleado_id')
+            ->where('et.id', $taskId)
+            ->where(
+                'et.id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'e.id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where('e.eliminado', 0)
+            ->whereNull('et.deleted_at')
+            ->first([
+                'et.*',
+                'e.id_cliente as alcance_id_cliente',
+            ]);
+
+        if (! $task || ! $task->alcance_id_cliente) {
+            throw new AuthorizationException(
+                'La tarea no pertenece al alcance administrativo.'
+            );
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $task->alcance_id_cliente]
+        );
+
+        return $task;
+    }
 }
