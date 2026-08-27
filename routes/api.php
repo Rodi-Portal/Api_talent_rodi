@@ -1767,28 +1767,46 @@ Route::prefix('checador')->group(function () {
     ])->group(function () {
         // endoints  de horarios
         Route::prefix('horarios')
-            ->middleware(['auth:sanctum', 'admin.session'])
             ->group(function () {
                 Route::get(
                     '/',
-                    [ChecadorHorarioPlantillaController::class, 'index']
+                    [
+                        ChecadorHorarioPlantillaController::class,
+                        'index',
+                    ]
+                )->middleware(
+                    'admin.permission:comunicacion360.checador.horarios.ver'
                 );
 
                 Route::post(
                     '/',
-                    [ChecadorHorarioPlantillaController::class, 'store']
+                    [
+                        ChecadorHorarioPlantillaController::class,
+                        'store',
+                    ]
+                )->middleware(
+                    'admin.permission:comunicacion360.checador.horarios.crear'
                 );
 
                 Route::put(
                     '/{id}',
-                    [ChecadorHorarioPlantillaController::class, 'update']
+                    [
+                        ChecadorHorarioPlantillaController::class,
+                        'update',
+                    ]
+                )->middleware(
+                    'admin.permission:comunicacion360.checador.horarios.editar'
                 );
 
                 Route::post(
                     '/{id}/estado',
-                    [ChecadorHorarioPlantillaController::class, 'cambiarEstado']
+                    [
+                        ChecadorHorarioPlantillaController::class,
+                        'cambiarEstado',
+                    ]
+                )->middleware(
+                    'admin.permission:comunicacion360.checador.horarios.cambiar_estado'
                 );
-
             });
 
         // Importaciones / Exportaciones STC

@@ -2,26 +2,46 @@
 namespace App\Http\Controllers\Api\Comunicacion360\Checador;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\Comunicacion360\Checador\ChecadorHorarioPlantilla;
+use App\Services\Auditoria\AuditoriaService;
+use App\Services\Auth\AdminClientScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ChecadorHorarioPlantillaController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope,
+        private AuditoriaService $auditoria
+    ) {}
+
     public function index(Request $request)
     {
-        $query = ChecadorHorarioPlantilla::with('detalles');
+        $validated = $request->validate([
+            'id_cliente' => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+        ]);
 
-        if ($request->filled('id_portal')) {
-            $query->where('id_portal', $request->input('id_portal'));
-        }
+        $administrator = $this->administrator($request);
 
-        if ($request->filled('id_cliente')) {
-            $query->where('id_cliente', $request->input('id_cliente'));
-        }
+        $clientIds = $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                [(int) $validated['id_cliente']]
+            );
 
-        $horarios = $query
-            ->orderBy('id', 'desc')
+        $horarios = ChecadorHorarioPlantilla::with('detalles')
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->whereIn('id_cliente', $clientIds)
+            ->orderByDesc('id')
             ->get();
 
         return response()->json([
@@ -32,33 +52,82 @@ class ChecadorHorarioPlantillaController extends Controller
 
     public function store(Request $request)
     {
-        $data = $this->validar($request);
+        $data = $this->validar($request, true);
 
-        $horario = DB::connection('portal_main')->transaction(function () use ($data) {
-            $horario = ChecadorHorarioPlantilla::create([
-                'id_portal'                   => $data['id_portal'],
-                'id_cliente'                  => $data['id_cliente'],
-                'nombre'                      => $data['nombre'],
-                'descripcion'                 => $data['descripcion'] ?? null,
-                'timezone'                    => $data['timezone'] ?? 'America/Mexico_City',
-                'tolerancia_entrada_min'      => $data['tolerancia_entrada_min'] ?? 0,
-                'tolerancia_salida_min'       => $data['tolerancia_salida_min'] ?? 0,
-                'permite_descanso'            => $data['permite_descanso'] ?? false,
-                'minutos_descanso_permitidos' =>
-                $data['minutos_descanso_permitidos'] ?? 60,
-                'activo'                      => 1,
-            ]);
-            if (empty($horario->codigo)) {
-                $horario->update([
-                    'codigo' => 'HOR-' . str_pad((string) $horario->id, 6, '0', STR_PAD_LEFT),
+        $administrator = $this->administrator($request);
+
+        $clientIds = $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                [(int) $data['id_cliente']]
+            );
+
+        $data['id_portal']  = (int) $administrator->id_portal;
+        $data['id_cliente'] = (int) $clientIds[0];
+
+        $horario = DB::connection('portal_main')
+            ->transaction(function () use (
+                $data,
+                $administrator,
+                $request
+            ) {
+                $horario = ChecadorHorarioPlantilla::create([
+                    'id_portal'                   => $data['id_portal'],
+                    'id_cliente'                  => $data['id_cliente'],
+                    'nombre'                      => $data['nombre'],
+                    'descripcion'                 => $data['descripcion'] ?? null,
+                    'timezone'                    => $data['timezone'] ?? 'America/Mexico_City',
+                    'tolerancia_entrada_min'      =>
+                    $data['tolerancia_entrada_min'] ?? 0,
+                    'tolerancia_salida_min'       =>
+                    $data['tolerancia_salida_min'] ?? 0,
+                    'permite_descanso'            =>
+                    $data['permite_descanso'] ?? false,
+                    'minutos_descanso_permitidos' =>
+                    $data['minutos_descanso_permitidos'] ?? 60,
+                    'activo'                      => 1,
                 ]);
-            }
-            $this->guardarDetalles($horario, $data['detalles'] ?? []);
 
-            return $horario;
-        });
+                if (empty($horario->codigo)) {
+                    $horario->update([
+                        'codigo' => 'HOR-' . str_pad(
+                            (string) $horario->id,
+                            6,
+                            '0',
+                            STR_PAD_LEFT
+                        ),
+                    ]);
+                }
 
-        $horario->load('detalles');
+                $this->guardarDetalles(
+                    $horario,
+                    $data['detalles'] ?? []
+                );
+
+                $horario->load('detalles');
+
+                $this->auditoria->registrar([
+                    'id_portal'    =>
+                    (int) $administrator->id_portal,
+                    'id_cliente'   =>
+                    (int) $horario->id_cliente,
+                    'actor_tipo'   => 'administrador',
+                    'actor_id'     =>
+                    (int) $administrator->id,
+                    'actor_nombre' =>
+                    $this->administratorName($administrator),
+                    'modulo'       => 'comunicacion360',
+                    'entidad_tipo' => 'horario_checada',
+                    'entidad_id'   => (int) $horario->id,
+                    'accion'       => 'crear',
+                    'resultado'    => 'exitoso',
+                    'descripcion'  =>
+                    'Horario del checador creado.',
+                    'datos_nuevos' => $horario->toArray(),
+                ], $request);
+
+                return $horario;
+            });
 
         return response()->json([
             'ok'      => true,
@@ -69,9 +138,15 @@ class ChecadorHorarioPlantillaController extends Controller
 
     public function update(Request $request, $id)
     {
-        $data = $this->validar($request);
-
-        $horario = ChecadorHorarioPlantilla::where('id', $id)->first();
+        $data          = $this->validar($request, false);
+        $administrator = $this->administrator($request);
+        $horario       = ChecadorHorarioPlantilla::query()
+            ->where('id', (int) $id)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->first();
 
         if (! $horario) {
             return response()->json([
@@ -79,11 +154,16 @@ class ChecadorHorarioPlantillaController extends Controller
                 'message' => 'El horario no existe.',
             ], 404);
         }
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $horario->id_cliente]
+        );
 
+        $datosAnteriores = $horario
+            ->load('detalles')
+            ->toArray();
         DB::connection('portal_main')->transaction(function () use ($horario, $data) {
             $horario->update([
-                'id_portal'                   => $data['id_portal'],
-                'id_cliente'                  => $data['id_cliente'],
                 'nombre'                      => $data['nombre'],
                 'descripcion'                 => $data['descripcion'] ?? null,
                 'timezone'                    => $data['timezone'] ?? 'America/Mexico_City',
@@ -99,7 +179,31 @@ class ChecadorHorarioPlantillaController extends Controller
             $this->guardarDetalles($horario, $data['detalles'] ?? []);
         });
 
-        $horario->load('detalles');
+        $horario = $horario->fresh('detalles');
+
+        $datosNuevos = $horario->toArray();
+
+        $this->auditoria->registrar([
+            'id_portal'        =>
+            (int) $administrator->id_portal,
+            'id_cliente'       =>
+            (int) $horario->id_cliente,
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     =>
+            $this->administratorName($administrator),
+            'modulo'           => 'comunicacion360',
+            'entidad_tipo'     => 'horario_checada',
+            'entidad_id'       => (int) $horario->id,
+            'accion'           => 'actualizar',
+            'resultado'        => 'exitoso',
+            'descripcion'      =>
+            'Horario del checador actualizado.',
+            'datos_anteriores' =>
+            $datosAnteriores,
+            'datos_nuevos'     =>
+            $datosNuevos,
+        ], $request);
 
         return response()->json([
             'ok'      => true,
@@ -110,11 +214,18 @@ class ChecadorHorarioPlantillaController extends Controller
 
     public function cambiarEstado(Request $request, $id)
     {
-        $data = $request->validate([
+        $administrator = $this->administrator($request);
+        $data          = $request->validate([
             'activo' => ['required', 'boolean'],
         ]);
 
-        $horario = ChecadorHorarioPlantilla::where('id', $id)->first();
+        $horario = ChecadorHorarioPlantilla::query()
+            ->where('id', $id)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->first();
 
         if (! $horario) {
             return response()->json([
@@ -122,13 +233,38 @@ class ChecadorHorarioPlantillaController extends Controller
                 'message' => 'El horario no existe.',
             ], 404);
         }
-
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $horario->id_cliente]
+        );
+        $estadoAnterior = (bool) $horario->activo;
+        $estadoNuevo    = (bool) $data['activo'];
         $horario->update([
-            'activo' => $data['activo'] ? 1 : 0,
+            'activo' => $estadoNuevo,
         ]);
 
         $horario->load('detalles');
-
+        $this->auditoria->registrar([
+            'id_portal'        => (int) $administrator->id_portal,
+            'id_cliente'       => (int) $horario->id_cliente,
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     => $this->administratorName($administrator),
+            'modulo'           => 'comunicacion360',
+            'entidad_tipo'     => 'horario_checada',
+            'entidad_id'       => (int) $horario->id,
+            'accion'           => 'cambiar_estado',
+            'resultado'        => 'exitoso',
+            'descripcion'      => $estadoNuevo
+                ? 'Horario de checada activado.'
+                : 'Horario de checada desactivado.',
+            'datos_anteriores' => [
+                'activo' => $estadoAnterior,
+            ],
+            'datos_nuevos'     => [
+                'activo' => $estadoNuevo,
+            ],
+        ], $request);
         return response()->json([
             'ok'      => true,
             'message' => $data['activo']
@@ -138,11 +274,16 @@ class ChecadorHorarioPlantillaController extends Controller
         ]);
     }
 
-    private function validar(Request $request): array
-    {
+    private function validar(
+        Request $request,
+        bool $requireClient
+    ): array {
         return $request->validate([
-            'id_portal'                   => ['required', 'integer'],
-            'id_cliente'                  => ['required', 'integer'],
+            'id_cliente'                  => [
+                $requireClient ? 'required' : 'sometimes',
+                'integer',
+                'min:1',
+            ],
             'nombre'                      => ['required', 'string', 'max:150'],
             'descripcion'                 => ['nullable', 'string'],
             'timezone'                    => ['nullable', 'string', 'max:80'],
@@ -181,5 +322,29 @@ class ChecadorHorarioPlantillaController extends Controller
                 'orden'           => $detalle['orden'] ?? $index,
             ]);
         }
+    }
+
+    private function administratorName(
+        AdministradorAuth $administrator
+    ): string {
+        return trim(collect([
+            $administrator->nombre ?? null,
+            $administrator->paterno ?? null,
+            $administrator->materno ?? null,
+        ])->filter()->implode(' '));
+    }
+
+    private function administrator(
+        Request $request
+    ): AdministradorAuth {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
     }
 }
