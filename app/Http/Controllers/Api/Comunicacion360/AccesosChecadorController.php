@@ -2,32 +2,53 @@
 namespace App\Http\Controllers\Api\Comunicacion360;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
 use App\Models\Comunicacion360\Checador\Checada;
 use App\Models\Comunicacion360\Checador\ChecadorAsignacion;
+use App\Services\Auditoria\AuditoriaService;
+use App\Services\Auth\AdminClientScopeService;
 use App\Services\Checador\AttendanceDayContextService;
 use App\Services\Checador\AttendanceReportEventService;
+use App\Services\Checador\ChecadaEvidencePathService;
 use App\Services\Checador\JornadaCalculoService;
 use App\Services\Checador\VentanaOperativaService;
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class AccesosChecadorController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope,
+        private AuditoriaService $auditoria,
+        private ChecadaEvidencePathService $evidencePaths
+    ) {}
+
     public function checadasDia(Request $request, $id)
     {
-        $idPortal = $request->input('id_portal');
-        $fecha    = $request->input('fecha', now()->toDateString());
+        $validated = $request->validate([
+            'fecha' => [
+                'nullable',
+                'date_format:Y-m-d',
+            ],
+        ]);
 
-        if (! $idPortal) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'id_portal es requerido',
-            ], 422);
-        }
+        $administrator = $this->administrator($request);
 
-        $contexto = app(AttendanceDayContextService::class)->resolver(
-            (int) $idPortal,
-            (int) $id,
+        $employee = $this->authorizedEmployee(
+            $administrator,
+            (int) $id
+        );
+
+        $fecha = $validated['fecha'] ?? now()->toDateString();
+
+        $contexto = app(
+            AttendanceDayContextService::class
+        )->resolver(
+            (int) $administrator->id_portal,
+            (int) $employee->id,
             $fecha
         );
 
@@ -417,38 +438,53 @@ class AccesosChecadorController extends Controller
     }
     public function metricasOperativas(Request $request, $id)
     {
-        $idPortal = $request->input('id_portal');
+        $validated = $request->validate([
+            'fecha_inicio' => [
+                'nullable',
+                'date_format:Y-m-d',
+            ],
+            'fecha_fin'    => [
+                'nullable',
+                'date_format:Y-m-d',
+                'after_or_equal:fecha_inicio',
+            ],
+        ]);
 
-        $fechaInicio = $request->input(
-            'fecha_inicio',
-            now()->toDateString()
+        $administrator = $this->administrator($request);
+
+        $employee = $this->authorizedEmployee(
+            $administrator,
+            (int) $id
         );
 
-        $fechaFin = $request->input(
-            'fecha_fin',
-            now()->toDateString()
-        );
+        $idPortal   = (int) $administrator->id_portal;
+        $idEmployee = (int) $employee->id;
 
-        if (! $idPortal) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'id_portal es requerido',
-            ], 422);
-        }
+        $fechaInicio = $validated['fecha_inicio'] ?? now()->toDateString();
 
-        $inicio = Carbon::parse($fechaInicio)->startOfDay();
-        $fin    = Carbon::parse($fechaFin)->startOfDay();
+        $fechaFin = $validated['fecha_fin'] ?? now()->toDateString();
 
-        if ($fin->lessThan($inicio)) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'La fecha fin no puede ser menor que la fecha inicio.',
-            ], 422);
+        $inicio = Carbon::createFromFormat(
+            'Y-m-d',
+            $fechaInicio
+        )->startOfDay();
+
+        $fin = Carbon::createFromFormat(
+            'Y-m-d',
+            $fechaFin
+        )->startOfDay();
+
+        if ($inicio->diffInDays($fin) > 366) {
+            throw ValidationException::withMessages([
+                'fecha_fin' => [
+                    'El periodo no puede superar 366 días.',
+                ],
+            ]);
         }
 
         $todasChecadas = Checada::query()
             ->where('id_portal', $idPortal)
-            ->where('id_empleado', $id)
+            ->where('id_empleado', $idEmployee)
             ->whereBetween('check_time', [
                 $inicio->copy()->subDay()->startOfDay(),
                 $fin->copy()->addDay()->endOfDay(),
@@ -483,7 +519,7 @@ class AccesosChecadorController extends Controller
         $eventosPeriodo = app(AttendanceReportEventService::class)
             ->resolverPeriodo(
                 (int) $idPortal,
-                (int) $id,
+                $idEmployee,
                 $fechaInicio,
                 $fechaFin
             );
@@ -508,7 +544,7 @@ class AccesosChecadorController extends Controller
                     },
                 ])
                 ->where('id_portal', $idPortal)
-                ->where('id_empleado', $id)
+                ->where('id_empleado', $idEmployee)
                 ->where('activa', 1)
                 ->whereDate('fecha_inicio', '<=', $fecha)
                 ->where(function ($query) use ($fecha) {
@@ -856,28 +892,57 @@ class AccesosChecadorController extends Controller
 
     public function historialChecadas(Request $request, $id)
     {
-        $idPortal = $request->input('id_portal');
+        $validated = $request->validate([
+            'fecha_inicio' => [
+                'nullable',
+                'date_format:Y-m-d',
+            ],
+            'fecha_fin'    => [
+                'nullable',
+                'date_format:Y-m-d',
+                'after_or_equal:fecha_inicio',
+            ],
+        ]);
 
-        $fechaInicio = $request->input(
-            'fecha_inicio',
-            now()->subDays(7)->toDateString()
+        $administrator = $this->administrator($request);
+
+        $employee = $this->authorizedEmployee(
+            $administrator,
+            (int) $id
         );
 
-        $fechaFin = $request->input(
-            'fecha_fin',
-            now()->toDateString()
-        );
+        $fechaInicio = $validated['fecha_inicio'] ?? now()->subDays(7)->toDateString();
 
-        if (! $idPortal) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'id_portal es requerido',
-            ], 422);
+        $fechaFin = $validated['fecha_fin'] ?? now()->toDateString();
+
+        $inicio = Carbon::createFromFormat(
+            'Y-m-d',
+            $fechaInicio
+        )->startOfDay();
+
+        $fin = Carbon::createFromFormat(
+            'Y-m-d',
+            $fechaFin
+        )->startOfDay();
+
+        if ($inicio->diffInDays($fin) > 366) {
+            throw ValidationException::withMessages([
+                'fecha_fin' => [
+                    'El periodo no puede superar 366 días.',
+                ],
+            ]);
         }
 
         $checadas = Checada::query()
-            ->where('id_portal', $idPortal)
-            ->where('id_empleado', $id)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'id_cliente',
+                (int) $employee->id_cliente
+            )
+            ->where('id_empleado', (int) $employee->id)
             ->whereBetween('fecha', [$fechaInicio, $fechaFin])
             ->orderByDesc('fecha')
             ->orderBy('check_time')
@@ -946,55 +1011,184 @@ class AccesosChecadorController extends Controller
         return $total;
     }
 
-    public function evidenciaChecada(Request $request, $id, $idChecada)
-    {
-        $idPortal = $request->input('id_portal');
+    public function evidenciaChecada(
+        Request $request,
+        $id,
+        $idChecada
+    ) {
+        $administrator = $this->administrator($request);
 
-        if (! $idPortal) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'id_portal es requerido',
-            ], 422);
-        }
+        $employee = $this->authorizedEmployee(
+            $administrator,
+            (int) $id
+        );
 
         $checada = Checada::query()
-            ->where('id', $idChecada)
-            ->where('id_portal', $idPortal)
-            ->where('id_empleado', $id)
+            ->where('id', (int) $idChecada)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'id_empleado',
+                (int) $employee->id
+            )
+            ->where(function ($query) use ($employee) {
+                $query
+                    ->where(
+                        'id_cliente',
+                        (int) $employee->id_cliente
+                    )
+                    ->orWhereNull('id_cliente');
+            })
             ->first();
 
         if (! $checada || empty($checada->evidencia_foto)) {
             return response()->json([
-                'ok'      => false,
+                'ok' => false,
                 'message' => 'Evidencia no encontrada.',
             ], 404);
         }
 
-        $basePath = app()->environment('production')
-            ? config('paths.prod_images')
-            : config('paths.local_images');
+        $fullPath = $this->evidencePaths->resolveExisting(
+            $checada->evidencia_foto
+        );
 
-        $relativePath = ltrim($checada->evidencia_foto, '/\\');
-
-        $fullPath = $basePath . DIRECTORY_SEPARATOR . $relativePath;
-
-        if (! file_exists($fullPath)) {
+        if ($fullPath === null) {
             return response()->json([
-                'ok'      => false,
-                'message' => 'El archivo de evidencia no existe en el servidor.',
+                'ok' => false,
+                'message' =>
+                    'El archivo de evidencia no existe en el servidor.',
             ], 404);
         }
 
-        $mime = mime_content_type($fullPath);
+        $size = filesize($fullPath);
+
+        if ($size === false || $size > 15 * 1024 * 1024) {
+            return response()->json([
+                'ok' => false,
+                'message' =>
+                    'El archivo de evidencia no puede visualizarse.',
+            ], 422);
+        }
+
+        $content = file_get_contents($fullPath);
+
+        if ($content === false) {
+            return response()->json([
+                'ok' => false,
+                'message' =>
+                    'No fue posible leer la evidencia.',
+            ], 500);
+        }
+
+        $mime = mime_content_type($fullPath)
+            ?: 'application/octet-stream';
+
+        $this->auditoria->registrar([
+            'id_portal' =>
+                (int) $administrator->id_portal,
+            'id_cliente' =>
+                (int) $employee->id_cliente,
+            'actor_tipo' => 'administrador',
+            'actor_id' => (int) $administrator->id,
+            'actor_nombre' =>
+                $this->administratorName($administrator),
+            'modulo' => 'comunicacion360',
+            'entidad_tipo' => 'checada_evidencia',
+            'entidad_id' => (int) $checada->id,
+            'accion' => 'visualizar',
+            'resultado' => 'exitoso',
+            'descripcion' =>
+                'Evidencia de checada visualizada por un administrador.',
+            'metadatos' => [
+                'empleado_id' => (int) $employee->id,
+                'mime' => $mime,
+                'peso_bytes' => (int) $size,
+                'almacenamiento' => str_starts_with(
+                    str_replace(
+                        '\\',
+                        '/',
+                        $checada->evidencia_foto
+                    ),
+                    '_checadasEvidencia/portales/'
+                )
+                    ? 'nuevo'
+                    : 'legacy',
+            ],
+        ], $request);
 
         return response()->json([
-            'ok'   => true,
+            'ok' => true,
             'data' => [
-                'id'       => $checada->id,
-                'mime'     => $mime,
+                'id' => (int) $checada->id,
+                'mime' => $mime,
                 'filename' => basename($fullPath),
-                'base64'   => 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($fullPath)),
+                'base64' =>
+                    'data:' . $mime . ';base64,'
+                    . base64_encode($content),
             ],
         ]);
+    }
+    private function administrator(
+        Request $request
+    ): AdministradorAuth {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
+    }
+
+    private function authorizedEmployee(
+        AdministradorAuth $administrator,
+        int $employeeId
+    ): object {
+        $employee = DB::connection('portal_main')
+            ->table('empleados')
+            ->where('id', $employeeId)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where('eliminado', 0)
+            ->first([
+                'id',
+                'id_portal',
+                'id_cliente',
+                'id_empleado',
+                'nombre',
+                'paterno',
+                'materno',
+            ]);
+
+        if (! $employee || ! $employee->id_cliente) {
+            throw new AuthorizationException(
+                'El empleado no pertenece al alcance administrativo.'
+            );
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $employee->id_cliente]
+        );
+
+        return $employee;
+    }
+
+    private function administratorName(
+        AdministradorAuth $administrator
+    ): ?string {
+        $name = trim(implode(' ', array_filter([
+            $administrator->nombre ?? null,
+            $administrator->paterno ?? null,
+            $administrator->materno ?? null,
+        ])));
+
+        return $name !== '' ? $name : null;
     }
 }

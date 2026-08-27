@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Empleado;
 use App\Http\Controllers\Controller;
 use App\Models\Comunicacion360\Checador\Checada;
 use App\Services\Checador\AttendanceAbsenceBackfillService;
+use App\Services\Checador\ChecadaEvidencePathService;
 use App\Services\Checador\ChecadaRegistroService;
 use App\Services\Checador\ChecadaValidationService;
 use App\Services\Checador\ChecadorQrValidationService;
@@ -1241,40 +1242,45 @@ class EmpleadoChecadorController extends Controller
 
         $mes = Carbon::parse($fecha)->format('Y-m');
 
-        $relativeDir = "_checadasEvidencia/{$idPortal}/{$idCliente}/{$idEmpleado}/{$mes}";
+        $evidencePaths = app(
+            ChecadaEvidencePathService::class
+        );
 
-        $basePath = app()->environment('production')
-            ? config('paths.prod_images')
-            : config('paths.local_images');
+        $relativeDir = $evidencePaths
+            ->newRelativeDirectory(
+                $idPortal,
+                $idCliente,
+                $idEmpleado,
+                $mes
+            );
 
-        \Log::info('SELFIE DEBUG PATHS', [
-            'base_path'    => $basePath,
-            'relative_dir' => $relativeDir,
-        ]);
+        try {
+            $fullDir = $evidencePaths->newFullDirectory(
+                $idPortal,
+                $idCliente,
+                $idEmpleado,
+                $mes
+            );
 
-        if (empty($basePath)) {
-            \Log::error('SELFIE DEBUG BASE PATH VACIO');
+            if (! File::exists($fullDir)) {
+                File::makeDirectory(
+                    $fullDir,
+                    0755,
+                    true
+                );
+            }
+        } catch (\Throwable $exception) {
+            \Log::error(
+                'No fue posible preparar el directorio de evidencia.',
+                [
+                    'id_portal'   => $idPortal,
+                    'id_cliente'  => $idCliente,
+                    'id_empleado' => $idEmpleado,
+                    'message'     => $exception->getMessage(),
+                ]
+            );
+
             return null;
-        }
-
-        $fullDir = rtrim($basePath, DIRECTORY_SEPARATOR)
-        . DIRECTORY_SEPARATOR
-        . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
-
-        \Log::info('SELFIE DEBUG FULL DIR', [
-            'full_dir'         => $fullDir,
-            'exists'           => File::exists($fullDir),
-            'is_writable_base' => is_writable($basePath),
-        ]);
-
-        if (! File::exists($fullDir)) {
-            File::makeDirectory($fullDir, 0755, true);
-
-            \Log::info('SELFIE DEBUG DIRECTORIO CREADO', [
-                'full_dir'        => $fullDir,
-                'exists_after'    => File::exists($fullDir),
-                'is_writable_dir' => is_writable($fullDir),
-            ]);
         }
 
         $filename = 'checada_' . now()->format('Ymd_His')
@@ -1285,17 +1291,15 @@ class EmpleadoChecadorController extends Controller
 
         $bytesWritten = File::put($fullPath, $imageData);
 
-        \Log::info('SELFIE DEBUG FILE PUT', [
-            'full_path'     => $fullPath,
-            'bytes_written' => $bytesWritten,
-            'file_exists'   => File::exists($fullPath),
-            'file_size'     => File::exists($fullPath) ? File::size($fullPath) : null,
-        ]);
-
         if ($bytesWritten === false) {
-            \Log::error('SELFIE DEBUG ERROR ESCRIBIENDO ARCHIVO', [
-                'full_path' => $fullPath,
-            ]);
+            \Log::error(
+                'No fue posible escribir la evidencia de checada.',
+                [
+                    'id_portal'   => $idPortal,
+                    'id_cliente'  => $idCliente,
+                    'id_empleado' => $idEmpleado,
+                ]
+            );
             return null;
         }
 
@@ -1436,26 +1440,45 @@ class EmpleadoChecadorController extends Controller
 
         $mes = Carbon::parse($fecha)->format('Y-m');
 
-        $relativeDir = "_checadasEvidencia/{$idPortal}/{$idCliente}/{$idEmpleado}/{$mes}";
+        $evidencePaths = app(
+            ChecadaEvidencePathService::class
+        );
 
-        $basePath = app()->environment('production')
-            ? config('paths.prod_images')
-            : config('paths.local_images');
+        $relativeDir = $evidencePaths
+            ->newRelativeDirectory(
+                $idPortal,
+                $idCliente,
+                $idEmpleado,
+                $mes
+            );
 
-        if (empty($basePath)) {
-            \Log::error('SELFIE FILE ERROR BASE PATH VACIO', [
-                'env' => app()->environment(),
-            ]);
+        try {
+            $fullDir = $evidencePaths->newFullDirectory(
+                $idPortal,
+                $idCliente,
+                $idEmpleado,
+                $mes
+            );
+
+            if (! File::exists($fullDir)) {
+                File::makeDirectory(
+                    $fullDir,
+                    0755,
+                    true
+                );
+            }
+        } catch (\Throwable $exception) {
+            \Log::error(
+                'No fue posible preparar el directorio de evidencia.',
+                [
+                    'id_portal'   => $idPortal,
+                    'id_cliente'  => $idCliente,
+                    'id_empleado' => $idEmpleado,
+                    'message'     => $exception->getMessage(),
+                ]
+            );
 
             return null;
-        }
-
-        $fullDir = rtrim($basePath, DIRECTORY_SEPARATOR)
-        . DIRECTORY_SEPARATOR
-        . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
-
-        if (! File::exists($fullDir)) {
-            File::makeDirectory($fullDir, 0755, true);
         }
 
         $filename = 'checada_' . now()->format('Ymd_His')
