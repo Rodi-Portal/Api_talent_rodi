@@ -1684,7 +1684,16 @@ Route::prefix('checador')->group(function () {
             Route::delete('/ubicaciones/{id}', [ChecadorUbicacionesController::class, 'destroy']);
             Route::post('/qr/generar', [ChecadorQrController::class, 'generar']);
             Route::get('/qr/fijo/{ubicacionId}', [ChecadorQrController::class, 'mostrarFijo']);
-            Route::get('/aprobadores-disponibles', [ChecadorAsignacionController::class, 'aprobadoresDisponibles']);
+            Route::get(
+                '/aprobadores-disponibles',
+                [
+                    ChecadorAsignacionController::class,
+                    'aprobadoresDisponibles',
+                ]
+            )->middleware([
+                'admin.permission:module.comunicacion360.ver',
+                'admin.permission:comunicacion360.checador.plantillas.ver',
+            ]);
             Route::get('/eventos-tipos-disponibles', [ChecadorAsignacionController::class, 'tiposEventoDisponibles']);
         });
 
