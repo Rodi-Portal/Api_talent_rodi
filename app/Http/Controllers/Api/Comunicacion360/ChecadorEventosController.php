@@ -2,7 +2,10 @@
 namespace App\Http\Controllers\Api\Comunicacion360;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
+use App\Services\Auth\AdminClientScopeService;
 use App\Services\ChecadorHorasExtraService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -11,7 +14,9 @@ use Throwable;
 class ChecadorEventosController extends Controller
 {
     private const TIPO_HORAS_EXTRA = 9;
-
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
     public function registrarHorasExtra(Request $request, int $id)
     {
         $validator = Validator::make($request->all(), [
@@ -137,22 +142,33 @@ class ChecadorEventosController extends Controller
     public function eventosEmpleado(Request $request, int $id)
     {
         $data = $request->validate([
-            'id_portal'         => ['required', 'integer'],
-            'id_cliente'        => ['nullable', 'integer'],
-            'estado_aprobacion' => ['nullable', 'in:pendiente,aprobado,rechazado,cancelado,todos'],
+            'estado_aprobacion' => [
+                'nullable',
+                'in:pendiente,aprobado,rechazado,cancelado,todos',
+            ],
         ]);
+
+        $administrator = $this->administrator($request);
+
+        $employee = $this->authorizedEmployee(
+            $administrator,
+            $id
+        );
 
         $query = DB::connection('portal_main')
             ->table('calendario_eventos as ce')
             ->leftJoin('eventos_option as eo', 'eo.id', '=', 'ce.id_tipo')
             ->leftJoin('checador_evento_detalles as ced', 'ced.id_evento', '=', 'ce.id')
-            ->where('ce.id_portal', $data['id_portal'])
-            ->where('ce.id_empleado', $id)
+            ->where(
+                'ce.id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'ce.id_cliente',
+                (int) $employee->id_cliente
+            )
+            ->where('ce.id_empleado', (int) $employee->id)
             ->where('ce.eliminado', 0);
-
-        if (! empty($data['id_cliente'])) {
-            $query->where('ce.id_cliente', $data['id_cliente']);
-        }
 
         if (
             ! empty($data['estado_aprobacion']) &&
@@ -281,5 +297,50 @@ class ChecadorEventosController extends Controller
                 ];
             })->values(),
         ]);
+    }
+    private function administrator(
+        Request $request
+    ): AdministradorAuth {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
+    }
+
+    private function authorizedEmployee(
+        AdministradorAuth $administrator,
+        int $employeeId
+    ): object {
+        $employee = DB::connection('portal_main')
+            ->table('empleados')
+            ->where('id', $employeeId)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where('eliminado', 0)
+            ->first([
+                'id',
+                'id_portal',
+                'id_cliente',
+            ]);
+
+        if (! $employee || ! $employee->id_cliente) {
+            throw new AuthorizationException(
+                'El empleado no pertenece al alcance administrativo.'
+            );
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $employee->id_cliente]
+        );
+
+        return $employee;
     }
 }
