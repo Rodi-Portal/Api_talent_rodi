@@ -1712,143 +1712,153 @@ Route::prefix('checador')->group(function () {
         'admin.session',
         'admin.permission:module.comunicacion360.ver',
     ])->group(function () {
-    // endoints  de horarios
-    Route::prefix('horarios')
-        ->middleware(['auth:sanctum', 'admin.session'])
-        ->group(function () {
-            Route::get(
-                '/',
-                [ChecadorHorarioPlantillaController::class, 'index']
-            );
+        // endoints  de horarios
+        Route::prefix('horarios')
+            ->middleware(['auth:sanctum', 'admin.session'])
+            ->group(function () {
+                Route::get(
+                    '/',
+                    [ChecadorHorarioPlantillaController::class, 'index']
+                );
 
-            Route::post(
-                '/',
-                [ChecadorHorarioPlantillaController::class, 'store']
-            );
+                Route::post(
+                    '/',
+                    [ChecadorHorarioPlantillaController::class, 'store']
+                );
 
-            Route::put(
-                '/{id}',
-                [ChecadorHorarioPlantillaController::class, 'update']
-            );
+                Route::put(
+                    '/{id}',
+                    [ChecadorHorarioPlantillaController::class, 'update']
+                );
 
-            Route::post(
-                '/{id}/estado',
-                [ChecadorHorarioPlantillaController::class, 'cambiarEstado']
-            );
+                Route::post(
+                    '/{id}/estado',
+                    [ChecadorHorarioPlantillaController::class, 'cambiarEstado']
+                );
+
+            });
+
+        // Importaciones / Exportaciones STC
+        Route::prefix('/importaciones')->group(function () {
+            Route::get('/horarios/exportar', [ChecadorImportExportController::class, 'exportarHorarios']);
+            Route::post('/horarios/importar', [ChecadorImportExportController::class, 'importarHorarios']);
 
         });
 
-    // Importaciones / Exportaciones STC
-    Route::prefix('/importaciones')->group(function () {
-        Route::get('/horarios/exportar', [ChecadorImportExportController::class, 'exportarHorarios']);
-        Route::post('/horarios/importar', [ChecadorImportExportController::class, 'importarHorarios']);
+        // Checadas masivas administrativas
+        Route::prefix('checadas-masivas')
+            ->middleware(['auth:sanctum', 'admin.session'])
+            ->group(function () {
+                Route::post(
+                    '/exportar-plantilla',
+                    [ChecadorChecadasMasivasController::class, 'exportarPlantilla']
+                );
 
+                Route::post(
+                    '/importar-preview',
+                    [ChecadorChecadasMasivasController::class, 'importarPreview']
+                );
+
+                Route::post(
+                    '/importar-confirmar',
+                    [ChecadorChecadasMasivasController::class, 'importarConfirmar']
+                );
+            });
+
+        // Incidencias masivas administrativas
+        Route::prefix('incidencias-masivas')
+            ->middleware(['auth:sanctum', 'admin.session'])
+            ->group(function () {
+                Route::post(
+                    '/exportar-plantilla',
+                    [ChecadorIncidenciasMasivasController::class, 'exportarPlantilla']
+                );
+
+                Route::post(
+                    '/importar-preview',
+                    [ChecadorIncidenciasMasivasController::class, 'importarPreview']
+                );
+
+                Route::post(
+                    '/importar-confirmar',
+                    [ChecadorIncidenciasMasivasController::class, 'importarConfirmar']
+                );
+            });
+
+        Route::get('/empleados/{id}/plantilla', [
+            ChecadorAsignacionController::class,
+            'plantillaEmpleado',
+        ]);
+
+        Route::post('/empleados/{id}/plantilla', [
+            ChecadorAsignacionController::class,
+            'guardarPlantillaEmpleado',
+        ]);
+
+        // Métodos
+        Route::get('/metodos', [
+            ChecadorMetodoController::class,
+            'index',
+        ]);
+
+        // Plantillas para el checador
+        Route::get('/plantillas-checada', [
+            ChecadorChecadaPlantillaController::class,
+            'index',
+        ])->middleware(
+            'admin.permission:comunicacion360.checador.plantillas.ver'
+        );
+
+        Route::post('/plantillas-checada', [
+            ChecadorChecadaPlantillaController::class,
+            'store',
+        ])->middleware(
+            'admin.permission:comunicacion360.checador.plantillas.crear'
+        );
+
+        Route::post('/plantillas-checada/{id}/metodos', [
+            ChecadorChecadaPlantillaController::class,
+            'guardarMetodos',
+        ])->middleware(
+            'admin.permission:comunicacion360.checador.plantillas.configurar'
+        );
+
+        Route::put('/plantillas-checada/{id}', [
+            ChecadorChecadaPlantillaController::class,
+            'update',
+        ])->middleware(
+            'admin.permission:comunicacion360.checador.plantillas.editar'
+        );
+
+        Route::post('/plantillas-checada/{id}/estado', [
+            ChecadorChecadaPlantillaController::class,
+            'cambiarEstado',
+        ])->middleware(
+            'admin.permission:comunicacion360.checador.plantillas.cambiar_estado'
+        );
+
+        // Asignaciones de plantillas a empleados
+        Route::get('/plantillas-checada/{id}/asignaciones', [
+            ChecadorAsignacionController::class,
+            'index',
+        ])->middleware(
+            'admin.permission:comunicacion360.checador.plantillas.asignar'
+        );
+
+        Route::post('/plantillas-checada/{id}/asignaciones', [
+            ChecadorAsignacionController::class,
+            'store',
+        ])->middleware(
+            'admin.permission:comunicacion360.checador.plantillas.asignar'
+        );
+
+        Route::get('/empleados-acceso', [
+            ChecadorAsignacionController::class,
+            'empleadosConAcceso',
+        ])->middleware(
+            'admin.permission:comunicacion360.checador.plantillas.asignar'
+        );
     });
-
-    // Checadas masivas administrativas
-    Route::prefix('checadas-masivas')
-        ->middleware(['auth:sanctum', 'admin.session'])
-        ->group(function () {
-            Route::post(
-                '/exportar-plantilla',
-                [ChecadorChecadasMasivasController::class, 'exportarPlantilla']
-            );
-
-            Route::post(
-                '/importar-preview',
-                [ChecadorChecadasMasivasController::class, 'importarPreview']
-            );
-
-            Route::post(
-                '/importar-confirmar',
-                [ChecadorChecadasMasivasController::class, 'importarConfirmar']
-            );
-        });
-
-    // Incidencias masivas administrativas
-    Route::prefix('incidencias-masivas')
-        ->middleware(['auth:sanctum', 'admin.session'])
-        ->group(function () {
-            Route::post(
-                '/exportar-plantilla',
-                [ChecadorIncidenciasMasivasController::class, 'exportarPlantilla']
-            );
-
-            Route::post(
-                '/importar-preview',
-                [ChecadorIncidenciasMasivasController::class, 'importarPreview']
-            );
-
-            Route::post(
-                '/importar-confirmar',
-                [ChecadorIncidenciasMasivasController::class, 'importarConfirmar']
-            );
-        });
-
-    Route::get('/empleados/{id}/plantilla', [
-        ChecadorAsignacionController::class,
-        'plantillaEmpleado',
-    ]);
-
-    Route::post('/empleados/{id}/plantilla', [
-        ChecadorAsignacionController::class,
-        'guardarPlantillaEmpleado',
-    ]);
-
-    // Métodos
-    Route::get('/metodos', [
-        ChecadorMetodoController::class,
-        'index',
-    ]);
-
-    // Plantillas para el checador
-    Route::get('/plantillas-checada', [
-        ChecadorChecadaPlantillaController::class,
-        'index',
-    ]);
-
-    Route::post('/plantillas-checada', [
-        ChecadorChecadaPlantillaController::class,
-        'store',
-    ]);
-
-    Route::post('/plantillas-checada/{id}/metodos', [
-        ChecadorChecadaPlantillaController::class,
-        'guardarMetodos',
-    ]);
-
-    Route::put('/plantillas-checada/{id}', [
-        ChecadorChecadaPlantillaController::class,
-        'update',
-    ]);
-
-    Route::post('/plantillas-checada/{id}/estado', [
-        ChecadorChecadaPlantillaController::class,
-        'cambiarEstado',
-    ]);
-
-    // Asignaciones de plantillas a empleados
-      Route::get('/plantillas-checada/{id}/asignaciones', [
-        ChecadorAsignacionController::class,
-        'index',
-    ])->middleware(
-        'admin.permission:comunicacion360.checador.plantillas.asignar'
-    );
-
-    Route::post('/plantillas-checada/{id}/asignaciones', [
-        ChecadorAsignacionController::class,
-        'store',
-    ])->middleware(
-        'admin.permission:comunicacion360.checador.plantillas.asignar'
-    );
-
-    Route::get('/empleados-acceso', [
-        ChecadorAsignacionController::class,
-        'empleadosConAcceso',
-    ])->middleware(
-        'admin.permission:comunicacion360.checador.plantillas.asignar'
-    );
- });
 });
 Route::prefix('comunicacion360/tasks')
     ->middleware([
