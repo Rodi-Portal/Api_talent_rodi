@@ -1750,7 +1750,15 @@ Route::prefix('checador')->group(function () {
             )->middleware([
                 'admin.permission:comunicacion360.checador.plantillas.ver',
             ]);
-            Route::get('/eventos-tipos-disponibles', [ChecadorAsignacionController::class, 'tiposEventoDisponibles']);
+            Route::get(
+                '/eventos-tipos-disponibles',
+                [
+                    ChecadorAsignacionController::class,
+                    'tiposEventoDisponibles',
+                ]
+            )->middleware(
+                'admin.permission:comunicacion360.checador.plantillas.ver'
+            );
         });
 
     //validate Ubications
