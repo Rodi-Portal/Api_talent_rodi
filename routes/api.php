@@ -1676,7 +1676,11 @@ Route::prefix('comunicacion360')
 
 Route::prefix('checador')->group(function () {
     //CRUD  Cat Ubicaciones
-    Route::middleware(['auth:sanctum', 'admin.session'])
+    Route::middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:module.comunicacion360.ver',
+    ])
         ->group(function () {
             Route::get('/ubicaciones', [ChecadorUbicacionesController::class, 'index']);
             Route::post('/ubicaciones', [ChecadorUbicacionesController::class, 'store']);
@@ -1691,7 +1695,6 @@ Route::prefix('checador')->group(function () {
                     'aprobadoresDisponibles',
                 ]
             )->middleware([
-                'admin.permission:module.comunicacion360.ver',
                 'admin.permission:comunicacion360.checador.plantillas.ver',
             ]);
             Route::get('/eventos-tipos-disponibles', [ChecadorAsignacionController::class, 'tiposEventoDisponibles']);
@@ -1704,7 +1707,11 @@ Route::prefix('checador')->group(function () {
     Route::post('/qr/validar', [ChecadorQrController::class, 'validar']);
 
     // Plantillas  para  el checador
-
+    Route::middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:module.comunicacion360.ver',
+    ])->group(function () {
     // endoints  de horarios
     Route::prefix('horarios')
         ->middleware(['auth:sanctum', 'admin.session'])
@@ -1821,21 +1828,27 @@ Route::prefix('checador')->group(function () {
     ]);
 
     // Asignaciones de plantillas a empleados
-    Route::get('/plantillas-checada/{id}/asignaciones', [
+      Route::get('/plantillas-checada/{id}/asignaciones', [
         ChecadorAsignacionController::class,
         'index',
-    ]);
+    ])->middleware(
+        'admin.permission:comunicacion360.checador.plantillas.asignar'
+    );
 
     Route::post('/plantillas-checada/{id}/asignaciones', [
         ChecadorAsignacionController::class,
         'store',
-    ]);
+    ])->middleware(
+        'admin.permission:comunicacion360.checador.plantillas.asignar'
+    );
 
     Route::get('/empleados-acceso', [
         ChecadorAsignacionController::class,
         'empleadosConAcceso',
-    ]);
-
+    ])->middleware(
+        'admin.permission:comunicacion360.checador.plantillas.asignar'
+    );
+ });
 });
 Route::prefix('comunicacion360/tasks')
     ->middleware([

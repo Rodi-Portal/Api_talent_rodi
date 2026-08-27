@@ -3,6 +3,7 @@ namespace App\Http\Controllers\Api\Comunicacion360\Checador;
 
 use App\Http\Controllers\Controller;
 use App\Models\Auth\AdministradorAuth;
+use App\Services\Auditoria\AuditoriaService;
 use App\Services\Auth\AdminClientScopeService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
@@ -12,33 +13,43 @@ use Illuminate\Support\Facades\Validator;
 class ChecadorAsignacionController extends Controller
 {
     public function __construct(
-        private AdminClientScopeService $clientScope
+        private AdminClientScopeService $clientScope,
+        private AuditoriaService $auditoria
     ) {}
     public function empleadosConAcceso(Request $request)
     {
-        $idPortal   = (int) $request->query('id_portal');
-        $sucursales = $request->query('sucursales', []);
+        $data = $request->validate([
+            'sucursales'   => [
+                'required',
+                'array',
+                'min:1',
+            ],
+            'sucursales.*' => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+        ]);
 
-        if (! is_array($sucursales)) {
-            $sucursales = [$sucursales];
-        }
+        $administrator = $this->administrator($request);
 
-        $sucursales = collect($sucursales)
-            ->map(fn($id) => (int) $id)
-            ->filter(fn($id) => $id > 0)
-            ->values()
-            ->all();
+        $clientIds = $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                $data['sucursales']
+            );
 
-        if ($idPortal <= 0) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'El portal es obligatorio.',
-                'data'    => [],
-            ], 422);
-        }
-
-        $query = DB::connection('portal_main')
+        $empleados = DB::connection('portal_main')
             ->table('empleados as e')
+            ->join('cliente as c', function ($join) {
+                $join
+                    ->on('c.id', '=', 'e.id_cliente')
+                    ->on(
+                        'c.id_portal',
+                        '=',
+                        'e.id_portal'
+                    );
+            })
             ->select([
                 'e.id',
                 'e.id_empleado',
@@ -50,79 +61,118 @@ class ChecadorAsignacionController extends Controller
                 'e.departamento',
                 'e.id_cliente',
                 'e.status',
-                'e.password',
                 'e.force_password_change',
                 'e.last_login_at',
                 'e.password_changed_at',
+                'c.nombre as nombre_sucursal',
             ])
-            ->where('e.id_portal', $idPortal)
+            ->where(
+                'e.id_portal',
+                (int) $administrator->id_portal
+            )
+            ->whereIn('e.id_cliente', $clientIds)
             ->where('e.status', 1)
             ->where('e.eliminado', 0)
             ->whereNotNull('e.password')
-            ->where('e.password', '<>', '');
-
-        if (! empty($sucursales)) {
-            $query->whereIn('e.id_cliente', $sucursales);
-        }
-
-        $empleados = $query
+            ->where('e.password', '<>', '')
+            ->orderBy('c.nombre')
             ->orderBy('e.nombre')
             ->orderBy('e.paterno')
             ->orderBy('e.materno')
             ->get();
 
-        $data = $empleados->map(function ($item) {
-            $nombreCompleto = trim(collect([
-                $item->nombre,
-                $item->paterno,
-                $item->materno,
-            ])->filter()->implode(' '));
+        $result = $empleados
+            ->map(function ($item) {
+                $nombreCompleto = trim(collect([
+                    $item->nombre,
+                    $item->paterno,
+                    $item->materno,
+                ])->filter()->implode(' '));
 
-            return [
-                'id'                        => (int) $item->id,
-                'id_empleado'               => $item->id_empleado,
-                'nombre'                    => $item->nombre,
-                'paterno'                   => $item->paterno,
-                'materno'                   => $item->materno,
-                'nombre_completo'           => $nombreCompleto,
-                'correo'                    => $item->correo,
-                'puesto'                    => $item->puesto,
-                'departamento'              => $item->departamento,
-                'id_cliente'                => (int) $item->id_cliente,
-                'nombre_sucursal'           => 'Sucursal ' . (int) $item->id_cliente,
-                'status'                    => (int) $item->status,
-                'tiene_acceso'              => true,
-                'force_password_change'     => (int) ($item->force_password_change ?? 0),
-                'last_login_at'             => $item->last_login_at,
-                'ultimo_envio_credenciales' => $item->password_changed_at,
-            ];
-        })->values();
+                return [
+                    'id'                        => (int) $item->id,
+                    'id_empleado'               =>
+                    $item->id_empleado,
+                    'nombre'                    => $item->nombre,
+                    'paterno'                   => $item->paterno,
+                    'materno'                   => $item->materno,
+                    'nombre_completo'           =>
+                    $nombreCompleto,
+                    'correo'                    => $item->correo,
+                    'puesto'                    => $item->puesto,
+                    'departamento'              =>
+                    $item->departamento,
+                    'id_cliente'                =>
+                    (int) $item->id_cliente,
+                    'nombre_sucursal'           =>
+                    $item->nombre_sucursal,
+                    'status'                    => (int) $item->status,
+                    'tiene_acceso'              => true,
+                    'force_password_change'     =>
+                    (int) (
+                        $item->force_password_change ?? 0
+                    ),
+                    'last_login_at'             =>
+                    $item->last_login_at,
+                    'ultimo_envio_credenciales' =>
+                    $item->password_changed_at,
+                ];
+            })
+            ->values();
 
         return response()->json([
             'ok'      => true,
-            'message' => 'Empleados con acceso obtenidos correctamente.',
-            'data'    => $data,
+            'message' =>
+            'Empleados con acceso obtenidos correctamente.',
+            'data'    => $result,
         ]);
     }
 
     public function index(Request $request, int $id)
     {
-        $idPortal  = (int) $request->query('id_portal');
-        $idCliente = (int) $request->query('id_cliente');
+        $administrator = $this->administrator($request);
 
-        if ($idPortal <= 0 || $idCliente <= 0) {
+        $plantilla = DB::connection('portal_main')
+            ->table('checador_checada_plantillas')
+            ->select([
+                'id',
+                'id_portal',
+                'id_cliente',
+            ])
+            ->where('id', $id)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->first();
+
+        if (! $plantilla) {
             return response()->json([
                 'ok'      => false,
-                'message' => 'Portal y sucursal son obligatorios.',
+                'message' => 'La plantilla no fue encontrada.',
                 'data'    => [],
-            ], 422);
+            ], 404);
         }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $plantilla->id_cliente]
+        );
 
         $asignaciones = DB::connection('portal_main')
             ->table('checador_asignaciones')
-            ->where('id_portal', $idPortal)
-            ->where('id_cliente', $idCliente)
-            ->where('id_plantilla_checada', $id)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'id_cliente',
+                (int) $plantilla->id_cliente
+            )
+            ->where(
+                'id_plantilla_checada',
+                (int) $plantilla->id
+            )
             ->where('activa', 1)
             ->get();
 
@@ -136,14 +186,16 @@ class ChecadorAsignacionController extends Controller
     public function store(Request $request, int $id)
     {
         $validator = Validator::make($request->all(), [
-            'id_portal'    => ['required', 'integer', 'min:1'],
-            'id_cliente'   => ['required', 'integer', 'min:1'],
-            'empleados'    => ['array'],
+            'empleados'    => ['required', 'array'],
             'empleados.*'  => ['integer', 'min:1'],
             'horarios'     => ['required', 'array', 'min:1'],
             'horarios.*'   => ['integer', 'min:1'],
-            'fecha_inicio' => ['required', 'date'],
-            'fecha_fin'    => ['nullable', 'date', 'after_or_equal:fecha_inicio'],
+            'fecha_inicio' => ['required', 'date_format:Y-m-d'],
+            'fecha_fin'    => [
+                'nullable',
+                'date_format:Y-m-d',
+                'after_or_equal:fecha_inicio',
+            ],
             'prioridad'    => ['nullable', 'integer', 'min:1'],
         ]);
 
@@ -155,76 +207,247 @@ class ChecadorAsignacionController extends Controller
             ], 422);
         }
 
-        $idPortal  = (int) $request->input('id_portal');
-        $idCliente = (int) $request->input('id_cliente');
-        $empleados = collect($request->input('empleados', []))
+        $validated = $validator->validated();
+
+        $administrator = $this->administrator($request);
+
+        $plantilla = DB::connection('portal_main')
+            ->table('checador_checada_plantillas')
+            ->select([
+                'id',
+                'id_portal',
+                'id_cliente',
+                'nombre',
+            ])
+            ->where('id', $id)
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->first();
+
+        if (! $plantilla) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'La plantilla no fue encontrada.',
+            ], 404);
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [(int) $plantilla->id_cliente]
+        );
+
+        $empleados = collect($validated['empleados'])
             ->map(fn($idEmpleado) => (int) $idEmpleado)
             ->filter(fn($idEmpleado) => $idEmpleado > 0)
             ->unique()
             ->values();
 
-        $horarios = collect($request->input('horarios', []))
+        $horarios = collect($validated['horarios'])
             ->map(fn($idHorario) => (int) $idHorario)
             ->filter(fn($idHorario) => $idHorario > 0)
             ->unique()
             ->values();
 
-        $fechaInicio = $request->input('fecha_inicio');
-        $fechaFin    = $request->input('fecha_fin');
-        $prioridad   = (int) $request->input('prioridad', 1);
+        $empleadosValidos = $empleados->isEmpty()
+            ? collect()
+            : DB::connection('portal_main')
+            ->table('empleados')
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'id_cliente',
+                (int) $plantilla->id_cliente
+            )
+            ->whereIn('id', $empleados->all())
+            ->where('status', 1)
+            ->where('eliminado', 0)
+            ->pluck('id')
+            ->map(fn($idEmpleado) => (int) $idEmpleado);
 
-        DB::connection('portal_main')->transaction(function () use (
-            $idPortal,
-            $idCliente,
-            $id,
-            $empleados,
-            $horarios,
-            $fechaInicio,
-            $fechaFin,
-            $prioridad
+        if ($empleadosValidos->count() !== $empleados->count()) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Uno o más empleados no pertenecen a la sucursal autorizada.',
+                'errors'  => [
+                    'empleados' => [
+                        'La selección contiene empleados no autorizados.',
+                    ],
+                ],
+            ], 422);
+        }
+
+        $horariosValidos = DB::connection('portal_main')
+            ->table('checador_horario_plantillas')
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'id_cliente',
+                (int) $plantilla->id_cliente
+            )
+            ->whereIn('id', $horarios->all())
+            ->where('activo', 1)
+            ->pluck('id')
+            ->map(fn($idHorario) => (int) $idHorario);
+
+        if ($horariosValidos->count() !== $horarios->count()) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Uno o más horarios no pertenecen a la sucursal autorizada.',
+                'errors'  => [
+                    'horarios' => [
+                        'La selección contiene horarios no autorizados.',
+                    ],
+                ],
+            ], 422);
+        }
+
+        $fechaInicio = $validated['fecha_inicio'];
+        $fechaFin    = $validated['fecha_fin'] ?? null;
+        $prioridad   = (int) ($validated['prioridad'] ?? 1);
+
+        $conexion = DB::connection('portal_main');
+
+        $asignacionesAnteriores = $conexion
+            ->table('checador_asignaciones')
+            ->where(
+                'id_portal',
+                (int) $administrator->id_portal
+            )
+            ->where(
+                'id_cliente',
+                (int) $plantilla->id_cliente
+            )
+            ->where(
+                'id_plantilla_checada',
+                (int) $plantilla->id
+            )
+            ->where('activa', 1)
+            ->get([
+                'id_empleado',
+                'id_plantilla_horario',
+                'fecha_inicio',
+                'fecha_fin',
+                'prioridad',
+            ])
+            ->map(fn($item) => [
+                'id_empleado'          => (int) $item->id_empleado,
+                'id_plantilla_horario' =>
+                (int) $item->id_plantilla_horario,
+                'fecha_inicio'         => $item->fecha_inicio,
+                'fecha_fin'            => $item->fecha_fin,
+                'prioridad'            => (int) $item->prioridad,
+            ])
+            ->values()
+            ->all();
+
+        $nuevasAsignaciones = [];
+
+        foreach ($empleados as $idEmpleado) {
+            foreach ($horarios as $idHorario) {
+                $nuevasAsignaciones[] = [
+                    'id_empleado'          => (int) $idEmpleado,
+                    'id_plantilla_horario' => (int) $idHorario,
+                    'fecha_inicio'         => $fechaInicio,
+                    'fecha_fin'            => $fechaFin,
+                    'prioridad'            => $prioridad,
+                ];
+            }
+        }
+
+        $conexion->transaction(function () use (
+            $conexion,
+            $administrator,
+            $plantilla,
+            $nuevasAsignaciones
         ) {
-            DB::connection('portal_main')
+            $conexion
                 ->table('checador_asignaciones')
-                ->where('id_portal', $idPortal)
-                ->where('id_cliente', $idCliente)
-                ->where('id_plantilla_checada', $id)
+                ->where(
+                    'id_portal',
+                    (int) $administrator->id_portal
+                )
+                ->where(
+                    'id_cliente',
+                    (int) $plantilla->id_cliente
+                )
+                ->where(
+                    'id_plantilla_checada',
+                    (int) $plantilla->id
+                )
+                ->where('activa', 1)
                 ->update([
                     'activa'     => 0,
                     'updated_at' => now(),
                 ]);
 
-            $rows = [];
+            if ($nuevasAsignaciones === []) {
+                return;
+            }
 
-            foreach ($empleados as $idEmpleado) {
-                foreach ($horarios as $idHorario) {
-                    $rows[] = [
-                        'id_portal'            => $idPortal,
-                        'id_cliente'           => $idCliente,
-                        'id_empleado'          => $idEmpleado,
-                        'id_plantilla_horario' => $idHorario,
-                        'id_plantilla_checada' => $id,
-                        'fecha_inicio'         => $fechaInicio,
-                        'fecha_fin'            => $fechaFin,
-                        'prioridad'            => $prioridad,
+            $createdAt = now();
+
+            $rows = collect($nuevasAsignaciones)
+                ->map(function ($asignacion) use (
+                    $administrator,
+                    $plantilla,
+                    $createdAt
+                ) {
+                    return array_merge($asignacion, [
+                        'id_portal'            =>
+                        (int) $administrator->id_portal,
+                        'id_cliente'           =>
+                        (int) $plantilla->id_cliente,
+                        'id_plantilla_checada' =>
+                        (int) $plantilla->id,
                         'activa'               => 1,
-                        'created_at'           => now(),
-                        'updated_at'           => now(),
-                    ];
-                }
-            }
+                        'created_at'           => $createdAt,
+                        'updated_at'           => $createdAt,
+                    ]);
+                })
+                ->all();
 
-            if (! empty($rows)) {
-                DB::connection('portal_main')
-                    ->table('checador_asignaciones')
-                    ->insert($rows);
-            }
+            $conexion
+                ->table('checador_asignaciones')
+                ->insert($rows);
         });
+
+        $this->auditoria->registrar([
+            'id_portal'        =>
+            (int) $administrator->id_portal,
+            'id_cliente'       =>
+            (int) $plantilla->id_cliente,
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     =>
+            $this->administratorName($administrator),
+            'modulo'           => 'comunicacion360',
+            'entidad_tipo'     => 'plantilla_checada_asignaciones',
+            'entidad_id'       => (int) $plantilla->id,
+            'accion'           => 'actualizar_asignaciones',
+            'resultado'        => 'exitoso',
+            'descripcion'      =>
+            'Asignaciones de la plantilla de checada actualizadas.',
+            'datos_anteriores' => [
+                'asignaciones' => $asignacionesAnteriores,
+            ],
+            'datos_nuevos'     => [
+                'plantilla'    => $plantilla->nombre,
+                'asignaciones' => $nuevasAsignaciones,
+            ],
+        ], $request);
 
         return response()->json([
             'ok'      => true,
             'message' => 'Asignaciones guardadas correctamente.',
         ]);
     }
+
     public function plantillaEmpleado(Request $request, int $idEmpleado)
     {
         $idPortal  = (int) $request->query('id_portal');
@@ -448,6 +671,17 @@ class ChecadorAsignacionController extends Controller
 
         return response()->json($data);
     }
+
+    private function administratorName(
+        AdministradorAuth $administrator
+    ): string {
+        return trim(collect([
+            $administrator->nombre ?? null,
+            $administrator->paterno ?? null,
+            $administrator->materno ?? null,
+        ])->filter()->implode(' '));
+    }
+
     private function administrator(Request $request): AdministradorAuth
     {
         $administrator = $request->user();
