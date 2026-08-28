@@ -1867,12 +1867,16 @@ Route::prefix('checador')->group(function () {
         Route::get('/empleados/{id}/plantilla', [
             ChecadorAsignacionController::class,
             'plantillaEmpleado',
-        ]);
+        ])->middleware(
+            'admin.permission:comunicacion360.checador.plantillas.ver'
+        );
 
         Route::post('/empleados/{id}/plantilla', [
             ChecadorAsignacionController::class,
             'guardarPlantillaEmpleado',
-        ]);
+        ])->middleware(
+            'admin.permission:comunicacion360.checador.plantillas.asignar'
+        );
 
         // Métodos
         Route::get('/metodos', [
