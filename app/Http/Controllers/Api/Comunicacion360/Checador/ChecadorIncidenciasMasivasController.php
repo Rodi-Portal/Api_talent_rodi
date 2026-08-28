@@ -2,8 +2,12 @@
 namespace App\Http\Controllers\Api\Comunicacion360\Checador;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
+use App\Services\Auditoria\AuditoriaService;
+use App\Services\Auth\AdminClientScopeService;
 use App\Support\ChecadorImportConfig;
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -20,11 +24,36 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class ChecadorIncidenciasMasivasController extends Controller
 {
     private const CACHE_PREFIX = 'incidencias_masivas_preview_';
+
+    public function __construct(
+        private AdminClientScopeService $clientScope,
+        private AuditoriaService $auditoria
+    ) {}
     public function exportarPlantilla(Request $request)
     {
-        $locale    = strtolower($request->input('locale', 'es'));
-        $idPortal  = (int) $request->id_portal;
-        $idCliente = (int) $request->id_cliente;
+        $data = $request->validate([
+            'id_cliente' => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+            'locale'     => [
+                'nullable',
+                'in:es,en',
+            ],
+        ]);
+
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+
+        $clientIds = $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                [(int) $data['id_cliente']]
+            );
+
+        $idCliente = (int) $clientIds[0];
+        $locale    = strtolower($data['locale'] ?? 'es');
 
         $portal = DB::connection('portal_main')
             ->table('portal')
@@ -175,7 +204,25 @@ class ChecadorIncidenciasMasivasController extends Controller
             ->setFormatCode('0');
 
         $fileName = 'plantilla_incidencias_masivas_' . now()->format('Ymd_His') . '.xlsx';
-
+        $this->auditoria->registrar([
+            'id_portal'    => $idPortal,
+            'id_cliente'   => $idCliente,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'importacion_incidencias',
+            'entidad_id'   => null,
+            'accion'       => 'exportar_plantilla',
+            'resultado'    => 'exitoso',
+            'descripcion'  =>
+            'Plantilla para importación masiva de incidencias exportada.',
+            'datos_nuevos' => [
+                'archivo'    => $fileName,
+                'id_cliente' => $idCliente,
+            ],
+        ], $request);
         return new StreamedResponse(function () use ($spreadsheet) {
             $writer = new Xlsx($spreadsheet);
             $writer->save('php://output');
@@ -207,25 +254,38 @@ class ChecadorIncidenciasMasivasController extends Controller
 
     public function importarPreview(Request $request)
     {
-        $request->validate([
-            'archivo' => 'required|file|mimes:xlsx,xls',
+        $dataRequest = $request->validate([
+            'archivo'    => [
+                'required',
+                'file',
+                'mimes:xlsx,xls',
+            ],
+            'id_cliente' => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+            'locale'     => [
+                'nullable',
+                'in:es,en',
+            ],
         ]);
 
-        $locale    = strtolower($request->input('locale', 'es'));
-        $idPortal  = (int) $request->input('id_portal');
-        $idCliente = (int) $request->input('id_cliente');
-        $idUsuario = (int) $request->input('id_usuario');
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $idUsuario     = (int) $administrator->id;
 
-        if (! $idPortal || ! $idCliente) {
-            return response()->json([
-                'status'  => false,
-                'message' => $locale === 'en'
-                    ? 'Portal and client are required.'
-                    : 'Portal y cliente son requeridos.',
-            ], 422);
-        }
+        $clientIds = $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                [(int) $dataRequest['id_cliente']]
+            );
 
-        $archivo = $request->file('archivo');
+        $idCliente = (int) $clientIds[0];
+        $locale    = strtolower(
+            $dataRequest['locale'] ?? 'es'
+        );
+        $archivo = $dataRequest['archivo'];
 
         $spreadsheet = IOFactory::load($archivo->getRealPath());
         $sheet       = $spreadsheet->getActiveSheet();
@@ -487,13 +547,44 @@ class ChecadorIncidenciasMasivasController extends Controller
         Cache::put(
             self::CACHE_PREFIX . $previewToken,
             [
+                'scope'           => [
+                    'administrator_id' =>
+                    (int) $administrator->id,
+                    'id_portal'        => $idPortal,
+                    'id_cliente'       => $idCliente,
+                ],
                 'resumen'         => $resumen,
                 'preview'         => $preview,
+                'puede_confirmar' =>
+                $resumen['errores'] === 0,
+            ],
+            now()->addMinutes(
+                ChecadorImportConfig::CACHE_MINUTES
+            )
+        );
+        $this->auditoria->registrar([
+            'id_portal'    => $idPortal,
+            'id_cliente'   => $idCliente,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'importacion_incidencias',
+            'entidad_id'   => null,
+            'accion'       => 'validar_importacion',
+            'resultado'    => $resumen['errores'] === 0
+                ? 'exitoso'
+                : 'fallido',
+            'descripcion'  =>
+            'Archivo de incidencias masivas validado.',
+            'datos_nuevos' => [
+                'preview_token'   => $previewToken,
+                'id_cliente'      => $idCliente,
+                'resumen'         => $resumen,
                 'puede_confirmar' => $resumen['errores'] === 0,
             ],
-            now()->addMinutes(ChecadorImportConfig::CACHE_MINUTES)
-        );
-
+        ], $request);
         return response()->json([
             'status'          => true,
             'message'         => $locale === 'en'
@@ -563,6 +654,9 @@ class ChecadorIncidenciasMasivasController extends Controller
         $request->validate([
             'preview_token' => 'required|string',
         ]);
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $idUsuario     = (int) $administrator->id;
 
         $locale = strtolower($request->input('locale', 'es'));
 
@@ -577,7 +671,29 @@ class ChecadorIncidenciasMasivasController extends Controller
                     : 'El token de vista previa expiró o no es válido.',
             ], 422);
         }
+        $scope = $cached['scope'] ?? [];
 
+        $idCliente = (int) ($scope['id_cliente'] ?? 0);
+
+        $tokenPerteneceAdministrador =
+        (int) ($scope['administrator_id'] ?? 0) ===
+        (int) $administrator->id &&
+        (int) ($scope['id_portal'] ?? 0) === $idPortal &&
+        $idCliente > 0;
+
+        if (! $tokenPerteneceAdministrador) {
+            return response()->json([
+                'status'  => false,
+                'message' => $locale === 'en'
+                    ? 'The preview does not belong to the authenticated administrator.'
+                    : 'El preview no pertenece al administrador autenticado.',
+            ], 403);
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrator,
+            [$idCliente]
+        );
         if (! ($cached['puede_confirmar'] ?? false)) {
             return response()->json([
                 'status'  => false,
@@ -620,10 +736,30 @@ class ChecadorIncidenciasMasivasController extends Controller
                     continue;
                 }
 
-                $idPortal   = (int) ($data['id_portal'] ?? 0);
-                $idCliente  = (int) ($data['id_cliente'] ?? 0);
-                $idUsuario  = (int) ($data['id_usuario'] ?? 0);
                 $idEmpleado = (int) ($data['id_empleado'] ?? 0);
+
+                $empleadoAutorizado = $idEmpleado > 0 &&
+                DB::connection('portal_main')
+                    ->table('empleados')
+                    ->where('id', $idEmpleado)
+                    ->where('id_portal', $idPortal)
+                    ->where('id_cliente', $idCliente)
+                    ->where('status', 1)
+                    ->where('eliminado', 0)
+                    ->exists();
+
+                if (! $empleadoAutorizado) {
+                    $omitidas++;
+
+                    $errores[] = [
+                        'fila'    => $item['fila'] ?? null,
+                        'message' => $locale === 'en'
+                            ? 'The employee is not authorized.'
+                            : 'El colaborador no pertenece a la sucursal autorizada.',
+                    ];
+
+                    continue;
+                }
 
                 $tipoEvento = trim((string) ($data['tipo_evento'] ?? ''));
                 $idTipo     = (int) ($data['id_tipo'] ?? 0);
@@ -653,7 +789,7 @@ class ChecadorIncidenciasMasivasController extends Controller
                     }
                 }
 
-                if (! $idPortal || ! $idCliente || ! $idEmpleado || ! $idTipo) {
+                if (! $idEmpleado || ! $idTipo) {
                     $omitidas++;
                     $errores[] = [
                         'fila'    => $item['fila'] ?? null,
@@ -719,6 +855,29 @@ class ChecadorIncidenciasMasivasController extends Controller
             }
 
             DB::connection('portal_main')->commit();
+            $this->auditoria->registrar([
+                'id_portal'    => $idPortal,
+                'id_cliente'   => $idCliente,
+                'actor_tipo'   => 'administrador',
+                'actor_id'     => (int) $administrator->id,
+                'actor_nombre' =>
+                $this->administratorName($administrator),
+                'modulo'       => 'comunicacion360',
+                'entidad_tipo' => 'importacion_incidencias',
+                'entidad_id'   => null,
+                'accion'       => 'confirmar_importacion',
+                'resultado'    => count($errores) === 0
+                    ? 'exitoso'
+                    : 'parcial',
+                'descripcion'  =>
+                'Importación masiva de incidencias confirmada.',
+                'datos_nuevos' => [
+                    'id_cliente' => $idCliente,
+                    'insertadas' => $insertadas,
+                    'omitidas'   => $omitidas,
+                    'errores'    => count($errores),
+                ],
+            ], $request);
             Cache::forget($cacheKey);
 
             return response()->json([
@@ -742,6 +901,29 @@ class ChecadorIncidenciasMasivasController extends Controller
                 'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+    private function administratorName(
+        AdministradorAuth $administrator
+    ): string {
+        return trim(collect([
+            $administrator->nombre ?? null,
+            $administrator->paterno ?? null,
+            $administrator->materno ?? null,
+        ])->filter()->implode(' '));
+    }
+
+    private function administrator(
+        Request $request
+    ): AdministradorAuth {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
     }
 
 }

@@ -1865,17 +1865,32 @@ Route::prefix('checador')->group(function () {
             ->group(function () {
                 Route::post(
                     '/exportar-plantilla',
-                    [ChecadorIncidenciasMasivasController::class, 'exportarPlantilla']
+                    [
+                        ChecadorIncidenciasMasivasController::class,
+                        'exportarPlantilla',
+                    ]
+                )->middleware(
+                    'admin.permission:comunicacion360.importaciones.incidencias.exportar'
                 );
 
                 Route::post(
                     '/importar-preview',
-                    [ChecadorIncidenciasMasivasController::class, 'importarPreview']
+                    [
+                        ChecadorIncidenciasMasivasController::class,
+                        'importarPreview',
+                    ]
+                )->middleware(
+                    'admin.permission:comunicacion360.importaciones.incidencias.validar'
                 );
 
                 Route::post(
                     '/importar-confirmar',
-                    [ChecadorIncidenciasMasivasController::class, 'importarConfirmar']
+                    [
+                        ChecadorIncidenciasMasivasController::class,
+                        'importarConfirmar',
+                    ]
+                )->middleware(
+                    'admin.permission:comunicacion360.importaciones.incidencias.confirmar'
                 );
             });
 
