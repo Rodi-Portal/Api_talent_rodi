@@ -2,10 +2,14 @@
 namespace App\Http\Controllers\Api\Comunicacion360\Checador;
 
 use App\Http\Controllers\Controller;
+use App\Models\Auth\AdministradorAuth;
+use App\Services\Auditoria\AuditoriaService;
+use App\Services\Auth\AdminClientScopeService;
 use App\Services\Checador\ChecadaRegistroService;
 use App\Services\Checador\ChecadorHorarioResolverService;
 use App\Support\ChecadorImportConfig;
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -22,26 +26,99 @@ class ChecadorChecadasMasivasController extends Controller
 {
 
     private const CACHE_PREFIX = 'checadas_masivas_preview_';
+
+    public function __construct(
+        private AdminClientScopeService $clientScope,
+        private AuditoriaService $auditoria
+    ) {}
+
     public function exportarPlantilla(
         Request $request,
         ChecadorHorarioResolverService $horarioResolver
     ) {
-        $locale    = strtolower($request->input('locale', 'es'));
-        $idPortal  = (int) $request->id_portal;
-        $idCliente = (int) $request->id_cliente;
-        $empleados = $request->input('empleados', []);
+        $data = $request->validate([
+            'id_cliente'   => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+            'empleados'    => [
+                'required',
+                'array',
+                'min:1',
+            ],
+            'empleados.*'  => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+            'fecha_inicio' => [
+                'required',
+                'date_format:Y-m-d',
+            ],
+            'fecha_fin'    => [
+                'required',
+                'date_format:Y-m-d',
+                'after_or_equal:fecha_inicio',
+            ],
+            'locale'       => [
+                'nullable',
+                'in:es,en',
+            ],
+        ]);
 
-        $inicio = Carbon::parse($request->fecha_inicio)->startOfDay();
-        $fin    = Carbon::parse($request->fecha_fin)->startOfDay();
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+
+        $clientIds = $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                [(int) $data['id_cliente']]
+            );
+
+        $idCliente = (int) $clientIds[0];
+
+        $empleados = collect($data['empleados'])
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        $locale = strtolower($data['locale'] ?? 'es');
+        $inicio = Carbon::parse($data['fecha_inicio'])
+            ->startOfDay();
+        $fin = Carbon::parse($data['fecha_fin'])
+            ->startOfDay();
 
         $empleadosInfo = DB::connection('portal_main')
             ->table('empleados')
             ->where('id_portal', $idPortal)
             ->where('id_cliente', $idCliente)
-            ->whereIn('id', $empleados)
-            ->select('id', 'id_empleado', 'nombre', 'paterno', 'materno')
+            ->whereIn('id', $empleados->all())
+            ->where('status', 1)
+            ->where('eliminado', 0)
+            ->select([
+                'id',
+                'id_empleado',
+                'nombre',
+                'paterno',
+                'materno',
+            ])
             ->get()
             ->keyBy('id');
+
+        if ($empleadosInfo->count() !== $empleados->count()) {
+            return response()->json([
+                'status'  => false,
+                'message' =>
+                'La selección contiene colaboradores no autorizados.',
+                'errors'  => [
+                    'empleados' => [
+                        'Uno o más colaboradores no pertenecen a la sucursal autorizada.',
+                    ],
+                ],
+            ], 422);
+        }
 
         $portal = DB::connection('portal_main')
             ->table('portal')
@@ -91,7 +168,7 @@ class ChecadorChecadasMasivasController extends Controller
         $sheet->getStyle('A7:J7')->getAlignment()
             ->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-       // $sheet->freezePane('A8');
+        // $sheet->freezePane('A8');
         $sheet->setAutoFilter('A7:J7');
 
         $row = 8;
@@ -198,6 +275,28 @@ class ChecadorChecadasMasivasController extends Controller
 
         $fileName = 'plantilla_checadas_masivas_' . now()->format('Ymd_His') . '.xlsx';
 
+        $this->auditoria->registrar([
+            'id_portal'    => $idPortal,
+            'id_cliente'   => $idCliente,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'importacion_checadas',
+            'entidad_id'   => null,
+            'accion'       => 'exportar_plantilla',
+            'resultado'    => 'exitoso',
+            'descripcion'  =>
+            'Plantilla para importación masiva de checadas exportada.',
+            'datos_nuevos' => [
+                'id_cliente'   => $idCliente,
+                'empleados'    => $empleados->all(),
+                'fecha_inicio' => $data['fecha_inicio'],
+                'fecha_fin'    => $data['fecha_fin'],
+                'archivo'      => $fileName,
+            ],
+        ], $request);
         return new StreamedResponse(function () use ($spreadsheet) {
             $writer = new Xlsx($spreadsheet);
             $writer->save('php://output');
@@ -212,11 +311,28 @@ class ChecadorChecadasMasivasController extends Controller
         Request $request,
         ChecadorHorarioResolverService $horarioResolver
     ) {
-        $request->validate([
-            'archivo' => 'required|file|mimes:xlsx,xls',
+        $dataRequest = $request->validate([
+            'archivo' => [
+                'required',
+                'file',
+                'mimes:xlsx,xls',
+            ],
+            'locale'  => [
+                'nullable',
+                'in:es,en',
+            ],
         ]);
 
-        $archivo = $request->file('archivo');
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $locale        = strtolower(
+            $dataRequest['locale'] ?? 'es'
+        );
+
+        $permittedClientIds = $this->clientScope
+            ->permittedClientIds($administrator);
+
+        $archivo = $dataRequest['archivo'];
 
         $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($archivo->getRealPath());
         $sheet       = $spreadsheet->getActiveSheet();
@@ -284,9 +400,11 @@ class ChecadorChecadasMasivasController extends Controller
             $errores  = [];
             $warnings = [];
 
-            $idEmpleado = (int) ($data['id_empleado'] ?? 0);
-            $idPortal   = (int) ($data['id_portal'] ?? 0);
-            $idCliente  = (int) ($data['id_cliente'] ?? 0);
+            $idEmpleado       = (int) ($data['id_empleado'] ?? 0);
+            $idPortalArchivo  = (int) ($data['id_portal'] ?? 0);
+            $idClienteArchivo =
+            (int) ($data['id_cliente'] ?? 0);
+            $idCliente = 0;
 
             $fecha = trim((string) ($data['fecha'] ?? ''));
             $hora  = trim((string) ($data['hora'] ?? ''));
@@ -307,14 +425,6 @@ class ChecadorChecadasMasivasController extends Controller
 
             if (! $idEmpleado) {
                 $errores[] = 'id_empleado requerido.';
-            }
-
-            if (! $idPortal) {
-                $errores[] = 'id_portal requerido.';
-            }
-
-            if (! $idCliente) {
-                $errores[] = 'id_cliente requerido.';
             }
 
             if (! $fecha) {
@@ -357,16 +467,43 @@ class ChecadorChecadasMasivasController extends Controller
 
             $empleado = null;
 
-            if ($idEmpleado && $idPortal && $idCliente) {
+            if ($idEmpleado) {
                 $empleado = DB::connection('portal_main')
                     ->table('empleados')
                     ->where('id', $idEmpleado)
                     ->where('id_portal', $idPortal)
-                    ->where('id_cliente', $idCliente)
-                    ->first();
+                    ->whereIn(
+                        'id_cliente',
+                        $permittedClientIds
+                    )
+                    ->where('status', 1)
+                    ->where('eliminado', 0)
+                    ->first([
+                        'id',
+                        'id_cliente',
+                    ]);
 
                 if (! $empleado) {
-                    $errores[] = 'El empleado no existe o no pertenece al portal/cliente indicado.';
+                    $errores[] =
+                        'El colaborador no existe o no pertenece a una sucursal autorizada.';
+                } else {
+                    $idCliente = (int) $empleado->id_cliente;
+
+                    if (
+                        $idPortalArchivo > 0 &&
+                        $idPortalArchivo !== $idPortal
+                    ) {
+                        $errores[] =
+                            'El archivo contiene un portal no autorizado.';
+                    }
+
+                    if (
+                        $idClienteArchivo > 0 &&
+                        $idClienteArchivo !== $idCliente
+                    ) {
+                        $errores[] =
+                            'El archivo contiene una sucursal que no corresponde al colaborador.';
+                    }
                 }
             }
 
@@ -487,17 +624,62 @@ class ChecadorChecadasMasivasController extends Controller
                 ],
             ];
         }
-        $previewToken = (string) Str::uuid();
+        $previewToken     = (string) Str::uuid();
+        $previewClientIds = collect($preview)
+            ->pluck('data.id_cliente')
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
 
         Cache::put(
             self::CACHE_PREFIX . $previewToken,
             [
+                'scope'           => [
+                    'administrator_id' =>
+                    (int) $administrator->id,
+                    'id_portal'        => $idPortal,
+                    'client_ids'       => $previewClientIds,
+                ],
                 'resumen'         => $resumen,
                 'preview'         => $preview,
-                'puede_confirmar' => $resumen['errores'] === 0,
+                'puede_confirmar' =>
+                $resumen['errores'] === 0,
             ],
-            now()->addMinutes(ChecadorImportConfig::CACHE_MINUTES)
+            now()->addMinutes(
+                ChecadorImportConfig::CACHE_MINUTES
+            )
         );
+
+        $idClienteAuditoria =
+        count($previewClientIds) === 1
+            ? (int) $previewClientIds[0]
+            : null;
+
+        $this->auditoria->registrar([
+            'id_portal'    => $idPortal,
+            'id_cliente'   => $idClienteAuditoria,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'importacion_checadas',
+            'entidad_id'   => null,
+            'accion'       => 'validar_importacion',
+            'resultado'    => $resumen['errores'] === 0
+                ? 'exitoso'
+                : 'fallido',
+            'descripcion'  =>
+            'Archivo de checadas masivas validado.',
+            'datos_nuevos' => [
+                'clientes'        => $previewClientIds,
+                'resumen'         => $resumen,
+                'puede_confirmar' =>
+                $resumen['errores'] === 0,
+            ],
+        ], $request);
         return response()->json([
             'status'          => true,
             'message'         => 'Preview generado correctamente.',
@@ -516,6 +698,8 @@ class ChecadorChecadasMasivasController extends Controller
         $request->validate([
             'preview_token' => 'required|string',
         ]);
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
 
         $locale = strtolower($request->input('locale', 'es'));
 
@@ -531,6 +715,37 @@ class ChecadorChecadasMasivasController extends Controller
                     ? 'The preview expired or does not exist. Generate the preview again.'
                     : 'El preview expiró o no existe. Genera el preview nuevamente.',
             ], 422);
+        }
+        $scope = $cache['scope'] ?? [];
+
+        $tokenPerteneceAdministrador =
+        (int) ($scope['administrator_id'] ?? 0) ===
+        (int) $administrator->id &&
+        (int) ($scope['id_portal'] ?? 0) === $idPortal;
+
+        if (! $tokenPerteneceAdministrador) {
+            return response()->json([
+                'status'  => false,
+                'message' => $locale === 'en'
+                    ? 'The preview does not belong to the authenticated administrator.'
+                    : 'El preview no pertenece al administrador autenticado.',
+            ], 403);
+        }
+
+        $cachedClientIds = collect(
+            $scope['client_ids'] ?? []
+        )
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($cachedClientIds !== []) {
+            $this->clientScope->authorizeRequestedClients(
+                $administrator,
+                $cachedClientIds
+            );
         }
 
         if (! ($cache['puede_confirmar'] ?? false)) {
@@ -632,7 +847,34 @@ class ChecadorChecadasMasivasController extends Controller
                 }
             }
         });
+        $idClienteAuditoria =
+        count($cachedClientIds) === 1
+            ? (int) $cachedClientIds[0]
+            : null;
 
+        $this->auditoria->registrar([
+            'id_portal'    => $idPortal,
+            'id_cliente'   => $idClienteAuditoria,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'importacion_checadas',
+            'entidad_id'   => null,
+            'accion'       => 'confirmar_importacion',
+            'resultado'    => count($errores) === 0
+                ? 'exitoso'
+                : 'parcial',
+            'descripcion'  =>
+            'Importación masiva de checadas confirmada.',
+            'datos_nuevos' => [
+                'clientes'   => $cachedClientIds,
+                'insertadas' => $insertadas,
+                'omitidas'   => $omitidas,
+                'errores'    => count($errores),
+            ],
+        ], $request);
         Cache::forget($cacheKey);
 
         return response()->json([
@@ -725,5 +967,28 @@ class ChecadorChecadasMasivasController extends Controller
             'generated' => 'Generado',
             'to'        => 'al',
         ];
+    }
+    private function administratorName(
+        AdministradorAuth $administrator
+    ): string {
+        return trim(collect([
+            $administrator->nombre ?? null,
+            $administrator->paterno ?? null,
+            $administrator->materno ?? null,
+        ])->filter()->implode(' '));
+    }
+
+    private function administrator(
+        Request $request
+    ): AdministradorAuth {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
     }
 }

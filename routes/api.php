@@ -1830,17 +1830,32 @@ Route::prefix('checador')->group(function () {
             ->group(function () {
                 Route::post(
                     '/exportar-plantilla',
-                    [ChecadorChecadasMasivasController::class, 'exportarPlantilla']
+                    [
+                        ChecadorChecadasMasivasController::class,
+                        'exportarPlantilla',
+                    ]
+                )->middleware(
+                    'admin.permission:comunicacion360.importaciones.checadas.exportar'
                 );
 
                 Route::post(
                     '/importar-preview',
-                    [ChecadorChecadasMasivasController::class, 'importarPreview']
+                    [
+                        ChecadorChecadasMasivasController::class,
+                        'importarPreview',
+                    ]
+                )->middleware(
+                    'admin.permission:comunicacion360.importaciones.checadas.validar'
                 );
 
                 Route::post(
                     '/importar-confirmar',
-                    [ChecadorChecadasMasivasController::class, 'importarConfirmar']
+                    [
+                        ChecadorChecadasMasivasController::class,
+                        'importarConfirmar',
+                    ]
+                )->middleware(
+                    'admin.permission:comunicacion360.importaciones.checadas.confirmar'
                 );
             });
 
