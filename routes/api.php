@@ -1819,8 +1819,19 @@ Route::prefix('checador')->group(function () {
 
         // Importaciones / Exportaciones STC
         Route::prefix('/importaciones')->group(function () {
-            Route::get('/horarios/exportar', [ChecadorImportExportController::class, 'exportarHorarios']);
-            Route::post('/horarios/importar', [ChecadorImportExportController::class, 'importarHorarios']);
+            Route::get(
+                '/horarios/exportar',
+                [ChecadorImportExportController::class, 'exportarHorarios']
+            )->middleware(
+                'admin.permission:comunicacion360.checador.horarios.ver'
+            );
+
+            Route::post(
+                '/horarios/importar',
+                [ChecadorImportExportController::class, 'importarHorarios']
+            )->middleware(
+                'admin.permission:comunicacion360.checador.horarios.editar'
+            );
 
         });
 

@@ -8,12 +8,13 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class HorariosImportService
 {
-    public function importar(Request $request): array
-    {
+    public function importar(
+        Request $request,
+        int $idPortal,
+        int $idCliente
+    ): array {
         $request->validate([
-            'archivo'    => ['required', 'file', 'mimes:xlsx,xls'],
-            'id_portal'  => ['required', 'integer'],
-            'id_cliente' => ['required', 'integer'],
+            'archivo' => ['required', 'file', 'mimes:xlsx,xls'],
         ]);
 
         $spreadsheet = IOFactory::load(
@@ -50,8 +51,8 @@ class HorariosImportService
 
             $classificationErrors = $this->clasificarFila(
                 $mapped,
-                (int) $request->input('id_portal'),
-                (int) $request->input('id_cliente')
+                $idPortal,
+                $idCliente
             );
 
             if (! empty($classificationErrors)) {

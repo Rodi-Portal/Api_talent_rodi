@@ -3,6 +3,8 @@ namespace App\Http\Controllers\Api\Comunicacion360\Checador;
 
 use App\Http\Controllers\Controller;
 use App\Models\Comunicacion360\Checador\ChecadorHorarioPlantilla;
+use App\Services\Auditoria\AuditoriaService;
+use App\Services\Auth\AdminClientScopeService;
 use App\Services\Checador\HorariosImportService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -16,16 +18,34 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class ChecadorImportExportController extends Controller
 {
+
+    public function __construct(
+        private HorariosImportService $importService,
+        private AdminClientScopeService $clientScope,
+        private AuditoriaService $auditoria
+    ) {}
     public function exportarHorarios(Request $request)
     {
         $data = $request->validate([
-            'id_portal'  => ['required', 'integer'],
-            'id_cliente' => ['required', 'integer'],
+            'id_cliente' => ['required', 'integer', 'min:1'],
+            'lang'       => ['nullable', 'in:es,en'],
         ]);
-        $lang     = $request->input('lang', 'es');
+
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+
+        $clientIds = $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                [(int) $data['id_cliente']]
+            );
+
+        $idCliente = (int) $clientIds[0];
+        $lang      = $data['lang'] ?? 'es';
+
         $horarios = ChecadorHorarioPlantilla::with('detalles')
-            ->where('id_portal', $data['id_portal'])
-            ->where('id_cliente', $data['id_cliente'])
+            ->where('id_portal', $idPortal)
+            ->where('id_cliente', $idCliente)
             ->orderBy('nombre')
             ->get();
 
@@ -122,7 +142,7 @@ class ChecadorImportExportController extends Controller
         ]);
 
         $booleanOptions = $this->opcionesBooleanas($lang);
-      
+
         $this->aplicarValidacionLista($sheet, "G2:G{$validationLastRow}", $booleanOptions);
         $this->aplicarValidacionLista($sheet, "H2:H{$validationLastRow}", $booleanOptions);
 
@@ -171,6 +191,26 @@ class ChecadorImportExportController extends Controller
         $sheet->getProtection()->setFormatCells(true);
         $writer = new Xlsx($spreadsheet);
         $writer->save($tempPath);
+        $this->auditoria->registrar([
+            'id_portal'    => $idPortal,
+            'id_cliente'   => $idCliente,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'importacion_horarios',
+            'entidad_id'   => null,
+            'accion'       => 'exportar_plantilla',
+            'resultado'    => 'exitoso',
+            'descripcion'  =>
+            'Catálogo de horarios exportado.',
+            'datos_nuevos' => [
+                'archivo'        => $filename,
+                'id_cliente'     => $idCliente,
+                'total_horarios' => $horarios->count(),
+            ],
+        ], $request);
 
         return response()
             ->download($tempPath, $filename)
@@ -427,10 +467,77 @@ class ChecadorImportExportController extends Controller
 
     public function importarHorarios(Request $request)
     {
-        $service = new HorariosImportService();
+        $data = $request->validate([
+            'id_cliente' => ['required', 'integer', 'min:1'],
+        ]);
 
-        return response()->json(
-            $service->importar($request)
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+
+        $clientIds = $this->clientScope
+            ->authorizeRequestedClients(
+                $administrator,
+                [(int) $data['id_cliente']]
+            );
+
+        $idCliente = (int) $clientIds[0];
+
+        $resultado = $this->importService->importar(
+            $request,
+            $idPortal,
+            $idCliente
         );
+
+        $this->auditoria->registrar([
+            'id_portal'    => $idPortal,
+            'id_cliente'   => $idCliente,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'importacion_horarios',
+            'entidad_id'   => null,
+            'accion'       => 'validar_importacion',
+            'resultado'    => ($resultado['ok'] ?? false)
+                ? 'exitoso'
+                : 'fallido',
+            'descripcion'  =>
+            'Archivo de horarios validado para importación.',
+            'datos_nuevos' => [
+                'id_cliente'      => $idCliente,
+                'resumen'         => $resultado['summary'] ?? [],
+                'total_registros' =>
+                (int) ($resultado['total_registros'] ?? 0),
+                'total_errores'   =>
+                (int) ($resultado['total_errores'] ?? 0),
+            ],
+        ], $request);
+
+        return response()->json($resultado);
+    }
+
+    private function administratorName(
+        AdministradorAuth $administrator
+    ): string {
+        return trim(collect([
+            $administrator->nombre,
+            $administrator->paterno,
+            $administrator->materno,
+        ])->filter()->implode(' '));
+    }
+
+    private function administrator(
+        Request $request
+    ): AdministradorAuth {
+        $administrator = $request->user();
+
+        if (! $administrator instanceof AdministradorAuth) {
+            throw new AuthorizationException(
+                'Token administrativo no válido.'
+            );
+        }
+
+        return $administrator;
     }
 }
