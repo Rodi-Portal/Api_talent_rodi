@@ -2,6 +2,7 @@
 namespace App\Http\Controllers\Api\Comunicacion360;
 
 use App\Http\Controllers\Controller;
+use App\Services\Auth\AdminClientScopeService;
 use App\Services\Checador\AttendanceAdministrationCommandService;
 use App\Services\Checador\AttendanceAdministrationService;
 use App\Services\Checador\AttendanceDayContextService;
@@ -14,6 +15,10 @@ use Throwable;
 
 class AccesosChecadorGestionController extends Controller
 {
+    public function __construct(
+        private AdminClientScopeService $clientScope
+    ) {}
+
     public function contextoDia(Request $request, $id)
     {
         $validated = $request->validate([
@@ -344,7 +349,7 @@ class AccesosChecadorGestionController extends Controller
     ): ?object {
         $administrador = $request->user();
 
-        return DB::connection('portal_main')
+        $empleado = DB::connection('portal_main')
             ->table('empleados')
             ->where('id', $idEmpleado)
             ->where('id_portal', (int) $administrador->id_portal)
@@ -353,5 +358,16 @@ class AccesosChecadorGestionController extends Controller
                     ->orWhereNull('eliminado');
             })
             ->first();
+
+        if (! $empleado || ! $empleado->id_cliente) {
+            return null;
+        }
+
+        $this->clientScope->authorizeRequestedClients(
+            $administrador,
+            [(int) $empleado->id_cliente]
+        );
+
+        return $empleado;
     }
 }

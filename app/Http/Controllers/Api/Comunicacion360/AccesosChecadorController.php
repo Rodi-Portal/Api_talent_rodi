@@ -5,8 +5,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Auth\AdministradorAuth;
 use App\Models\Comunicacion360\Checador\Checada;
 use App\Models\Comunicacion360\Checador\ChecadorAsignacion;
-use App\Services\Auditoria\AuditoriaService;
 use App\Services\Auth\AdminClientScopeService;
+use App\Services\Auditoria\AuditoriaService;
+
 use App\Services\Checador\AttendanceDayContextService;
 use App\Services\Checador\AttendanceReportEventService;
 use App\Services\Checador\ChecadaEvidencePathService;
@@ -99,22 +100,29 @@ class AccesosChecadorController extends Controller
 
     public function metricasDia(Request $request, $id)
     {
-        $alertas  = [];
-        $idPortal = $request->input('id_portal');
-        $fecha    = $request->input('fecha', now()->toDateString());
+        $validated = $request->validate([
+            'fecha' => [
+                'nullable',
+                'date_format:Y-m-d',
+            ],
+        ]);
 
-        if (! $idPortal) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'id_portal es requerido',
-            ], 422);
-        }
+        $administrator = $this->administrator($request);
+
+        $employee = $this->authorizedEmployee(
+            $administrator,
+            (int) $id
+        );
+
+        $idPortal = (int) $administrator->id_portal;
+        $fecha    = $validated['fecha'] ?? now()->toDateString();
+        $alertas  = [];
 
         $fechaCarbon = Carbon::parse($fecha);
         $diaSemana   = (int) $fechaCarbon->dayOfWeek;
         $contexto    = app(AttendanceDayContextService::class)->resolver(
-            (int) $idPortal,
-            (int) $id,
+            $idPortal,
+            (int) $employee->id,
             $fecha
         );
 
@@ -123,13 +131,15 @@ class AccesosChecadorController extends Controller
         $detalleHorario   = $contexto['detalleHorario'];
         $ventanaOperativa = $contexto['ventanaOperativa'];
         $checadas         = $contexto['checadas'];
-        $eventoReporte    = app(AttendanceReportEventService::class)
+
+        $eventoReporte = app(AttendanceReportEventService::class)
             ->resolverPeriodo(
-                (int) $idPortal,
-                (int) $id,
+                $idPortal,
+                (int) $employee->id,
                 $fecha,
                 $fecha
             )[$fecha] ?? null;
+
         if (! $asignacion || ! $plantillaHorario) {
             return response()->json([
                 'ok'   => true,
@@ -1045,7 +1055,7 @@ class AccesosChecadorController extends Controller
 
         if (! $checada || empty($checada->evidencia_foto)) {
             return response()->json([
-                'ok' => false,
+                'ok'      => false,
                 'message' => 'Evidencia no encontrada.',
             ], 404);
         }
@@ -1056,9 +1066,9 @@ class AccesosChecadorController extends Controller
 
         if ($fullPath === null) {
             return response()->json([
-                'ok' => false,
+                'ok'      => false,
                 'message' =>
-                    'El archivo de evidencia no existe en el servidor.',
+                'El archivo de evidencia no existe en el servidor.',
             ], 404);
         }
 
@@ -1066,9 +1076,9 @@ class AccesosChecadorController extends Controller
 
         if ($size === false || $size > 15 * 1024 * 1024) {
             return response()->json([
-                'ok' => false,
+                'ok'      => false,
                 'message' =>
-                    'El archivo de evidencia no puede visualizarse.',
+                'El archivo de evidencia no puede visualizarse.',
             ], 422);
         }
 
@@ -1076,9 +1086,9 @@ class AccesosChecadorController extends Controller
 
         if ($content === false) {
             return response()->json([
-                'ok' => false,
+                'ok'      => false,
                 'message' =>
-                    'No fue posible leer la evidencia.',
+                'No fue posible leer la evidencia.',
             ], 500);
         }
 
@@ -1086,25 +1096,25 @@ class AccesosChecadorController extends Controller
             ?: 'application/octet-stream';
 
         $this->auditoria->registrar([
-            'id_portal' =>
-                (int) $administrator->id_portal,
-            'id_cliente' =>
-                (int) $employee->id_cliente,
-            'actor_tipo' => 'administrador',
-            'actor_id' => (int) $administrator->id,
+            'id_portal'    =>
+            (int) $administrator->id_portal,
+            'id_cliente'   =>
+            (int) $employee->id_cliente,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
             'actor_nombre' =>
-                $this->administratorName($administrator),
-            'modulo' => 'comunicacion360',
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
             'entidad_tipo' => 'checada_evidencia',
-            'entidad_id' => (int) $checada->id,
-            'accion' => 'visualizar',
-            'resultado' => 'exitoso',
-            'descripcion' =>
-                'Evidencia de checada visualizada por un administrador.',
-            'metadatos' => [
-                'empleado_id' => (int) $employee->id,
-                'mime' => $mime,
-                'peso_bytes' => (int) $size,
+            'entidad_id'   => (int) $checada->id,
+            'accion'       => 'visualizar',
+            'resultado'    => 'exitoso',
+            'descripcion'  =>
+            'Evidencia de checada visualizada por un administrador.',
+            'metadatos'    => [
+                'empleado_id'    => (int) $employee->id,
+                'mime'           => $mime,
+                'peso_bytes'     => (int) $size,
                 'almacenamiento' => str_starts_with(
                     str_replace(
                         '\\',
@@ -1119,14 +1129,14 @@ class AccesosChecadorController extends Controller
         ], $request);
 
         return response()->json([
-            'ok' => true,
+            'ok'   => true,
             'data' => [
-                'id' => (int) $checada->id,
-                'mime' => $mime,
+                'id'       => (int) $checada->id,
+                'mime'     => $mime,
                 'filename' => basename($fullPath),
-                'base64' =>
-                    'data:' . $mime . ';base64,'
-                    . base64_encode($content),
+                'base64'   =>
+                'data:' . $mime . ';base64,'
+                . base64_encode($content),
             ],
         ]);
     }
