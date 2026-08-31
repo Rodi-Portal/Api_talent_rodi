@@ -3,6 +3,7 @@ namespace App\Http\Controllers\Api\Comunicacion360;
 
 use App\Http\Controllers\Controller;
 use App\Models\Auth\AdministradorAuth;
+use App\Services\Auditoria\AuditoriaService;
 use App\Services\Auth\AdminClientScopeService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
@@ -15,7 +16,8 @@ use Illuminate\Validation\Rules\Password;
 class AccesosController extends Controller
 {
     public function __construct(
-        private AdminClientScopeService $clientScope
+        private AdminClientScopeService $clientScope,
+        private AuditoriaService $auditoria
     ) {}
 
     public function index(Request $request)
@@ -372,8 +374,6 @@ class AccesosController extends Controller
     public function generar(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'id_portal'   => 'required|integer|min:1',
-            'id_usuario'  => 'required|integer|min:1',
             'empleados'   => 'required|array|min:1',
             'empleados.*' => 'integer|min:1',
             'locale'      => 'nullable|in:es,en',
@@ -389,8 +389,11 @@ class AccesosController extends Controller
             ], 422);
         }
 
-        $idPortal  = (int) $request->input('id_portal');
-        $idUsuario = (int) $request->input('id_usuario');
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $idUsuario     = (int) $administrator->id;
+        $clientIds     = $this->clientScope
+            ->permittedClientIds($administrator);
         $locale    = $request->input('locale', 'es');
         $empleados = collect($request->input('empleados', []))
             ->map(fn($id) => (int) $id)
@@ -415,6 +418,7 @@ class AccesosController extends Controller
                 'e.eliminado',
             ])
             ->where('e.id_portal', $idPortal)
+            ->whereIn('e.id_cliente', $clientIds)
             ->whereIn('e.id', $empleados->all())
             ->where(function ($q) {
                 $q->where('e.eliminado', 0)
@@ -593,6 +597,43 @@ class AccesosController extends Controller
             }
         }
 
+        $clientesProcesados = $registros
+            ->pluck('id_cliente')
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        $this->auditoria->registrar([
+            'id_portal'    => $idPortal,
+            'id_cliente'   => $clientesProcesados->count() === 1
+                ? (int) $clientesProcesados->first()
+                : null,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'accesos_colaboradores',
+            'entidad_id'   => null,
+            'accion'       => 'generar_accesos',
+            'resultado'    => $generados === 0
+                ? 'fallido'
+                : (($fallidos > 0 || $mailFallidos > 0)
+                    ? 'parcial'
+                    : 'exitoso'),
+            'descripcion'  =>
+            'Generación masiva de accesos de colaboradores.',
+            'datos_nuevos' => [
+                'clientes'      => $clientesProcesados->all(),
+                'empleados'     => $empleados->all(),
+                'procesados'    => $procesados,
+                'generados'     => $generados,
+                'fallidos'      => $fallidos,
+                'mail_fallidos' => $mailFallidos,
+            ],
+        ], $request);
+
         return response()->json([
             'ok'   => true,
             'code' => ($fallidos > 0 || $mailFallidos > 0)
@@ -611,8 +652,6 @@ class AccesosController extends Controller
     public function actualizar(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'id_portal'   => 'required|integer|min:1',
-            'id_usuario'  => 'required|integer|min:1',
             'empleados'   => 'required|array|min:1',
             'empleados.*' => 'integer|min:1',
             'locale'      => 'nullable|in:es,en',
@@ -629,8 +668,11 @@ class AccesosController extends Controller
             ], 422);
         }
 
-        $idPortal  = (int) $request->input('id_portal');
-        $idUsuario = (int) $request->input('id_usuario');
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $idUsuario     = (int) $administrator->id;
+        $clientIds     = $this->clientScope
+            ->permittedClientIds($administrator);
         $locale    = $request->input('locale', 'es');
         $empleados = collect($request->input('empleados', []))
             ->map(fn($id) => (int) $id)
@@ -654,6 +696,7 @@ class AccesosController extends Controller
                 'e.eliminado',
             ])
             ->where('e.id_portal', $idPortal)
+            ->whereIn('e.id_cliente', $clientIds)
             ->whereIn('e.id', $empleados->all())
             ->where(function ($q) {
                 $q->where('e.eliminado', 0)
@@ -827,6 +870,43 @@ class AccesosController extends Controller
             }
         }
 
+        $clientesProcesados = $registros
+            ->pluck('id_cliente')
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        $this->auditoria->registrar([
+            'id_portal'    => $idPortal,
+            'id_cliente'   => $clientesProcesados->count() === 1
+                ? (int) $clientesProcesados->first()
+                : null,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'accesos_colaboradores',
+            'entidad_id'   => null,
+            'accion'       => 'actualizar_accesos',
+            'resultado'    => $actualizados === 0
+                ? 'fallido'
+                : (($fallidos > 0 || $mailFallidos > 0)
+                    ? 'parcial'
+                    : 'exitoso'),
+            'descripcion'  =>
+            'Actualización masiva de accesos de colaboradores.',
+            'datos_nuevos' => [
+                'clientes'      => $clientesProcesados->all(),
+                'empleados'     => $empleados->all(),
+                'procesados'    => $procesados,
+                'actualizados'  => $actualizados,
+                'fallidos'      => $fallidos,
+                'mail_fallidos' => $mailFallidos,
+            ],
+        ], $request);
+
         return response()->json([
             'ok'   => true,
             'code' => ($fallidos > 0 || $mailFallidos > 0)
@@ -845,8 +925,7 @@ class AccesosController extends Controller
     public function generarIndividual(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'id_portal'             => 'required|integer|min:1',
-            'id_usuario'            => 'required|integer|min:1',
+
             'id_empleado'           => 'required|integer|min:1',
             'password_type'         => 'required|in:auto,manual',
             'password'              => [
@@ -872,16 +951,59 @@ class AccesosController extends Controller
             ], 422);
         }
 
-        $data = $validator->validated();
+        $data          = $validator->validated();
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $idUsuario     = (int) $administrator->id;
+        $clientIds     = $this->clientScope
+            ->permittedClientIds($administrator);
 
         $resultado = $this->procesarAccesoIndividual(
-            idPortal: (int) $data['id_portal'],
-            idUsuario: (int) $data['id_usuario'],
+            idPortal: $idPortal,
+            idUsuario: $idUsuario,
+            clientIds: $clientIds,
             empleadoId: (int) $data['id_empleado'],
             passwordPlano: $data['password'],
             modo: 'generate',
             locale: $request->input('locale', 'es')
         );
+        $idEmpleado = (int) $data['id_empleado'];
+
+        $idClienteAuditoria = DB::connection('portal_main')
+            ->table('empleados')
+            ->where('id', $idEmpleado)
+            ->where('id_portal', $idPortal)
+            ->whereIn('id_cliente', $clientIds)
+            ->value('id_cliente');
+
+        $correoEnviado = $resultado['data']['mail_sent'] ?? null;
+
+        $this->auditoria->registrar([
+            'id_portal'    => $idPortal,
+            'id_cliente'   => $idClienteAuditoria
+                ? (int) $idClienteAuditoria
+                : null,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'acceso_colaborador',
+            'entidad_id'   => $idEmpleado,
+            'accion'       => 'generar_acceso',
+            'resultado'    => ! ($resultado['ok'] ?? false)
+                ? 'fallido'
+                : ($correoEnviado === false
+                    ? 'parcial'
+                    : 'exitoso'),
+            'descripcion'  =>
+            'Generación individual de acceso de colaborador.',
+            'datos_nuevos' => [
+                'id_empleado'  => $idEmpleado,
+                'codigo'       => $resultado['code'] ?? null,
+                'mail_enviado' => $correoEnviado,
+            ],
+        ], $request);
 
         $status = $resultado['ok'] ? 200 : 422;
 
@@ -891,8 +1013,7 @@ class AccesosController extends Controller
     public function actualizarIndividual(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'id_portal'             => 'required|integer|min:1',
-            'id_usuario'            => 'required|integer|min:1',
+
             'id_empleado'           => 'required|integer|min:1',
             'password_type'         => 'required|in:auto,manual',
             'password'              => [
@@ -918,16 +1039,60 @@ class AccesosController extends Controller
             ], 422);
         }
 
-        $data = $validator->validated();
+        $data          = $validator->validated();
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $idUsuario     = (int) $administrator->id;
+        $clientIds     = $this->clientScope
+            ->permittedClientIds($administrator);
 
         $resultado = $this->procesarAccesoIndividual(
-            idPortal: (int) $data['id_portal'],
-            idUsuario: (int) $data['id_usuario'],
+            idPortal: $idPortal,
+            idUsuario: $idUsuario,
+            clientIds: $clientIds,
             empleadoId: (int) $data['id_empleado'],
             passwordPlano: $data['password'],
             modo: 'update',
             locale: $request->input('locale', 'es')
         );
+
+        $idEmpleado = (int) $data['id_empleado'];
+
+        $idClienteAuditoria = DB::connection('portal_main')
+            ->table('empleados')
+            ->where('id', $idEmpleado)
+            ->where('id_portal', $idPortal)
+            ->whereIn('id_cliente', $clientIds)
+            ->value('id_cliente');
+
+        $correoEnviado = $resultado['data']['mail_sent'] ?? null;
+
+        $this->auditoria->registrar([
+            'id_portal'    => $idPortal,
+            'id_cliente'   => $idClienteAuditoria
+                ? (int) $idClienteAuditoria
+                : null,
+            'actor_tipo'   => 'administrador',
+            'actor_id'     => (int) $administrator->id,
+            'actor_nombre' =>
+            $this->administratorName($administrator),
+            'modulo'       => 'comunicacion360',
+            'entidad_tipo' => 'acceso_colaborador',
+            'entidad_id'   => $idEmpleado,
+            'accion'       => 'actualizar_acceso',
+            'resultado'    => ! ($resultado['ok'] ?? false)
+                ? 'fallido'
+                : ($correoEnviado === false
+                    ? 'parcial'
+                    : 'exitoso'),
+            'descripcion'  =>
+            'Actualización individual de acceso de colaborador.',
+            'datos_nuevos' => [
+                'id_empleado'  => $idEmpleado,
+                'codigo'       => $resultado['code'] ?? null,
+                'mail_enviado' => $correoEnviado,
+            ],
+        ], $request);
 
         $status = $resultado['ok'] ? 200 : 422;
 
@@ -936,7 +1101,21 @@ class AccesosController extends Controller
 
     public function cerrarSesion($id, Request $request)
     {
-        $empleado = \App\Models\Auth\EmpleadoAuth::find($id);
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $clientIds     = $this->clientScope
+            ->permittedClientIds($administrator);
+
+        $empleado = \App\Models\Auth\EmpleadoAuth::query()
+            ->where('id', (int) $id)
+            ->where('id_portal', $idPortal)
+            ->whereIn('id_cliente', $clientIds)
+            ->where(function ($query) {
+                $query
+                    ->where('eliminado', 0)
+                    ->orWhereNull('eliminado');
+            })
+            ->first();
 
         if (! $empleado) {
             return response()->json([
@@ -948,6 +1127,28 @@ class AccesosController extends Controller
         $tokensEliminados = $empleado->tokens()->count();
 
         $empleado->tokens()->delete();
+
+        $this->auditoria->registrar([
+            'id_portal'        => $idPortal,
+            'id_cliente'       => (int) $empleado->id_cliente,
+            'actor_tipo'       => 'administrador',
+            'actor_id'         => (int) $administrator->id,
+            'actor_nombre'     =>
+            $this->administratorName($administrator),
+            'modulo'           => 'comunicacion360',
+            'entidad_tipo'     => 'acceso_colaborador',
+            'entidad_id'       => (int) $empleado->id,
+            'accion'           => 'cerrar_sesion',
+            'resultado'        => 'exitoso',
+            'descripcion'      =>
+            'Sesión del colaborador cerrada por un administrador.',
+            'datos_anteriores' => [
+                'tokens_activos' => $tokensEliminados,
+            ],
+            'datos_nuevos'     => [
+                'tokens_activos' => 0,
+            ],
+        ], $request);
 
         \Log::info('Sesión cerrada por administrador', [
             'empleado_id'       => $empleado->id,
@@ -965,28 +1166,17 @@ class AccesosController extends Controller
     }
     public function eliminarAcceso(Request $request, $id)
     {
-        $validator = Validator::make($request->all(), [
-            'id_portal'  => 'required|integer|min:1',
-            'id_usuario' => 'required|integer|min:1',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'ok'   => false,
-                'code' => 'INVALID_PARAMS',
-                'data' => [
-                    'errors' => $validator->errors(),
-                ],
-            ], 422);
-        }
-
-        $idPortal  = (int) $request->input('id_portal');
-        $idUsuario = (int) $request->input('id_usuario');
+        $administrator = $this->administrator($request);
+        $idPortal      = (int) $administrator->id_portal;
+        $idUsuario     = (int) $administrator->id;
+        $clientIds     = $this->clientScope
+            ->permittedClientIds($administrator);
 
         $empleado = DB::connection('portal_main')
             ->table('empleados')
             ->where('id', (int) $id)
             ->where('id_portal', $idPortal)
+            ->whereIn('id_cliente', $clientIds)
             ->where(function ($q) {
                 $q->where('eliminado', 0)
                     ->orWhereNull('eliminado');
@@ -1008,6 +1198,7 @@ class AccesosController extends Controller
                 ->table('empleados')
                 ->where('id', $empleado->id)
                 ->where('id_portal', $idPortal)
+                ->where('id_cliente', (int) $empleado->id_cliente)
                 ->update([
                     'password'              => null,
                     'force_password_change' => 0,
@@ -1016,6 +1207,12 @@ class AccesosController extends Controller
                     'id_usuario'            => $idUsuario,
                     'edicion'               => now(),
                 ]);
+
+            $tokensEliminados = DB::connection('portal_main')
+                ->table('personal_access_tokens')
+                ->where('tokenable_type', 'App\\Models\\Auth\\EmpleadoAuth')
+                ->where('tokenable_id', (int) $empleado->id)
+                ->count();
 
             DB::connection('portal_main')
                 ->table('personal_access_tokens')
@@ -1061,6 +1258,32 @@ class AccesosController extends Controller
                     ]);
             }
 
+            $this->auditoria->registrar([
+                'id_portal'        => $idPortal,
+                'id_cliente'       => (int) $empleado->id_cliente,
+                'actor_tipo'       => 'administrador',
+                'actor_id'         => (int) $administrator->id,
+                'actor_nombre'     =>
+                $this->administratorName($administrator),
+                'modulo'           => 'comunicacion360',
+                'entidad_tipo'     => 'acceso_colaborador',
+                'entidad_id'       => (int) $empleado->id,
+                'accion'           => 'eliminar_acceso',
+                'resultado'        => 'exitoso',
+                'descripcion'      =>
+                'Acceso del colaborador eliminado.',
+                'datos_anteriores' => [
+                    'tenia_acceso'   => ! empty($empleado->password),
+                    'tokens_activos' => $tokensEliminados,
+                ],
+                'datos_nuevos'     => [
+                    'tiene_acceso'     => false,
+                    'tokens_activos'   => 0,
+                    'sincronizaciones' => $dispositivos->count(),
+                    'clave_biometrica' => $empleado->id_empleado,
+                ],
+            ], $request);
+
             DB::connection('portal_main')->commit();
 
             return response()->json([
@@ -1092,6 +1315,7 @@ class AccesosController extends Controller
     private function procesarAccesoIndividual(
         int $idPortal,
         int $idUsuario,
+        array $clientIds,
         int $empleadoId,
         string $passwordPlano,
         string $modo,
@@ -1114,6 +1338,7 @@ class AccesosController extends Controller
                 'e.eliminado',
             ])
             ->where('e.id_portal', $idPortal)
+            ->whereIn('e.id_cliente', $clientIds)
             ->where('e.id', $empleadoId)
             ->where(function ($q) {
                 $q->where('e.eliminado', 0)
@@ -1348,6 +1573,17 @@ class AccesosController extends Controller
 
         return implode('', $password);
     }
+
+    private function administratorName(
+        AdministradorAuth $administrator
+    ): string {
+        return trim(collect([
+            $administrator->nombre,
+            $administrator->paterno,
+            $administrator->materno,
+        ])->filter()->implode(' '));
+    }
+
     private function administrator(
         Request $request
     ): AdministradorAuth {
