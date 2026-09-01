@@ -137,33 +137,97 @@ Route::middleware(['api'])->group(function () {
         [EmpleadoSucursalController::class, 'cambiarSucursal']
     );
     //// */ rutas  para  el organigrama
+    Route::prefix('organigrama')
+        ->middleware(['auth:sanctum', 'admin.session'])
+        ->group(function () {
 
-    Route::prefix('organigrama')->group(function () {
+            /*
+            * Lectura del organigrama.
+            */
+            Route::get('/root', [OrganigramaController::class, 'getRoot'])
+                ->middleware('admin.permission:dashboards.organigrama.ver');
 
-        Route::get('/root', [OrganigramaController::class, 'getRoot']);
-        Route::get('/children', [OrganigramaController::class, 'getChildren']);
-        Route::post('/bulk-children', [OrganigramaController::class, 'storeBulkChildren']);
+            Route::get('/children', [OrganigramaController::class, 'getChildren'])
+                ->middleware('admin.permission:dashboards.organigrama.ver');
 
-        Route::get('/', [OrganigramaController::class, 'index']);
+            Route::get('/', [OrganigramaController::class, 'index'])
+                ->middleware('admin.permission:dashboards.organigrama.ver');
 
-        Route::post('/', [OrganigramaController::class, 'store']);
-        Route::put('/{id}', [OrganigramaController::class, 'update']);
-        Route::delete('/{id}', [OrganigramaController::class, 'destroy']);
-        Route::put('/{id}/remove-employee', [OrganigramaController::class, 'removeEmployee']);
-        Route::get('/primer-cliente-con-datos', [OrganigramaController::class, 'primerClienteConDatos']);
-        Route::get('/empleados-disponibles',
-            [OrganigramaController::class, 'empleadosDisponibles']
-        );
-        Route::get('/options', [OrganigramaController::class, 'options']);
+            Route::get(
+                '/primer-cliente-con-datos',
+                [OrganigramaController::class, 'primerClienteConDatos']
+            )->middleware('admin.permission:dashboards.organigrama.ver');
 
-    });
+            Route::get('/options', [OrganigramaController::class, 'options'])
+                ->middleware('admin.permission:dashboards.organigrama.ver');
 
-    if (app()->environment('local')) {
-        Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
-    } else {
-        Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
-    }
-    Route::get('/dashboard/kpi-detail', [DashboardController::class, 'kpiDetail']);
+            /*
+            * Crear nodos.
+            */
+            Route::post('/', [OrganigramaController::class, 'store'])
+                ->middleware('admin.permission:dashboards.organigrama.crear');
+            Route::post(
+                '/{id}/insertar-superior',
+                [OrganigramaController::class, 'insertAbove']
+            )->middleware([
+                'admin.permission:dashboards.organigrama.crear',
+                'admin.permission:dashboards.organigrama.editar',
+            ]);
+            /*
+            * Editar nodos.
+            */
+            Route::put('/{id}', [OrganigramaController::class, 'update'])
+                ->middleware('admin.permission:dashboards.organigrama.editar');
+
+            /*
+            * Eliminar nodos / ramas.
+            */
+            Route::delete('/{id}', [OrganigramaController::class, 'destroy'])
+                ->middleware('admin.permission:dashboards.organigrama.eliminar');
+
+            /*
+            * Operaciones relacionadas con asignación de empleados.
+            */
+            Route::get(
+                '/empleados-disponibles',
+                [OrganigramaController::class, 'empleadosDisponibles']
+            )->middleware([
+                'admin.permission:dashboards.organigrama.ver',
+                'admin.permission:dashboards.organigrama.asignar_empleados',
+            ]);
+
+            Route::put(
+                '/{id}/remove-employee',
+                [OrganigramaController::class, 'removeEmployee']
+            )->middleware(
+                'admin.permission:dashboards.organigrama.asignar_empleados'
+            );
+
+            /*
+            * Crear varios nodos + asignar empleados.
+            * Requiere las dos capacidades.
+            */
+            Route::post(
+                '/bulk-children',
+                [OrganigramaController::class, 'storeBulkChildren']
+            )->middleware([
+                'admin.permission:dashboards.organigrama.crear',
+                'admin.permission:dashboards.organigrama.asignar_empleados',
+            ]);
+        });
+
+    Route::middleware(['auth:sanctum', 'admin.session'])
+        ->group(function () {
+            Route::get(
+                '/dashboard/summary',
+                [DashboardController::class, 'summary']
+            );
+
+            Route::get(
+                '/dashboard/kpi-detail',
+                [DashboardController::class, 'kpiDetail']
+            );
+        });
     Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
     Route::post('/send-message-movimiento', [WhatsAppController::class, 'sendMessage_movimiento_aspirante']);
     Route::post('/send-message-comentario-reclu', [WhatsAppController::class, 'sendMessage_comentario_reclu']);

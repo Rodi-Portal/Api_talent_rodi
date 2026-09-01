@@ -1,8 +1,8 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Services\Auth\AdminClientScopeService;
 use App\Services\Auth\PermissionService;
-use App\Services\Dashboard\Context\ClientScopeResolver;
 use App\Services\Dashboard\Context\DateRangeResolver;
 use App\Services\Dashboard\ExpiryService;
 use App\Services\Dashboard\PrenominaService;
@@ -16,7 +16,6 @@ use App\Services\Dashboard\Widgets\EmployeesWidget;
 use App\Services\Dashboard\Widgets\TurnoverWidget;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
@@ -30,6 +29,14 @@ class DashboardController extends Controller
 
     private ?PermissionService $permSvc = null;
 
+    private AdminClientScopeService $clientScope;
+
+    public function __construct(
+        AdminClientScopeService $clientScope
+    ) {
+        $this->clientScope = $clientScope;
+    }
+
     private function db()
     {
         return DB::connection($this->conn);
@@ -39,11 +46,8 @@ class DashboardController extends Controller
     {
         return $this->permSvc ??= new PermissionService($this->conn);
     }
-
     /**
      * GET /api/dashboard/summary?client_id=all|123&days=14&expire_days=30&expired_days=365
-     * En LOCAL (sin token) soporta:
-     * /api/dashboard/summary?portal_id=1&user_id=999&role_id=1&client_id=all
      */
     public function summary(Request $request)
     {
@@ -55,38 +59,15 @@ class DashboardController extends Controller
         // 1) Resolver usuario (Sanctum o modo local)
         // =========================================
         $user = $request->user();
-
-        if (! $user && app()->environment('local', 'production')) {
-            $userId   = (int) $request->query('user_id', 0);
-            $portalId = (int) $request->query('portal_id', 0);
-            $roleId   = (int) $request->query('role_id', 0); // o idRol
-
-            if ($userId > 0 && $portalId > 0) {
-                $fakeUser = (object) [
-                    'id'        => $userId,
-                    'id_portal' => $portalId,
-                    'id_rol'    => $roleId,
-                ];
-                $request->setUserResolver(fn() => $fakeUser);
-                $user = $fakeUser;
-            }
-        }
-
-        if (! $user) {
-            return response()->json(['message' => 'Unauthorized'], 401);
-        }
-
         // =========================================
         // 2) PortalId (del user o header opcional)
         // =========================================
         $portalId = (int) ($user->id_portal ?? 0);
 
         if ($portalId <= 0) {
-            $portalId = (int) ($request->header('X-Portal-Id') ?? 0);
-        }
-
-        if ($portalId <= 0) {
-            return response()->json(['message' => 'Missing portal context (user.id_portal or X-Portal-Id)'], 422);
+            return response()->json([
+                'message' => 'Missing authenticated portal context',
+            ], 422);
         }
 
         $today = Carbon::today();
@@ -101,72 +82,71 @@ class DashboardController extends Controller
         [$rangeStart, $rangeEnd] = DateRangeResolver::resolve($request);
 
         // ================================================
-        //  🔥 CAPTURAR client_id enviado por el front
-        // ================================================
+//  Alcance de clientes del administrador autenticado
+// ================================================
 
-        // Puede venir como client_id=12 o client_id[]=12
         $requestedClientId = $request->input('client_id');
 
         if (is_array($requestedClientId)) {
-            // Si vienen varios → scope (NO cliente único)
             $requestedClientId = count($requestedClientId) === 1
                 ? (int) $requestedClientId[0]
                 : null;
         } else {
-            $requestedClientId = $requestedClientId ? (int) $requestedClientId : null;
+            $requestedClientId = $requestedClientId
+                ? (int) $requestedClientId
+                : null;
         }
-        $roleId        = $this->roleIdOf($user);
-        $scopeCacheKey = "dash:scope:p{$portalId}:u{$user->id}:r{$roleId}";
 
-        $scope = Cache::remember($scopeCacheKey, 300, function () use ($request, $user) {
-            return ClientScopeResolver::resolve(
-                $request,
-                $this->conn,
-                (int) $user->id
-            );
-        });
+        $permittedClientIds = $this->clientScope->permittedClientIds($user);
 
-        if (! $scope['hasClients']) {
+        if ($permittedClientIds === []) {
             return response()->json([
                 'meta'    => ['portal_id' => $portalId, 'client_id' => 'all'],
                 'kpis'    => [],
                 'lists'   => [],
                 'charts'  => [],
-                'message' => 'User has no clients assigned or invalid scope',
+                'message' => 'User has no clients assigned',
             ]);
         }
 
-        $allowedClients = $scope['allowedClients'];
-        // ============================================================
-        //  🔥 OVERRIDE DE CLIENTE SI EL FRONT SELECCIONÓ UNO
-        // ============================================================
-
-        $clientId       = null; // default = scope
-        $scopeClientIds = $scope['scopeClientIds'];
-        $allowedClients = $scope['allowedClients'];
+        $clientId       = null;
+        $scopeClientIds = $permittedClientIds;
+        $allowedClients = collect($permittedClientIds);
 
         if ($requestedClientId !== null) {
+            $this->clientScope->authorizeRequestedClients(
+                $user,
+                [$requestedClientId]
+            );
 
-            // Verificar que el cliente solicitado pertenece al scope del usuario
-            if (in_array($requestedClientId, $scope['scopeClientIds'])) {
-
-                // Cliente único seleccionado → se trabaja SOLO con ese
-                $clientId       = $requestedClientId;
-                $allowedClients = collect([$requestedClientId]);
-                $scopeClientIds = [$requestedClientId];
-
-            } else {
-                return response()->json([
-                    'message' => "Client $requestedClientId not allowed in scope",
-                ], 403);
-            }
+            $clientId       = $requestedClientId;
+            $scopeClientIds = [$requestedClientId];
+            $allowedClients = collect([$requestedClientId]);
         }
 
         // =========================================
-        // 3) Permiso base (MVP)
-        // =========================================
-        if (! $this->hasPermission($user, 'dashboard.ver', $clientId)) {
-            return response()->json(['message' => 'Forbidden'], 403);
+// 3) Permiso según tipo de dashboard
+// =========================================
+
+        $dashboardType = (string) $request->query('dashboard_type', '');
+
+        $permissionKey = match ($dashboardType) {
+            'operativo' => 'dashboards.operativo.ver',
+            'ejecutivo' => 'dashboards.ejecutivo.ver',
+            'general'   => 'dashboards.general.ver',
+            default     => null,
+        };
+
+        if (! $permissionKey) {
+            return response()->json([
+                'message' => 'Invalid dashboard type',
+            ], 422);
+        }
+
+        if (! $this->hasPermission($user, $permissionKey, $clientId)) {
+            return response()->json([
+                'message' => 'Forbidden',
+            ], 403);
         }
 
         // =========================================
@@ -217,8 +197,8 @@ class DashboardController extends Controller
         $rangeHash = md5($rangeStart->toDateString() . '_' . $rangeEnd->toDateString());
         $year      = $request->query('year');
         $year      = $year ? (int) $year : null;
-
-        $cacheKey = "dash:summary:"
+        $roleId    = $this->roleIdOf($user);
+        $cacheKey  = "dash:summary:"
             . "p{$portalId}:u{$user->id}:r{$roleId}"
             . ":scope{$scopeHash}"
             . ":type{$periodType}"
@@ -821,28 +801,11 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        if (! $user && app()->environment('local', 'production')) {
-            $userId   = (int) $request->query('user_id', 0);
-            $portalId = (int) $request->query('portal_id', 0);
-            $roleId   = (int) $request->query('role_id', 0);
-
-            if ($userId > 0 && $portalId > 0) {
-                $fakeUser = (object) [
-                    'id'        => $userId,
-                    'id_portal' => $portalId,
-                    'id_rol'    => $roleId,
-                ];
-
-                $request->setUserResolver(fn() => $fakeUser);
-                $user = $fakeUser;
-            }
-        }
-
         if (! $user) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        $portalId = (int) ($user->id_portal ?? $request->query('portal_id', 0));
+        $portalId = (int) ($user->id_portal ?? 0);
         $kpiKey   = (string) $request->query('kpi_key', '');
 
         $start = Carbon::parse($request->query('start_date'))->startOfDay();
@@ -850,17 +813,30 @@ class DashboardController extends Controller
 
         $clientIdParam = $request->query('client_id');
 
-        if (is_array($clientIdParam)) {
-            $allowedClients = collect($clientIdParam)->map(fn($v) => (int) $v)->filter()->values();
-            $clientId       = null;
+        if ($clientIdParam && $clientIdParam !== 'all') {
+            $clientId = (int) $clientIdParam;
+
+            $this->clientScope->authorizeRequestedClients(
+                $user,
+                [$clientId]
+            );
+
+            $allowedClients = collect([$clientId]);
         } else {
-            $clientId = $clientIdParam && $clientIdParam !== 'all'
-                ? (int) $clientIdParam
-                : null;
+            $clientId = null;
 
             $allowedClients = collect(
-                $request->query('client_ids', [])
-            )->map(fn($v) => (int) $v)->filter()->values();
+                $this->clientScope->permittedClientIds($user)
+            );
+        }
+        if (! $this->hasPermission(
+            $user,
+            'dashboards.operativo.ver',
+            $clientId
+        )) {
+            return response()->json([
+                'message' => 'Forbidden',
+            ], 403);
         }
 
         if ($allowedClients->isEmpty() && ! $clientId) {
@@ -1207,10 +1183,8 @@ class DashboardController extends Controller
 
     private function roleIdOf($user): int
     {
-        // ✅ OJO: soporta fakeUser (id_rol) + modelos que traen id_rol/idRol/role_id
-        return (int) ($user->id_rol ?? $user->id_rol ?? $user->idRol ?? $user->role_id ?? 0);
+        return (int) ($user->id_rol ?? $user->idRol ?? $user->role_id ?? 0);
     }
-
     private function can($user, string $key, ?int $clientId = null): bool
     {
         return $this->perm()->can(
