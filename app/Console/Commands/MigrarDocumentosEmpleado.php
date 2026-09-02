@@ -10,6 +10,7 @@ use App\Services\Auditoria\AuditoriaService;
 use App\Services\Documents\EmployeeDocumentPathService;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
+use InvalidArgumentException;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use RuntimeException;
@@ -18,34 +19,33 @@ use Throwable;
 class MigrarDocumentosEmpleado extends Command
 {
     protected $signature = 'talentsafe:documentos:migrar-empleado
-                        {employee : ID interno del empleado}
+                        {employee? : ID interno del empleado}
+                        {--portal= : Migrar todos los empleados de un portal}
+                        {--client= : Migrar todos los empleados de un cliente}
                         {--recover-from-trash : Buscar orígenes faltantes en _borrados}
                         {--execute : Copiar archivos y actualizar la base de datos}';
 
     protected $description =
-        'Simula la migración documental de un empleado hacia storagetalentsafe';
+        'Migra documentos hacia storagetalentsafe por empleado, cliente o portal';
 
     public function handle(
         EmployeeDocumentPathService $documentPaths,
         AuditoriaService $auditoria
     ): int {
-        $employeeId = (int) $this->argument('employee');
-        $execute    = (bool) $this->option('execute');
-
-        if ($employeeId <= 0) {
-            $this->error('El ID del empleado debe ser mayor que cero.');
+        try {
+            $employees = $this->resolveEmployeesForScope();
+        } catch (InvalidArgumentException $exception) {
+            $this->error($exception->getMessage());
 
             return Command::INVALID;
-        }
-
-        /** @var Empleado|null $employee */
-        $employee = Empleado::query()->find($employeeId);
-
-        if (! $employee) {
-            $this->error("No existe el empleado {$employeeId}.");
+        } catch (Throwable $exception) {
+            $this->error($exception->getMessage());
 
             return Command::FAILURE;
         }
+
+        $execute = (bool) $this->option('execute');
+        $scopeDescription = $this->scopeDescription($employees);
 
         if ($execute) {
             $this->warn(
@@ -53,7 +53,7 @@ class MigrarDocumentosEmpleado extends Command
             );
 
             if (! $this->confirm(
-                "¿Confirmas la migración del empleado {$employeeId}?",
+                "¿Confirmas la migración de {$scopeDescription}?",
                 false
             )) {
                 $this->info('Operación cancelada.');
@@ -66,6 +66,58 @@ class MigrarDocumentosEmpleado extends Command
             );
         }
         $this->newLine();
+
+        $scopeRows = [];
+        $failedEmployees = 0;
+
+        foreach ($employees as $employee) {
+            $result = $this->migrateEmployee(
+                $employee,
+                $execute,
+                $documentPaths,
+                $auditoria
+            );
+
+            $successful = $result === Command::SUCCESS;
+
+            if (! $successful) {
+                $failedEmployees++;
+            }
+
+            $scopeRows[] = [
+                (int) $employee->id,
+                (int) $employee->id_portal,
+                (int) $employee->id_cliente,
+                $successful ? 'CORRECTO' : 'CON_ERRORES',
+            ];
+        }
+
+        if (count($employees) > 1) {
+            $this->newLine();
+            $this->table(
+                ['Empleado', 'Portal', 'Cliente', 'Resultado'],
+                $scopeRows
+            );
+            $this->info(sprintf(
+                'Lote finalizado: %d empleados, %d correctos y %d con errores.',
+                count($employees),
+                count($employees) - $failedEmployees,
+                $failedEmployees
+            ));
+        }
+
+        return $failedEmployees > 0
+            ? Command::FAILURE
+            : Command::SUCCESS;
+    }
+
+    private function migrateEmployee(
+        Empleado $employee,
+        bool $execute,
+        EmployeeDocumentPathService $documentPaths,
+        AuditoriaService $auditoria
+    ): int {
+        $employeeId = (int) $employee->id;
 
         $this->table(
             ['Dato', 'Valor'],
@@ -214,61 +266,30 @@ class MigrarDocumentosEmpleado extends Command
                         }
 
                         if ($sourcePath && is_file($sourcePath)) {
-                            /*
-                                * Si el registro está eliminado y el archivo ya se encuentra
-                                * dentro de su carpeta canónica de borrados, se reutiliza.
-                                *
-                                * En ese caso únicamente será necesario actualizar la ruta
-                                * almacenada en la base de datos; no se generará otra copia.
-                                */
-                            $existingDeletedStoredValue = null;
+                            $baseName =
+                            $isDeleted
+                            && $sourceType === 'RESPALDO'
+                                ? basename($sourcePath)
+                                : basename($storedValue);
+                            $recordPrefix = sprintf(
+                                'registro_%d_',
+                                (int) $record->id
+                            );
 
-                            if (
-                                $isDeleted
-                                && $sourceType === 'RESPALDO'
-                            ) {
-                                $existingDeletedStoredValue =
-                                $this->existingDeletedStoredPath(
-                                    $sourcePath,
-                                    $category,
-                                    $employee
-                                );
-                            }
+                            $targetFileName = str_starts_with(
+                                $baseName,
+                                $recordPrefix
+                            )
+                                ? $baseName
+                                : $recordPrefix . $baseName;
 
-                            if ($existingDeletedStoredValue !== null) {
-                                $targetStoredValue = $existingDeletedStoredValue;
-                            } else {
-                                /*
-                                * Para archivos legacy y respaldos históricos ubicados fuera
-                                * de la carpeta canónica se crea un archivo independiente
-                                * para cada registro.
-                                */
-                                $baseName =
-                                $isDeleted
-                                && $sourceType === 'RESPALDO'
-                                    ? basename($sourcePath)
-                                    : basename($storedValue);
-
-                                $recordPrefix = sprintf(
-                                    'registro_%d_',
-                                    (int) $record->id
-                                );
-
-                                $targetFileName = str_starts_with(
-                                    $baseName,
-                                    $recordPrefix
-                                )
-                                    ? $baseName
-                                    : $recordPrefix . $baseName;
-
-                                $targetStoredValue = $this->targetStoredPath(
-                                    $category,
-                                    $employee,
-                                    $targetFileName,
-                                    $isDeleted,
-                                    $documentPaths
-                                );
-                            }
+                            $targetStoredValue = $this->targetStoredPath(
+                                $category,
+                                $employee,
+                                $targetFileName,
+                                $isDeleted,
+                                $documentPaths
+                            );
 
                             if (strlen($targetStoredValue) > 255) {
                                 $status = 'ERROR_RUTA_MAYOR_255';
@@ -399,6 +420,148 @@ class MigrarDocumentosEmpleado extends Command
             ? Command::FAILURE
             : Command::SUCCESS;
     }
+
+    /**
+     * @return array<int, Empleado>
+     */
+    private function resolveEmployeesForScope(): array
+    {
+        $employeeArgument = trim(
+            (string) ($this->argument('employee') ?? '')
+        );
+
+        $portalOption = trim(
+            (string) ($this->option('portal') ?? '')
+        );
+
+        $clientOption = trim(
+            (string) ($this->option('client') ?? '')
+        );
+
+        if (
+            $employeeArgument !== ''
+            && ($portalOption !== '' || $clientOption !== '')
+        ) {
+            throw new InvalidArgumentException(
+                'Usa un empleado o un alcance por portal/cliente, no ambos.'
+            );
+        }
+
+        if (
+            $employeeArgument === ''
+            && $portalOption === ''
+            && $clientOption === ''
+        ) {
+            throw new InvalidArgumentException(
+                'Indica un empleado, --portal o --client.'
+            );
+        }
+
+        if ($employeeArgument !== '') {
+            $employeeId = $this->positiveInteger(
+                $employeeArgument,
+                'empleado'
+            );
+
+            /** @var Empleado|null $employee */
+            $employee = Empleado::query()->find($employeeId);
+
+            if (! $employee) {
+                throw new RuntimeException(
+                    "No existe el empleado {$employeeId}."
+                );
+            }
+
+            return [$employee];
+        }
+
+        $query = Empleado::query();
+
+        if ($portalOption !== '') {
+            $portalId = $this->positiveInteger(
+                $portalOption,
+                'portal'
+            );
+
+            $query->where('id_portal', $portalId);
+        }
+
+        if ($clientOption !== '') {
+            $clientId = $this->positiveInteger(
+                $clientOption,
+                'cliente'
+            );
+
+            $query->where('id_cliente', $clientId);
+        }
+
+        $employees = $query
+            ->orderBy('id')
+            ->get();
+
+        if ($employees->isEmpty()) {
+            throw new RuntimeException(
+                'No se encontraron empleados para el alcance solicitado.'
+            );
+        }
+
+        return $employees->all();
+    }
+
+    private function positiveInteger(
+        string $value,
+        string $label
+    ): int {
+        if (! preg_match('/^[1-9][0-9]*$/', $value)) {
+            throw new InvalidArgumentException(
+                "El ID de {$label} debe ser un entero mayor que cero."
+            );
+        }
+
+        return (int) $value;
+    }
+
+    /**
+     * @param array<int, Empleado> $employees
+     */
+    private function scopeDescription(array $employees): string
+    {
+        if (count($employees) === 1) {
+            return 'el empleado ' . (int) $employees[0]->id;
+        }
+
+        $portalOption = trim(
+            (string) ($this->option('portal') ?? '')
+        );
+
+        $clientOption = trim(
+            (string) ($this->option('client') ?? '')
+        );
+
+        if ($portalOption !== '' && $clientOption !== '') {
+            return sprintf(
+                '%d empleados del portal %s y cliente %s',
+                count($employees),
+                $portalOption,
+                $clientOption
+            );
+        }
+
+        if ($clientOption !== '') {
+            return sprintf(
+                '%d empleados del cliente %s',
+                count($employees),
+                $clientOption
+            );
+        }
+
+        return sprintf(
+            '%d empleados del portal %s',
+            count($employees),
+            $portalOption
+        );
+    }
+
     private function looksLikeFileReference(
         string $storedValue
     ): bool {
@@ -739,80 +902,7 @@ class MigrarDocumentosEmpleado extends Command
             ),
         ];
     }
-    private function existingDeletedStoredPath(
-        string $sourcePath,
-        string $category,
-        Empleado $employee
-    ): ?string {
-        $documentsPath = realpath(
-            rtrim(
-                (string) config('paths.documents_path'),
-                '/\\'
-            )
-        );
 
-        $resolvedSourcePath = realpath($sourcePath);
-
-        if (
-            $documentsPath === false
-            || $resolvedSourcePath === false
-        ) {
-            return null;
-        }
-
-        $documentsPath = rtrim(
-            str_replace('\\', '/', $documentsPath),
-            '/'
-        );
-
-        $resolvedSourcePath = str_replace(
-            '\\',
-            '/',
-            $resolvedSourcePath
-        );
-
-        $deletedDirectory = implode('/', [
-            $documentsPath,
-            'portales',
-            (int) $employee->id_portal,
-            '_borrados',
-            $category,
-            'clientes',
-            (int) $employee->id_cliente,
-            'empleados',
-            (int) $employee->id,
-        ]);
-
-        /*
-     * En Windows la comparación de rutas debe ser
-     * independiente de mayúsculas y minúsculas.
-     */
-        $comparableSource = PHP_OS_FAMILY === 'Windows'
-            ? strtolower($resolvedSourcePath)
-            : $resolvedSourcePath;
-
-        $comparableDirectory = PHP_OS_FAMILY === 'Windows'
-            ? strtolower($deletedDirectory)
-            : $deletedDirectory;
-
-        if (! str_starts_with(
-            $comparableSource,
-            rtrim($comparableDirectory, '/') . '/'
-        )) {
-            return null;
-        }
-
-        $relativePath = substr(
-            $resolvedSourcePath,
-            strlen($documentsPath)
-        );
-
-        if ($relativePath === false) {
-            return null;
-        }
-
-        return ltrim($relativePath, '/');
-    }
     private function targetStoredPath(
         string $category,
         Empleado $employee,
