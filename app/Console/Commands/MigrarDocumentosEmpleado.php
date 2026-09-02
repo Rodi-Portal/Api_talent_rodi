@@ -23,6 +23,7 @@ class MigrarDocumentosEmpleado extends Command
                         {--portal= : Migrar todos los empleados de un portal}
                         {--client= : Migrar todos los empleados de un cliente}
                         {--recover-from-trash : Buscar orígenes faltantes en _borrados}
+                        {--verify-files : Verificar existencia, lectura, tamaño y SHA-256 de rutas definitivas}
                         {--execute : Copiar archivos y actualizar la base de datos}';
 
     protected $description =
@@ -44,7 +45,7 @@ class MigrarDocumentosEmpleado extends Command
             return Command::FAILURE;
         }
 
-        $execute = (bool) $this->option('execute');
+        $execute          = (bool) $this->option('execute');
         $scopeDescription = $this->scopeDescription($employees);
 
         if ($execute) {
@@ -53,7 +54,7 @@ class MigrarDocumentosEmpleado extends Command
             );
 
             if (! $this->confirm(
-                "¿Confirmas la migración de {$scopeDescription}?",
+                "¿Confirmas la migración {$scopeDescription}?",
                 false
             )) {
                 $this->info('Operación cancelada.');
@@ -67,7 +68,7 @@ class MigrarDocumentosEmpleado extends Command
         }
         $this->newLine();
 
-        $scopeRows = [];
+        $scopeRows       = [];
         $failedEmployees = 0;
 
         foreach ($employees as $employee) {
@@ -233,8 +234,57 @@ class MigrarDocumentosEmpleado extends Command
                     $employeeId,
                     $isDeleted
                 )) {
-                    $status = 'YA_MIGRADO';
-                    $totals['migrados']++;
+                    /*
+                    * En la simulación normal basta validar la estructura.
+                    * Con --verify-files también se comprueba el archivo físico.
+                    */
+                    if (! $this->option('verify-files')) {
+                        $status = 'YA_MIGRADO';
+                        $totals['migrados']++;
+                    } else {
+                        try {
+                            $verifiedPath = $this->targetAbsolutePath(
+                                $storedValue
+                            );
+
+                            if (! is_file($verifiedPath)) {
+                                $status = 'ERROR_DESTINO_NO_EXISTE';
+                                $totals['errores']++;
+                            } elseif (! is_readable($verifiedPath)) {
+                                $status = 'ERROR_DESTINO_NO_LEGIBLE';
+                                $totals['errores']++;
+                            } else {
+                                $verifiedSize = filesize($verifiedPath);
+
+                                if (
+                                    $verifiedSize === false
+                                    || $verifiedSize <= 0
+                                ) {
+                                    $status = 'ERROR_DESTINO_VACIO';
+                                    $totals['errores']++;
+                                } else {
+                                    $verifiedHash = hash_file(
+                                        'sha256',
+                                        $verifiedPath
+                                    );
+
+                                    if ($verifiedHash === false) {
+                                        $status = 'ERROR_HASH_DESTINO';
+                                        $totals['errores']++;
+                                    } else {
+                                        $hash   = $verifiedHash;
+                                        $status = 'VERIFICADO';
+                                        $totals['migrados']++;
+                                    }
+                                }
+                            }
+                        } catch (Throwable $exception) {
+                            $status = 'ERROR_VERIFICACION: '
+                            . $exception->getMessage();
+
+                            $totals['errores']++;
+                        }
+                    }
                 } else {
                     try {
                         $sourcePath = $this->resolveSourcePath(
@@ -527,7 +577,7 @@ class MigrarDocumentosEmpleado extends Command
     private function scopeDescription(array $employees): string
     {
         if (count($employees) === 1) {
-            return 'el empleado ' . (int) $employees[0]->id;
+            return 'del empleado ' . (int) $employees[0]->id;
         }
 
         $portalOption = trim(
@@ -540,7 +590,7 @@ class MigrarDocumentosEmpleado extends Command
 
         if ($portalOption !== '' && $clientOption !== '') {
             return sprintf(
-                '%d empleados del portal %s y cliente %s',
+                'de %d empleados del portal %s y cliente %s',
                 count($employees),
                 $portalOption,
                 $clientOption
@@ -549,14 +599,14 @@ class MigrarDocumentosEmpleado extends Command
 
         if ($clientOption !== '') {
             return sprintf(
-                '%d empleados del cliente %s',
+                'de %d empleados del cliente %s',
                 count($employees),
                 $clientOption
             );
         }
 
         return sprintf(
-            '%d empleados del portal %s',
+            'de %d empleados del portal %s',
             count($employees),
             $portalOption
         );
