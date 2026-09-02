@@ -1,13 +1,14 @@
 <?php
-
 namespace App\Console\Commands;
 
 use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\Empleado;
 use App\Models\ExamEmpleado;
+use App\Services\Auditoria\AuditoriaService;
 use App\Services\Documents\EmployeeDocumentPathService;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Model;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Throwable;
@@ -15,16 +16,19 @@ use Throwable;
 class MigrarDocumentosEmpleado extends Command
 {
     protected $signature = 'talentsafe:documentos:migrar-empleado
-                            {employee : ID interno del empleado}
-                            {--recover-from-trash : Buscar orígenes faltantes en _borrados}';
+                        {employee : ID interno del empleado}
+                        {--recover-from-trash : Buscar orígenes faltantes en _borrados}
+                        {--execute : Copiar archivos y actualizar la base de datos}';
 
     protected $description =
         'Simula la migración documental de un empleado hacia storagetalentsafe';
 
     public function handle(
-        EmployeeDocumentPathService $documentPaths
+        EmployeeDocumentPathService $documentPaths,
+        AuditoriaService $auditoria
     ): int {
         $employeeId = (int) $this->argument('employee');
+        $execute    = (bool) $this->option('execute');
 
         if ($employeeId <= 0) {
             $this->error('El ID del empleado debe ser mayor que cero.');
@@ -41,8 +45,24 @@ class MigrarDocumentosEmpleado extends Command
             return Command::FAILURE;
         }
 
-        $this->info('SIMULACIÓN: no se modificarán archivos ni base de datos.');
-        $this->newLine();
+        if ($execute) {
+            $this->warn(
+                'EJECUCIÓN ACTIVADA: se copiarán archivos y actualizará la base de datos.'
+            );
+
+            if (! $this->confirm(
+                "¿Confirmas la migración del empleado {$employeeId}?",
+                false
+            )) {
+                $this->info('Operación cancelada.');
+
+                return Command::SUCCESS;
+            }
+        } else {
+            $this->info(
+                'SIMULACIÓN: no se modificarán archivos ni base de datos.'
+            );
+        }$this->newLine();
 
         $this->table(
             ['Dato', 'Valor'],
@@ -61,10 +81,11 @@ class MigrarDocumentosEmpleado extends Command
             '_examEmpleado'     => ExamEmpleado::class,
         ];
 
-        $rows = [];
+        $rows   = [];
         $totals = [
             'registros'   => 0,
             'migrables'   => 0,
+            'ejecutados'  => 0,
             'pendientes'  => 0,
             'migrados'    => 0,
             'errores'     => 0,
@@ -80,12 +101,12 @@ class MigrarDocumentosEmpleado extends Command
             foreach ($records as $record) {
                 $totals['registros']++;
 
-                $storedValue = trim((string) $record->name);
-                $sourcePath = null;
-                $sourceType = null;
+                $storedValue       = trim((string) $record->name);
+                $sourcePath        = null;
+                $sourceType        = null;
                 $targetStoredValue = null;
-                $status = null;
-                $hash = null;
+                $status            = null;
+                $hash              = null;
 
                 if ($storedValue === '') {
                     $status = 'ERROR_NAME_VACIO';
@@ -153,15 +174,51 @@ class MigrarDocumentosEmpleado extends Command
                                     $targetStoredValue
                                 );
 
-                                if (is_file($targetPath)) {
-                                    $status = 'DESTINO_YA_EXISTE';
+                                if ($execute) {
+                                    $executionResult = $this->executeRecord(
+                                        $modelClass,
+                                        $record,
+                                        $employee,
+                                        $category,
+                                        $storedValue,
+                                        $sourcePath,
+                                        $targetStoredValue,
+                                        $sourceType,
+                                        $documentPaths,
+                                        $auditoria
+                                    );
+
+                                    $status = $executionResult['status'];
+                                    $hash   = $executionResult['hash'];
+                                    $totals['ejecutados']++;
                                 } else {
-                                    $status = $sourceType === 'RESPALDO'
-                                        ? 'MIGRABLE_DESDE_RESPALDO'
-                                        : 'MIGRABLE';
+                                    if (is_file($targetPath)) {
+                                        $targetHash = hash_file(
+                                            'sha256',
+                                            $targetPath
+                                        );
+
+                                        $sourceHash = hash_file(
+                                            'sha256',
+                                            $sourcePath
+                                        );
+
+                                        $status = $targetHash === $sourceHash
+                                            ? 'DESTINO_EXISTE_MISMO_HASH'
+                                            : 'ERROR_DESTINO_DIFERENTE';
+
+                                        if ($targetHash !== $sourceHash) {
+                                            $totals['errores']++;
+                                        }
+                                    } else {
+                                        $status = $sourceType === 'RESPALDO'
+                                            ? 'MIGRABLE_DESDE_RESPALDO'
+                                            : 'MIGRABLE';
+                                    }
+
+                                    $hash = hash_file('sha256', $sourcePath);
                                 }
 
-                                $hash = hash_file('sha256', $sourcePath);
                                 $totals['migrables']++;
                             }
                         } elseif ($status === null) {
@@ -169,7 +226,7 @@ class MigrarDocumentosEmpleado extends Command
                             $totals['errores']++;
                         }
                     } catch (Throwable $exception) {
-                        $status = 'ERROR: '.$exception->getMessage();
+                        $status = 'ERROR: ' . $exception->getMessage();
                         $totals['errores']++;
                     }
                 }
@@ -180,7 +237,7 @@ class MigrarDocumentosEmpleado extends Command
                     $storedValue,
                     $sourceType ?: '-',
                     $targetStoredValue ?: '-',
-                    $hash ? substr($hash, 0, 16).'…' : '-',
+                    $hash ? substr($hash, 0, 16) . '…' : '-',
                     $status,
                 ];
             }
@@ -208,6 +265,7 @@ class MigrarDocumentosEmpleado extends Command
             [
                 ['Registros revisados', $totals['registros']],
                 ['Migrables', $totals['migrables']],
+                ['Ejecutados', $totals['ejecutados']],
                 ['Recuperables desde respaldo', $totals['recuperados']],
                 ['Pendientes sin archivo', $totals['pendientes']],
                 ['Ya migrados', $totals['migrados']],
@@ -215,13 +273,249 @@ class MigrarDocumentosEmpleado extends Command
             ]
         );
 
-        $this->warn(
-            'Simulación finalizada. No se modificó ningún archivo ni registro.'
-        );
+        if ($execute) {
+            $this->warn(
+                'Ejecución finalizada. Los archivos legacy se conservaron.'
+            );
+        } else {
+            $this->warn(
+                'Simulación finalizada. No se modificó ningún archivo ni registro.'
+            );
+        }
 
         return $totals['errores'] > 0
             ? Command::FAILURE
             : Command::SUCCESS;
+    }
+    private function executeRecord(
+        string $modelClass,
+        Model $record,
+        Empleado $employee,
+        string $category,
+        string $previousStoredValue,
+        string $sourcePath,
+        string $targetStoredValue,
+        string $sourceType,
+        EmployeeDocumentPathService $documentPaths,
+        AuditoriaService $auditoria
+    ): array {
+        $targetPath = $documentPaths->absolutePath(
+            $category,
+            $targetStoredValue
+        );
+
+        $sourceHash = hash_file('sha256', $sourcePath);
+
+        if ($sourceHash === false) {
+            throw new RuntimeException(
+                'No se pudo calcular el hash del origen.'
+            );
+        }
+
+        $targetDirectory = dirname($targetPath);
+
+        if (
+            ! is_dir($targetDirectory)
+            && ! mkdir($targetDirectory, 0750, true)
+            && ! is_dir($targetDirectory)
+        ) {
+            throw new RuntimeException(
+                'No se pudo crear el directorio de destino.'
+            );
+        }
+
+        if (is_file($targetPath)) {
+            $targetHash = hash_file('sha256', $targetPath);
+
+            if ($targetHash !== $sourceHash) {
+                throw new RuntimeException(
+                    'El destino existe con contenido diferente.'
+                );
+            }
+        } else {
+            $temporaryPath = $targetPath
+            . '.tmp.'
+            . getmypid()
+            . '.'
+            . bin2hex(random_bytes(4));
+
+            if (! copy($sourcePath, $temporaryPath)) {
+                throw new RuntimeException(
+                    'No se pudo copiar el archivo temporal.'
+                );
+            }
+
+            $temporaryHash = hash_file(
+                'sha256',
+                $temporaryPath
+            );
+
+            if ($temporaryHash !== $sourceHash) {
+                @unlink($temporaryPath);
+
+                throw new RuntimeException(
+                    'El hash de la copia no coincide con el origen.'
+                );
+            }
+
+            if (! rename($temporaryPath, $targetPath)) {
+                @unlink($temporaryPath);
+
+                throw new RuntimeException(
+                    'No se pudo confirmar el archivo de destino.'
+                );
+            }
+
+            @chmod($targetPath, 0640);
+        }
+
+        $targetHash = hash_file('sha256', $targetPath);
+
+        if ($targetHash !== $sourceHash) {
+            throw new RuntimeException(
+                'Falló la verificación final del archivo.'
+            );
+        }
+
+        $connectionName = $record->getConnectionName();
+
+        DB::connection($connectionName)->transaction(
+            function () use (
+                $modelClass,
+                $record,
+                $previousStoredValue,
+                $targetStoredValue
+            ): void {
+                /** @var Model|null $current */
+                $current = $modelClass::query()
+                    ->lockForUpdate()
+                    ->find($record->getKey());
+
+                if (! $current) {
+                    throw new RuntimeException(
+                        'El registro dejó de existir.'
+                    );
+                }
+
+                if (
+                    (string) $current->name
+                    !== $previousStoredValue
+                ) {
+                    throw new RuntimeException(
+                        'La ruta cambió después de la simulación.'
+                    );
+                }
+
+                $current->name = $targetStoredValue;
+                $current->save();
+            }
+        );
+
+        $entityTypes = [
+            '_documentEmpleado' => 'documento',
+            '_cursos'           => 'curso',
+            '_examEmpleado'     => 'examen',
+        ];
+
+        $auditResult = $auditoria->registrar([
+            'id_portal'        => (int) $employee->id_portal,
+            'id_cliente'       => (int) $employee->id_cliente,
+            'actor_tipo'       => 'sistema',
+            'actor_nombre'     => 'Comando Artisan',
+
+            'modulo'           => 'empleados',
+            'entidad_tipo'     => $entityTypes[$category],
+            'entidad_id'       => (int) $record->getKey(),
+
+            'accion'           => 'migrar_archivo_legacy',
+            'resultado'        => 'exitoso',
+
+            'descripcion'      =>
+            'Se migró un archivo legacy a storagetalentsafe.',
+
+            'datos_anteriores' => [
+                'name' => $previousStoredValue,
+            ],
+
+            'datos_nuevos'     => [
+                'name' => $targetStoredValue,
+            ],
+
+            'metadatos'        => [
+                'employee_id'               => (int) $employee->id,
+                'categoria_almacenamiento'  => $category,
+                'origen_fisico'             => $sourcePath,
+                'destino_fisico'            => $targetPath,
+                'origen_tipo'               => $sourceType,
+                'tamano_bytes'              => filesize($targetPath),
+                'sha256'                    => $targetHash,
+                'archivo_legacy_conservado' => true,
+            ],
+        ]);
+
+        $manifest = [
+            'fecha'                => now()->toIso8601String(),
+            'tabla'                => $record->getTable(),
+            'registro_id'          => (int) $record->getKey(),
+            'employee_id'          => (int) $employee->id,
+            'id_portal'            => (int) $employee->id_portal,
+            'id_cliente'           => (int) $employee->id_cliente,
+            'categoria'            => $category,
+            'ruta_anterior'        => $previousStoredValue,
+            'ruta_nueva'           => $targetStoredValue,
+            'origen_fisico'        => $sourcePath,
+            'destino_fisico'       => $targetPath,
+            'origen_tipo'          => $sourceType,
+            'tamano_bytes'         => filesize($targetPath),
+            'sha256_origen'        => $sourceHash,
+            'sha256_destino'       => $targetHash,
+            'auditoria_registrada' => $auditResult !== null,
+            'resultado'            => 'MIGRADO',
+        ];
+
+        $manifestDirectory = storage_path(
+            'app/migration-manifests'
+        );
+
+        if (
+            ! is_dir($manifestDirectory)
+            && ! mkdir($manifestDirectory, 0750, true)
+            && ! is_dir($manifestDirectory)
+        ) {
+            throw new RuntimeException(
+                'Migración realizada, pero no se pudo crear el manifiesto.'
+            );
+        }
+
+        $manifestPath = $manifestDirectory
+        . DIRECTORY_SEPARATOR
+        . 'documentos_empleado_'
+        . (int) $employee->id
+            . '.jsonl';
+
+        $written = file_put_contents(
+            $manifestPath,
+            json_encode(
+                $manifest,
+                JSON_UNESCAPED_SLASHES
+                 | JSON_UNESCAPED_UNICODE
+            )
+            . PHP_EOL,
+            FILE_APPEND | LOCK_EX
+        );
+
+        if ($written === false) {
+            throw new RuntimeException(
+                'Migración realizada, pero no se pudo escribir el manifiesto.'
+            );
+        }
+
+        return [
+            'hash'   => $targetHash,
+            'status' => $sourceType === 'RESPALDO'
+                ? 'MIGRADO_DESDE_RESPALDO'
+                : 'MIGRADO',
+        ];
     }
 
     private function isDefinitivePath(
@@ -239,7 +533,7 @@ class MigrarDocumentosEmpleado extends Command
             $clientId,
             'empleados',
             $employeeId,
-        ]).'/';
+        ]) . '/';
 
         return str_starts_with($storedValue, $expectedPrefix);
     }
@@ -254,13 +548,13 @@ class MigrarDocumentosEmpleado extends Command
             '/\\'
         );
 
-        $trashRoot = $documentsPath.DIRECTORY_SEPARATOR.'_borrados';
+        $trashRoot = $documentsPath . DIRECTORY_SEPARATOR . '_borrados';
 
         if (! is_dir($trashRoot)) {
             return [];
         }
 
-        $matches = [];
+        $matches  = [];
         $iterator = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator(
                 $trashRoot,
@@ -279,7 +573,7 @@ class MigrarDocumentosEmpleado extends Command
                 $candidateName === $originalName
                 || str_ends_with(
                     $candidateName,
-                    '_'.$originalName
+                    '_' . $originalName
                 )
             ) {
                 $matches[] = $file->getPathname();
