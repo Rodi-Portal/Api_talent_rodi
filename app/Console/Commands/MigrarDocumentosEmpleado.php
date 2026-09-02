@@ -273,9 +273,13 @@ class MigrarDocumentosEmpleado extends Command
             ]
         );
 
-        if ($execute) {
-            $this->warn(
-                'Ejecución finalizada. Los archivos legacy se conservaron.'
+        if ($execute && $totals['errores'] > 0) {
+            $this->error(
+                'Ejecución finalizada con errores. Revisa cada registro.'
+            );
+        } elseif ($execute) {
+            $this->info(
+                'Ejecución finalizada correctamente. Los archivos legacy se conservaron.'
             );
         } else {
             $this->warn(
@@ -379,7 +383,9 @@ class MigrarDocumentosEmpleado extends Command
 
         $connectionName = $record->getConnectionName();
 
-        DB::connection($connectionName)->transaction(
+        \Illuminate\Support\Facades\DB::connection(
+            $connectionName
+        )->transaction(
             function () use (
                 $modelClass,
                 $record,
