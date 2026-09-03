@@ -1050,8 +1050,8 @@ class MigrarDocumentosEmpleado extends Command
 
         $roots = [
             /*
-         * Estructura definitiva de eliminados.
-         */
+     * Estructura definitiva de eliminados.
+     */
             implode(DIRECTORY_SEPARATOR, [
                 $documentsPath,
                 'portales',
@@ -1065,8 +1065,8 @@ class MigrarDocumentosEmpleado extends Command
             ]),
 
             /*
-         * Estructura histórica global de reemplazados.
-         */
+     * Estructura histórica global de reemplazados.
+     */
             $documentsPath
             . DIRECTORY_SEPARATOR
             . '_borrados',
