@@ -1048,9 +1048,14 @@ class MigrarDocumentosEmpleado extends Command
             '/\\'
         );
 
+        $imagesPath = rtrim(
+            (string) config('paths.images_path'),
+            '/\\'
+        );
+
         $roots = [
             /*
-     * Estructura definitiva de eliminados.
+     * Estructura definitiva actual de eliminados.
      */
             implode(DIRECTORY_SEPARATOR, [
                 $documentsPath,
@@ -1063,6 +1068,36 @@ class MigrarDocumentosEmpleado extends Command
                 'empleados',
                 (int) $employee->id,
             ]),
+
+            /*
+     * Estructura histórica intermedia:
+     * storagetalentsafe/portales/{portal}/_borrados/eliminados/{categoria}/...
+     */
+            implode(DIRECTORY_SEPARATOR, [
+                $documentsPath,
+                'portales',
+                (int) $employee->id_portal,
+                '_borrados',
+                'eliminados',
+                $category,
+                'clientes',
+                (int) $employee->id_cliente,
+                'empleados',
+                (int) $employee->id,
+            ]),
+
+            /*
+     * Legacy original por categoría:
+     * /_documentEmpleado/_borrados
+     * /_cursos/_borrados
+     * /_examEmpleado/_borrados
+     * etc.
+     */
+            $imagesPath
+            . DIRECTORY_SEPARATOR
+            . $category
+            . DIRECTORY_SEPARATOR
+            . '_borrados',
 
             /*
      * Estructura histórica global de reemplazados.
