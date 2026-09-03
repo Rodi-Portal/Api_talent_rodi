@@ -25,7 +25,14 @@ class PermissionService
         return Cache::remember($cacheKey, now()->addSeconds(60), function () use ($userId, $roleId, $key, $clientId) {
 
             // 1) USER override
-            $u = $this->getEffect('auth_user_permission', 'user_id', $userId, $key, $clientId);
+            $u = $this->getEffect(
+                'auth_user_permission',
+                'user_id',
+                $userId,
+                $key,
+                $clientId
+            );
+
             if ($u === 'deny') {
                 return false;
             }
@@ -34,8 +41,30 @@ class PermissionService
                 return true;
             }
 
-            // 2) Fallback por rol operativo
-            if (in_array($roleId, [1, 6, 9, 10], true) && $this->isOperativeKey($key)) {
+            // 2) ROLE override
+            $r = $this->getEffect(
+                'auth_role_permission',
+                'role_id',
+                $roleId,
+                $key,
+                $clientId
+            );
+
+            if ($r === 'deny') {
+                return false;
+            }
+
+            if ($r === 'allow') {
+                return true;
+            }
+
+            // 3) Superroles: heredan todo salvo deny explícito
+            if (in_array($roleId, [1, 6], true)) {
+                return true;
+            }
+
+            // 4) Roles operativos
+            if (in_array($roleId, [9, 10], true) && $this->isOperativeKey($key)) {
                 return true;
             }
 
