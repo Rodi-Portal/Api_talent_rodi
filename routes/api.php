@@ -42,6 +42,7 @@ use App\Http\Controllers\Api\Empleado\EmpleadoRenovacionArchivoController;
 use App\Http\Controllers\Api\Empleado\EmpleadoSucursalController;
 use App\Http\Controllers\Api\Empleado\EmpleadoTareasController;
 use App\Http\Controllers\Api\Empleado\ProfileController;
+use App\Http\Controllers\Api\PreEmpleado\PreEmpleadoDocumentoController;
 use App\Http\Controllers\Api\Rodi\ReporteBecasController;
 use App\Http\Controllers\Auth\PermissionController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
@@ -2167,6 +2168,81 @@ Route::post(
 /*Este  endpoint  es para   mostrar  avances  de los  candidatos  en pre empleo  */
 //Route::get('/check-avances', [AvanceController::class, 'checkAvances']);
 Route::post('/preempleados/proceso-candidato', [PreEmpleadoController::class, 'verProcesoCandidato'])->name('preempleados.procesoCandidato');
+Route::middleware([
+    'auth:sanctum',
+    'admin.session',
+    'admin.permission:pre_empleo.documentos.ver',
+])->group(function () {
+    Route::get(
+        '/pre-empleo/candidatos/{employeeId}/documentos',
+        [PreEmpleadoDocumentoController::class, 'documentos']
+    );
+
+    Route::get(
+        '/pre-empleo/archivos/documentos/{documentId}',
+        [PreEmpleadoDocumentoController::class, 'verDocumento']
+    );
+});
+
+Route::middleware([
+    'auth:sanctum',
+    'admin.session',
+    'admin.permission:pre_empleo.examenes.ver',
+])->group(function () {
+    Route::get(
+        '/pre-empleo/candidatos/{employeeId}/examenes',
+        [PreEmpleadoDocumentoController::class, 'examenes']
+    );
+
+    Route::get(
+        '/pre-empleo/archivos/examenes/{examId}',
+        [PreEmpleadoDocumentoController::class, 'verExamen']
+    );
+});
+
+Route::delete(
+    '/pre-empleo/documentos/{documentId}',
+    [PreEmpleadoDocumentoController::class, 'eliminarDocumento']
+)->middleware([
+    'auth:sanctum',
+    'admin.session',
+    'admin.permission:pre_empleo.documentos.eliminar',
+]);
+
+Route::delete(
+    '/pre-empleo/examenes/{examId}',
+    [PreEmpleadoDocumentoController::class, 'eliminarExamen']
+)->middleware([
+    'auth:sanctum',
+    'admin.session',
+    'admin.permission:pre_empleo.examenes.eliminar',
+]);
+Route::delete(
+    '/pre-empleo/candidatos/{employeeId}',
+    [PreEmpleadoDocumentoController::class, 'eliminarCandidato']
+)->middleware([
+    'auth:sanctum',
+    'admin.session',
+    'admin.permission:pre_empleo.candidatos.eliminar',
+]);
+
+Route::post(
+    '/pre-empleo/candidatos/{employeeId}/documentos',
+    [PreEmpleadoDocumentoController::class, 'cargarDocumento']
+)->middleware([
+    'auth:sanctum',
+    'admin.session',
+    'admin.permission:pre_empleo.documentos.cargar',
+]);
+
+Route::post(
+    '/pre-empleo/candidatos/{employeeId}/examenes',
+    [PreEmpleadoDocumentoController::class, 'cargarExamen']
+)->middleware([
+    'auth:sanctum',
+    'admin.session',
+    'admin.permission:pre_empleo.examenes.cargar',
+]);
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
