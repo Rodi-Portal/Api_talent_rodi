@@ -161,7 +161,9 @@ class EmpleadoAprobacionesController extends Controller
                     'updated_at'      => now(),
                 ]);
 
-            $this->recalcularEstadoEvento((int) $aprobacion->id_evento);
+            $this->recalcularEstadoEvento(
+                (int) $aprobacion->id_evento
+            );
 
             DB::connection($conn)->commit();
 
@@ -169,6 +171,14 @@ class EmpleadoAprobacionesController extends Controller
                 'ok'      => true,
                 'message' => 'Solicitud aprobada correctamente.',
             ]);
+
+        } catch (\DomainException $e) {
+            DB::connection($conn)->rollBack();
+
+            return response()->json([
+                'ok'      => false,
+                'message' => $e->getMessage(),
+            ], 422);
 
         } catch (\Throwable $e) {
             DB::connection($conn)->rollBack();
@@ -183,6 +193,25 @@ class EmpleadoAprobacionesController extends Controller
     private function recalcularEstadoEvento(int $eventoId): void
     {
         $conn = 'portal_main';
+
+        /*
+    |--------------------------------------------------------------------------
+    | BLOQUEAR EVENTO
+    |--------------------------------------------------------------------------
+    | Permite saber si realmente está pasando de pendiente a aprobado
+    | y evita que dos procesos descuenten vacaciones al mismo tiempo.
+    */
+        $evento = DB::connection($conn)
+            ->table('calendario_eventos')
+            ->where('id', $eventoId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $evento) {
+            throw new \RuntimeException('El evento asociado a la aprobación no existe.');
+        }
+
+        $estadoAnterior = (string) $evento->estado_aprobacion;
 
         $aprobaciones = DB::connection($conn)
             ->table('checador_evento_aprobaciones')
@@ -210,6 +239,61 @@ class EmpleadoAprobacionesController extends Controller
         } else {
             $estadoAprobacion = 'pendiente';
             $estadoOperativo  = 1;
+        }
+
+        /*
+    |--------------------------------------------------------------------------
+    | DESCONTAR VACACIONES
+    |--------------------------------------------------------------------------
+    | Vacaciones = id_tipo 1.
+    |
+    | Únicamente se descuentan cuando el evento cambia por primera vez
+    | de un estado distinto de aprobado a aprobado.
+    */
+        $esVacaciones = (int) $evento->id_tipo === 1;
+
+        $transicionaAAprobado =
+            $estadoAprobacion === 'aprobado'
+            && $estadoAnterior !== 'aprobado';
+
+        if ($esVacaciones && $transicionaAAprobado) {
+
+            $diasSolicitados = (int) $evento->dias_evento;
+
+            if ($diasSolicitados <= 0) {
+                throw new \DomainException(
+                    'La solicitud de vacaciones no contiene días válidos para descontar.'
+                );
+            }
+
+            $laborales = DB::connection($conn)
+                ->table('laborales_empleado')
+                ->where('id_empleado', (int) $evento->id_empleado)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $laborales) {
+                throw new \DomainException(
+                    'No se encontró la información laboral del colaborador.'
+                );
+            }
+
+            $vacacionesDisponibles = (int) ($laborales->vacaciones_disponibles ?? 0);
+
+            if ($vacacionesDisponibles < $diasSolicitados) {
+                throw new \DomainException(
+                    'El colaborador no cuenta con días de vacaciones disponibles suficientes para aprobar esta solicitud.'
+                );
+            }
+
+            $nuevoSaldo = $vacacionesDisponibles - $diasSolicitados;
+
+            DB::connection($conn)
+                ->table('laborales_empleado')
+                ->where('id', (int) $laborales->id)
+                ->update([
+                    'vacaciones_disponibles' => $nuevoSaldo,
+                ]);
         }
 
         DB::connection($conn)

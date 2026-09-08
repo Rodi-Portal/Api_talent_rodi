@@ -38,7 +38,7 @@ class EmpleadoIncidenciasController extends Controller
 
         $data = $request->validate([
             'tipo_evento_id' => 'required|integer|exists:portal_main.eventos_option,id',
-            'fechaInicio'    => 'required|date',
+            'fechaInicio'    => 'required|date|after_or_equal:today',
             'fechaFin'       => 'required|date|after_or_equal:fechaInicio',
             'comentario'     => 'nullable|string',
 
@@ -89,10 +89,11 @@ class EmpleadoIncidenciasController extends Controller
             }
 
             /* =========================
-        DIAS DE DESCANSO EMPLEADO
-        ========================= */
+            DIAS DE DESCANSO EMPLEADO
+            ========================= */
 
-            $diasDescanso = [];
+            $diasDescanso = $this->getDiasDescansoEmpleado($employee);
+
             /* =========================
             FESTIVOS
             ========================= */
@@ -311,13 +312,28 @@ class EmpleadoIncidenciasController extends Controller
     }
     private function getDiasDescansoEmpleado($employee)
     {
-        $laborales = $employee->laborales;
+        $laborales = DB::connection('portal_main')
+            ->table('laborales_empleado')
+            ->where('id_empleado', (int) $employee->id)
+            ->first(['dias_descanso']);
 
-        if (! $laborales) {
+        if (! $laborales || $laborales->dias_descanso === null) {
             return [];
         }
 
-        $dias = $laborales->dias_descanso ?? [];
+        $dias = $laborales->dias_descanso;
+
+        /*
+     * Query Builder devuelve el JSON como string.
+     * Lo convertimos a array antes de procesarlo.
+     */
+        if (is_string($dias)) {
+            $dias = json_decode($dias, true);
+        }
+
+        if (! is_array($dias)) {
+            return [];
+        }
 
         $map = [
             'Domingo'   => 0,
@@ -331,9 +347,9 @@ class EmpleadoIncidenciasController extends Controller
 
         $numeros = [];
 
-        foreach ($dias as $d) {
-            if (isset($map[$d])) {
-                $numeros[] = $map[$d];
+        foreach ($dias as $dia) {
+            if (isset($map[$dia])) {
+                $numeros[] = $map[$dia];
             }
         }
 
