@@ -25,8 +25,8 @@ use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorMetodoController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorQrController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorUbicacionesController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorValidacionController;
-//use App\Http\Controllers\Api\Comunicacion360\Checador\HikvisionEventController;
 use App\Http\Controllers\Api\Comunicacion360\EmployeeProfileAnalysisController;
+//use App\Http\Controllers\Api\Comunicacion360\Checador\HikvisionEventController;
 use App\Http\Controllers\Api\Comunicacion360\Incidencias\IncidenciasCalendarioController;
 use App\Http\Controllers\Api\Comunicacion360\PlantillasController;
 use App\Http\Controllers\Api\Empleado\AuthController;
@@ -43,6 +43,7 @@ use App\Http\Controllers\Api\Empleado\EmpleadoSucursalController;
 use App\Http\Controllers\Api\Empleado\EmpleadoTareasController;
 use App\Http\Controllers\Api\Empleado\ProfileController;
 use App\Http\Controllers\Api\PreEmpleado\PreEmpleadoDocumentoController;
+use App\Http\Controllers\Api\Reclutamiento\BolsaDocumentoController;
 use App\Http\Controllers\Api\Rodi\ReporteBecasController;
 use App\Http\Controllers\Auth\PermissionController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
@@ -2243,6 +2244,18 @@ Route::post(
     'admin.session',
     'admin.permission:pre_empleo.examenes.cargar',
 ]);
+//** RELUTAMIENTO   Rutas protegidas*/
+Route::middleware([
+    'auth:sanctum',
+    'admin.session',
+    'admin.permission:reclutamiento.bolsa_trabajo.ver_detalles',
+])->group(function () {
+    Route::get(
+        '/reclutamiento/bolsa/documentos/{documentId}',
+        [BolsaDocumentoController::class, 'ver']
+    );
+});
+//** FIN RELUTAMIENTO   Rutas protegidas*/
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
