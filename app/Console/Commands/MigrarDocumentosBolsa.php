@@ -103,6 +103,7 @@ class MigrarDocumentosBolsa extends Command
             'migrables'         => 0,
             'ya_migrados'       => 0,
             'ejecutados'        => 0,
+            'urls_externas'     => 0,
             'origen_no_existe'  => 0,
             'destino_diferente' => 0,
             'errores'           => 0,
@@ -165,6 +166,7 @@ class MigrarDocumentosBolsa extends Command
                 ['Migrables', $totals['migrables']],
                 ['Ya migrados', $totals['ya_migrados']],
                 ['Ejecutados', $totals['ejecutados']],
+                ['URLs externas', $totals['urls_externas']],
                 ['Origen no existe', $totals['origen_no_existe']],
                 ['Destino diferente', $totals['destino_diferente']],
                 ['Errores', $totals['errores']],
@@ -187,10 +189,24 @@ class MigrarDocumentosBolsa extends Command
         bool $verify
     ): array {
         try {
-            $filename = $this->safeFilename(
+            $storedValue = trim(
                 (string) $document->nombre_archivo
             );
 
+            if (
+                filter_var($storedValue, FILTER_VALIDATE_URL) !== false
+                && in_array(
+                    strtolower((string) parse_url($storedValue, PHP_URL_SCHEME)),
+                    ['http', 'https'],
+                    true
+                )
+            ) {
+                return [
+                    'status'  => 'URL_EXTERNA',
+                    'counter' => 'urls_externas',
+                ];
+            }
+           $filename = $this->safeFilename($storedValue);
             if ($filename === null) {
                 return [
                     'status'  => 'ERROR_NOMBRE_INVALIDO',
