@@ -11,6 +11,8 @@ use Maatwebsite\Excel\Row;
 
 class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow, WithCalculatedFormulas
 {
+    private bool $validatedHeaders = false;
+
     protected int $idCliente;
     protected SatCatalogosService $sat;
 
@@ -81,8 +83,6 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow, WithCalcula
 
     public function onRow(Row $row): void
     {
-        static $validatedHeaders = false;
-
         $rowArray = $row->toArray();
 
 // Crear mapa letra → cabecera solo una vez
@@ -98,7 +98,7 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow, WithCalcula
         }
 
         // ===== Validación de cabeceras (solo una vez) =====
-        if (! $validatedHeaders) {
+        if (! $this->validatedHeaders) {
             $requiredHeaders = [
                 'id',
                 'tipo_contrato',
@@ -117,7 +117,7 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow, WithCalcula
                     "Faltan cabeceras: " . implode(', ', $missing)
                 );
             }
-            $validatedHeaders = true;
+            $this->validatedHeaders = true;
         }
 
         // ===== Datos base de la fila =====
