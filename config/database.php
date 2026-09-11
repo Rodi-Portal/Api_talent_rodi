@@ -55,6 +55,10 @@ return [
             'prefix' => '',
             'strict' => true,
             'engine' => null,
+            'options' => env('DB_SSL_CA') ? [
+                PDO::MYSQL_ATTR_SSL_CA => env('DB_SSL_CA'),
+                PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => env('DB_SSL_VERIFY_SERVER_CERT', true),
+            ] : [],
         ],
 
         'portal_main' => [
@@ -70,6 +74,10 @@ return [
             'prefix' => '',
             'strict' => true,
             'engine' => null,
+            'options' => env('DB_SSL_CA_2') ? [
+                PDO::MYSQL_ATTR_SSL_CA => env('DB_SSL_CA_2'),
+                PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => env('DB_SSL_VERIFY_SERVER_CERT_2', true),
+            ] : [],
         ],
 
         'pgsql' => [
