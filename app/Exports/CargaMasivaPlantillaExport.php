@@ -28,7 +28,7 @@ class CargaMasivaPlantillaExport implements FromArray, WithHeadings, WithStyles
         return $this->encabezados;
     }
 
-    public function styles(Worksheet $sheet)
+    public function styles(Worksheet $sheet): ?array
     {
         // Estilo para el encabezado
         $sheet->getStyle('A1:U1')->applyFromArray([

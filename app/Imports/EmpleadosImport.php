@@ -142,7 +142,7 @@ class EmpleadosImport implements ToModel, WithHeadingRow
         return levenshtein($a, $b) <= 2;
     }
 
-    public function model(array $row)
+    public function model(array $row): \Illuminate\Database\Eloquent\Model|array|null
     {
         if ($this->rowNumber === 1) {
             // Loguea exactamente como Maatwebsite entrega los encabezados

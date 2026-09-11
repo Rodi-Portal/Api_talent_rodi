@@ -68,7 +68,7 @@ class EmpleadosGeneralExport implements FromCollection, WithHeadings, WithStyles
         return array_merge($fixed, $this->camposExtra);
     }
 
-    public function collection()
+    public function collection(): \Illuminate\Support\Enumerable
     {
         $rows = [];
         foreach ($this->empleados as $e) {
@@ -144,7 +144,7 @@ class EmpleadosGeneralExport implements FromCollection, WithHeadings, WithStyles
         catch (\Throwable) { return substr((string)$v, 0, 10); }
     }
 
-    public function styles(Worksheet $sheet)
+    public function styles(Worksheet $sheet): ?array
     {
         return [
             1 => [

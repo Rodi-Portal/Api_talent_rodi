@@ -22,7 +22,7 @@ class CursosExport implements FromCollection, WithHeadings, WithStyles
         $this->clienteNombre = $clienteNombre;
     }
 
-    public function collection()
+    public function collection(): \Illuminate\Support\Enumerable
     {
         $rows = [];
 
@@ -49,7 +49,7 @@ class CursosExport implements FromCollection, WithHeadings, WithStyles
         return ['Reporte Cursos: ' . $this->clienteNombre];
     }
 
-    public function styles(Worksheet $sheet)
+    public function styles(Worksheet $sheet): ?array
     {
         // Ajustar el ancho de las columnas
         foreach (range('A', $sheet->getHighestColumn()) as $column) {

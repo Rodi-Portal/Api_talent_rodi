@@ -22,14 +22,11 @@ class VerificacionPenales extends Model
         'status',
     ];
 
-    protected $dates = [
-        'creacion',
-        'edicion',
-        'fecha_solicitud',
-        'fecha_finalizado',
-    ];
-
     protected $casts = [
+        'creacion' => 'datetime',
+        'edicion' => 'datetime',
+        'fecha_solicitud' => 'datetime',
+        'fecha_finalizado' => 'datetime',
         'finalizado' => 'boolean',
     ];
 

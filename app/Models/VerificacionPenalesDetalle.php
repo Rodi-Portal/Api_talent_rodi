@@ -19,8 +19,8 @@ class VerificacionPenalesDetalle extends Model
         'comentarios',
     ];
 
-    protected $dates = [
-        'fecha',
+    protected $casts = [
+        'fecha' => 'datetime',
     ];
 
     /**

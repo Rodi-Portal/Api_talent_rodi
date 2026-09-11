@@ -29,7 +29,7 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
         $this->sat = app(SatCatalogosService::class);
     }
 
-    public function collection()
+    public function collection(): \Illuminate\Support\Enumerable
     {
         // Catálogos SAT (clave => descripción)
         $contratos      = $this->sat->contratos();
@@ -110,7 +110,7 @@ class EmpleadosLaboralesExport implements FromCollection, WithHeadings, WithStyl
         ];
     }
 
-    public function styles(Worksheet $sheet)
+    public function styles(Worksheet $sheet): ?array
     {
         return [
             1 => [

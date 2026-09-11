@@ -18,7 +18,7 @@ class EmpleadosMedicalExport implements FromCollection, WithHeadings, WithStyles
         $this->empleados = $empleados;
     }
 
-    public function collection()
+    public function collection(): \Illuminate\Support\Enumerable
     {
         // Recorremos cada empleado y reemplazamos valores vacíos por "--"
         return collect($this->empleados)->map(function ($item) {
@@ -53,7 +53,7 @@ class EmpleadosMedicalExport implements FromCollection, WithHeadings, WithStyles
     }
 
     // Estilos para encabezados (fila 1)
-    public function styles(Worksheet $sheet)
+    public function styles(Worksheet $sheet): ?array
     {
         return [
             1 => [ // Primera fila (encabezados)

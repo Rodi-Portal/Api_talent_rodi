@@ -24,9 +24,9 @@ class CandidatoEmpresa extends Model
     ];
 
     // Opcionalmente, puedes definir campos de fecha para castear automáticamente
-    protected $dates = [
-        'creacion',
-        'edicion',
+    protected $casts = [
+        'creacion' => 'datetime',
+        'edicion' => 'datetime',
     ];
 
     // Función para obtener la empresa del candidato por id_candidato

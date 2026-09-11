@@ -31,9 +31,9 @@ class CandidatoRefProfesional extends Model
         'comentarios',
     ];
 
-    protected $dates = [
-        'creacion',
-        'edicion',
+    protected $casts = [
+        'creacion' => 'datetime',
+        'edicion' => 'datetime',
     ];
 
     /**

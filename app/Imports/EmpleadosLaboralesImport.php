@@ -79,7 +79,7 @@ class EmpleadosLaboralesImport implements OnEachRow, WithHeadingRow, WithCalcula
         return 1;
     }
 
-    public function onRow(Row $row)
+    public function onRow(Row $row): void
     {
         static $validatedHeaders = false;
 

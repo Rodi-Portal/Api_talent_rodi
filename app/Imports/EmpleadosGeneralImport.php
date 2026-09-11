@@ -67,7 +67,7 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
         return in_array($norm, ['', '--', 'BORRAR'], true);
     }
 
-    public function collection(Collection $rows)
+    public function collection(Collection $rows): void
     {
         // Validar encabezados mínimos
         $cabecerasObligatorias = ['id', 'nombre', 'paterno'];

@@ -14,7 +14,7 @@ class MedicalInfoImport implements ToCollection, WithHeadingRow
     {
         $this->idCliente = $idCliente;
     }
-    public function collection(Collection $rows)
+    public function collection(Collection $rows): void
     {
         if ($rows->isEmpty()) {
             throw new \Exception("El archivo está vacío.");
