@@ -138,7 +138,7 @@ class PeriodoNominaController extends Controller
     {
         $ini  = \Carbon\Carbon::parse($inicio);
         $fin  = \Carbon\Carbon::parse($fin);
-        $diff = $ini->diffInDays($fin);
+        $diff = (int) $ini->diffInDays($fin, true);
 
         // 01 Diario
         if ($ini->equalTo($fin)) {

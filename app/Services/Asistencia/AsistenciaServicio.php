@@ -95,7 +95,7 @@ final class AsistenciaServicio
         // Retardo (opcional según política)
         if ($firstIn) {
             if ($sw['registrar_retardo']) {
-                $late = $firstIn->greaterThan($expectedIn) ? $expectedIn->diffInMinutes($firstIn) : 0;
+                $late = $firstIn->greaterThan($expectedIn) ? (int) $expectedIn->diffInMinutes($firstIn, true) : 0;
                 if ($late > $tolMin) {
                     $this->upsertCalendarEvent($portalId, $clienteId, $empleadoId, $fechaYmd, self::EV_RETARDO, "Retardo de {$late} minutos.");
                     $made[] = self::EV_RETARDO;
@@ -114,7 +114,7 @@ final class AsistenciaServicio
         // Salida anticipada (solo si la política indica contarla)
         if ($sw['contar_salida_temprano']) {
             if ($lastOut) {
-                $early = $lastOut->lessThan($expectedOut) ? $lastOut->diffInMinutes($expectedOut) : 0;
+                $early = $lastOut->lessThan($expectedOut) ? (int) $lastOut->diffInMinutes($expectedOut, true) : 0;
                 if ($early > 0) {
                     $this->upsertCalendarEvent($portalId, $clienteId, $empleadoId, $fechaYmd, self::EV_SALIDA_ANT, "Salida anticipada de {$early} minutos.");
                     $made[] = self::EV_SALIDA_ANT;

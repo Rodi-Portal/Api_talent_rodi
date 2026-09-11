@@ -253,7 +253,7 @@ class AccesosController extends Controller
 
             if ($tokenActivo && $tokenActivo->last_used_at) {
                 $sesionActiva =
-                now()->diffInMinutes($tokenActivo->last_used_at) <= 15;
+                (int) now()->diffInMinutes($tokenActivo->last_used_at, true) <= 15;
             }
 
             $asignacionHorario = DB::connection('portal_main')

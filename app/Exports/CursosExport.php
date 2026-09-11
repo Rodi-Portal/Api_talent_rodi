@@ -159,7 +159,7 @@ class CursosExport implements FromCollection, WithHeadings, WithStyles
 
         if ($fechaExpiracion->isPast()) {
             return 'Expirado';
-        } elseif ($fechaExpiracion->diffInDays($hoy) <= 5) {
+        } elseif ((int) $fechaExpiracion->diffInDays($hoy, true) <= 5) {
             return 'Por expirar';
         } else {
             return 'Vigente';

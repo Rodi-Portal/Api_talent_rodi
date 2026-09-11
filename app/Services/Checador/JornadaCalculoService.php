@@ -80,7 +80,7 @@ class JornadaCalculoService
                 continue;
             }
 
-            $minutosBrutos += $inicioReal->diffInMinutes($finReal);
+            $minutosBrutos += (int) $inicioReal->diffInMinutes($finReal, true);
 
             $minutosNormales += $this->minutosInterseccion(
                 $inicioReal,
@@ -111,7 +111,7 @@ class JornadaCalculoService
                 $finReal->lessThanOrEqualTo($inicioProgramado) ||
                 $inicioReal->greaterThanOrEqualTo($finProgramado)
             ) {
-                $minutosExtraFueraVentana += $inicioReal->diffInMinutes($finReal);
+                $minutosExtraFueraVentana += (int) $inicioReal->diffInMinutes($finReal, true);
             }
         }
 
@@ -134,7 +134,7 @@ class JornadaCalculoService
         $minutosRetardoFueraTolerancia = 0;
 
         if ($entradaReal && $entradaReal->greaterThan($inicioProgramado)) {
-            $minutosRetardoDetectado = $inicioProgramado->diffInMinutes($entradaReal);
+            $minutosRetardoDetectado = (int) $inicioProgramado->diffInMinutes($entradaReal, true);
 
             $minutosRetardoFueraTolerancia = max(
                 0,
@@ -146,9 +146,7 @@ class JornadaCalculoService
         $minutosSalidaAnticipadaFueraTolerancia  = 0;
 
         if ($salidaReal && $salidaReal->lessThan($finProgramado)) {
-            $minutosSalidaAnticipadaDetectada = $salidaReal->diffInMinutes(
-                $finProgramado
-            );
+            $minutosSalidaAnticipadaDetectada = (int) $salidaReal->diffInMinutes($finProgramado, true);
 
             $minutosSalidaAnticipadaFueraTolerancia = max(
                 0,
@@ -156,9 +154,7 @@ class JornadaCalculoService
             );
         }
 
-        $minutosProgramados = $inicioProgramado->diffInMinutes(
-            $finProgramado
-        );
+        $minutosProgramados = (int) $inicioProgramado->diffInMinutes($finProgramado, true);
 
         $minutosNormalesPagables = (
             $entradaReal &&
@@ -470,7 +466,7 @@ class JornadaCalculoService
                     ? $periodo['fin']->format('Y-m-d H:i:s')
                     : null,
                 'minutos'        => $periodo['fin']
-                    ? $periodo['inicio']->diffInMinutes($periodo['fin'])
+                    ? (int) $periodo['inicio']->diffInMinutes($periodo['fin'], true)
                     : 0,
                 'incompleto'     => (bool) ($periodo['incompleto'] ?? false),
                 'motivo'         => $periodo['motivo'] ?? null,
@@ -497,7 +493,7 @@ class JornadaCalculoService
             return 0;
         }
 
-        return $inicio->diffInMinutes($fin);
+        return (int) $inicio->diffInMinutes($fin, true);
     }
 
     private function parseCheckTime($value, string $timezone): Carbon

@@ -484,7 +484,7 @@ class AccesosChecadorController extends Controller
             $fechaFin
         )->startOfDay();
 
-        if ($inicio->diffInDays($fin) > 366) {
+        if ((int) $inicio->diffInDays($fin, true) > 366) {
             throw ValidationException::withMessages([
                 'fecha_fin' => [
                     'El periodo no puede superar 366 días.',
@@ -935,7 +935,7 @@ class AccesosChecadorController extends Controller
             $fechaFin
         )->startOfDay();
 
-        if ($inicio->diffInDays($fin) > 366) {
+        if ((int) $inicio->diffInDays($fin, true) > 366) {
             throw ValidationException::withMessages([
                 'fecha_fin' => [
                     'El periodo no puede superar 366 días.',
@@ -1011,7 +1011,7 @@ class AccesosChecadorController extends Controller
                 $fin = Carbon::parse($evento->check_time, $timezone);
 
                 if ($fin->greaterThan($inicio)) {
-                    $total += $inicio->diffInMinutes($fin);
+                    $total += (int) $inicio->diffInMinutes($fin, true);
                 }
 
                 $inicio = null;

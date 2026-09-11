@@ -56,7 +56,7 @@ class AttendanceAuthorizedOvertimeService
 
                 if ($finInterseccion->greaterThan($inicioInterseccion)) {
                     $minutosTrabajadosDentro +=
-                    $inicioInterseccion->diffInMinutes($finInterseccion);
+                    (int) $inicioInterseccion->diffInMinutes($finInterseccion, true);
                 }
             }
 

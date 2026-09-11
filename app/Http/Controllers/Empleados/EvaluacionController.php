@@ -595,10 +595,7 @@ class EvaluacionController extends Controller
             'America/Mexico_City'
         )->startOfDay();
 
-        $days = $today->diffInDays(
-            $expiryDate,
-            false
-        );
+        $days = (int) $today->diffInDays($expiryDate, false);
 
         if ($days < 0 || $days <= $reminder) {
             return 'rojo';

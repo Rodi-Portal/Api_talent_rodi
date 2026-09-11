@@ -480,12 +480,7 @@ class EmpleadoChecadorController extends Controller
         $fechaHoraDispositivo = Carbon::parse($request->check_time)
             ->setTimezone($timezone);
 
-        $desfaseSegundos = abs(
-            $fechaHoraServidor->diffInSeconds(
-                $fechaHoraDispositivo,
-                false
-            )
-        );
+        $desfaseSegundos = (int) abs($fechaHoraServidor->diffInSeconds($fechaHoraDispositivo, false));
 
         if ($desfaseSegundos > 300) {
             return response()->json([
@@ -766,7 +761,7 @@ class EmpleadoChecadorController extends Controller
             );
 
             if ($fechaHora->greaterThan($limiteEntrada)) {
-                $minutosRetardo = $limiteEntrada->diffInMinutes($fechaHora);
+                $minutosRetardo = (int) $limiteEntrada->diffInMinutes($fechaHora, true);
             }
         }
         if ($request->clase === 'break' && (int) $horario->permite_descanso !== 1) {

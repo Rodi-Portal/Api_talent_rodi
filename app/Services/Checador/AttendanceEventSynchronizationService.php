@@ -120,7 +120,7 @@ class AttendanceEventSynchronizationService
             ->addMinutes($tolerancia);
 
         $minutosRetardo = $entrada->greaterThan($limiteEntrada)
-            ? $limiteEntrada->diffInMinutes($entrada)
+            ? (int) $limiteEntrada->diffInMinutes($entrada, true)
             : 0;
 
         if ($minutosRetardo <= 0) {

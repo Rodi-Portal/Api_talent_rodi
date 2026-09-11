@@ -55,7 +55,7 @@ class AccesosTareasController extends Controller
             $fechaFin
         )->startOfDay();
 
-        if ($inicio->diffInDays($fin) > 366) {
+        if ((int) $inicio->diffInDays($fin, true) > 366) {
             throw ValidationException::withMessages([
                 'fecha_fin' => [
                     'El periodo no puede superar 366 días.',

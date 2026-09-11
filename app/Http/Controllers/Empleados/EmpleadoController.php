@@ -439,7 +439,7 @@ class EmpleadoController extends Controller
                 return 'rojo';
             }
 
-            $diasRestantes = $hoy->diffInDays($fechaVencimiento);
+            $diasRestantes = (int) $hoy->diffInDays($fechaVencimiento, true);
 
             // Vigente, pero dentro del periodo de aviso
             if ($diasRestantes <= $diasRecordatorio) {
@@ -455,7 +455,7 @@ class EmpleadoController extends Controller
         $fechaExpiracion = \Carbon\Carbon::parse($fechaExpiracion);
 
         // Calculamos la diferencia de días
-        $diferenciaDias = $fechaExpiracion->diffInDays($fechaActual);
+        $diferenciaDias = (int) $fechaExpiracion->diffInDays($fechaActual, true);
 
         // Ajustamos la diferencia para que sea negativa si la fecha de expiración ya ha pasado
         return $fechaExpiracion < $fechaActual ? -$diferenciaDias : $diferenciaDias;
@@ -955,7 +955,7 @@ class EmpleadoController extends Controller
         if (! empty($validated['fecha_nacimiento'])) {
             $fechaNac = Carbon::parse($validated['fecha_nacimiento']);
             $fechaCre = Carbon::parse($validated['creacion']);
-            $edad     = $fechaCre->diffInYears($fechaNac);
+            $edad     = (int) $fechaCre->diffInYears($fechaNac, true);
         }
 
         // Duplicidad básica por (portal, cliente, nombre, paterno)

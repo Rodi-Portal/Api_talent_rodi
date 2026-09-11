@@ -389,7 +389,7 @@ class ChecadorIncidenciasMasivasController extends Controller
 
             if (! $dias || $dias < 1) {
                 if ($fechaInicio && $fechaFin) {
-                    $dias       = Carbon::parse($fechaInicio)->diffInDays(Carbon::parse($fechaFin)) + 1;
+                    $dias       = (int) Carbon::parse($fechaInicio)->diffInDays(Carbon::parse($fechaFin), true) + 1;
                     $warnings[] = $locale === 'en'
                         ? 'Days was empty or invalid and was calculated automatically.'
                         : 'Días venía vacío o inválido y fue calculado automáticamente.';

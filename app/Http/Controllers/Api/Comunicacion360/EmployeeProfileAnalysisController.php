@@ -98,7 +98,7 @@ class EmployeeProfileAnalysisController extends Controller
             $timezone
         )->startOfDay();
 
-        if ($periodStart->diffInDays($periodEnd) > 366) {
+        if ((int) $periodStart->diffInDays($periodEnd, true) > 366) {
             throw ValidationException::withMessages([
                 'fecha_fin' => [
                     'El periodo de análisis no puede superar 366 días.',
@@ -470,7 +470,7 @@ class EmployeeProfileAnalysisController extends Controller
                                 $severity = 'medium';
                                 $type     = 'late_check_in';
                                 $params   = [
-                                    'minutes_late' => $scheduledDateTime->diffInMinutes($checkDateTime),
+                                    'minutes_late' => (int) $scheduledDateTime->diffInMinutes($checkDateTime, true),
                                 ];
                             }
                         }

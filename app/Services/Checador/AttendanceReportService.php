@@ -652,7 +652,7 @@ class AttendanceReportService
             $fin->addDay();
         }
 
-        return $inicio->diffInMinutes($fin);
+        return (int) $inicio->diffInMinutes($fin, true);
     }
 
     private function calcularDescansoReporte(
@@ -715,8 +715,7 @@ class AttendanceReportService
                     : $finProgramado;
 
                 if ($finEfectivo->greaterThan($inicioEfectivo)) {
-                    $minutosIntermedios += $inicioEfectivo
-                        ->diffInMinutes($finEfectivo);
+                    $minutosIntermedios += (int) $inicioEfectivo->diffInMinutes($finEfectivo, true);
                 }
             }
         }

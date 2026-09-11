@@ -84,7 +84,7 @@ class BirthdaysWidget
                         'client_id'   => (int) $p->id_cliente,
                         'name'        => trim("{$p->nombre} {$p->paterno} {$p->materno}"),
                         'date'    => $next->toDateString(),
-                        'in_days' => $today->diffInDays($next),
+                        'in_days' => (int) $today->diffInDays($next, true),
                         'foto'    => $p->foto,
                     ];
                 }

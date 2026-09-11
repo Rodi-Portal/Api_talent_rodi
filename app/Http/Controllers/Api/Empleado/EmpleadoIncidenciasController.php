@@ -121,8 +121,7 @@ class EmpleadoIncidenciasController extends Controller
 
             foreach ($bloques as $bloque) {
 
-                $dias = Carbon::parse($bloque['inicio'])
-                    ->diffInDays(Carbon::parse($bloque['fin'])) + 1;
+                $dias = (int) Carbon::parse($bloque['inicio'])->diffInDays(Carbon::parse($bloque['fin']), true) + 1;
 
                 $eventoId = DB::connection($conn)->table('calendario_eventos')->insertGetId([
 

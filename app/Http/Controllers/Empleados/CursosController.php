@@ -589,7 +589,7 @@ class CursosController extends Controller
         $fechaExpiracion = \Carbon\Carbon::parse($fechaExpiracion);
 
         // Calculamos la diferencia de días
-        $diferenciaDias = $fechaExpiracion->diffInDays($fechaActual);
+        $diferenciaDias = (int) $fechaExpiracion->diffInDays($fechaActual, true);
 
         // Ajustamos la diferencia para que sea negativa si la fecha de expiración ya ha pasado
         return $fechaExpiracion < $fechaActual ? -$diferenciaDias : $diferenciaDias;
@@ -605,7 +605,7 @@ class CursosController extends Controller
         }
         if ($fechaExpiracion->isPast()) {
             return 'Expirado';
-        } elseif ($fechaExpiracion->diffInDays($hoy) <= 5) {
+        } elseif ((int) $fechaExpiracion->diffInDays($hoy, true) <= 5) {
             return 'Por expirar';
         } else {
             return 'Vigente';

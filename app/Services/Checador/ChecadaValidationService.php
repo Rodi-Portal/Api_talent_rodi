@@ -236,7 +236,7 @@ class ChecadaValidationService
                     'estatus_validacion' => 'advertida',
                     'code'               => 'late_checkin_registered',
                     'motivo'             => 'late_checkin_registered',
-                    'minutos_diferencia' => $checkTime->diffInMinutes($horaProgramada),
+                    'minutos_diferencia' => (int) $checkTime->diffInMinutes($horaProgramada, true),
                 ];
             }
 
@@ -245,7 +245,7 @@ class ChecadaValidationService
                 'estatus_validacion' => 'valida',
                 'code'               => 'checkin_within_allowed_time',
                 'motivo'             => 'checkin_within_allowed_time',
-                'minutos_diferencia' => $checkTime->diffInMinutes($horaProgramada, false),
+                'minutos_diferencia' => (int) $checkTime->diffInMinutes($horaProgramada, false),
             ];
         }
 
@@ -273,7 +273,7 @@ class ChecadaValidationService
                     'estatus_validacion' => 'valida',
                     'code'               => 'final_checkout_registered',
                     'motivo'             => 'final_checkout_registered',
-                    'minutos_diferencia' => $checkTime->diffInMinutes($horaSalida, false),
+                    'minutos_diferencia' => (int) $checkTime->diffInMinutes($horaSalida, false),
                 ];
             }
 
