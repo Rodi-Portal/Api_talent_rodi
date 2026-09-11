@@ -122,7 +122,7 @@ class CursosExport implements FromCollection, WithHeadings, WithStyles
         $rowCount = $sheet->getHighestRow();
         for ($row = 3; $row <= $rowCount; $row++) {
             for ($col = 2; $col <= count($this->cursos) + 1; $col++) {
-                $cell = $sheet->getCellByColumnAndRow($col, $row);
+                $cell = $sheet->getCell([$col, $row]);
                 $value = $cell->getValue();
 
                 if ($value) {
