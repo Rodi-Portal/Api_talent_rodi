@@ -7,6 +7,7 @@ use App\Models\ExamEmpleado;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 // Añade esta línea
@@ -24,6 +25,38 @@ class ApiGetCandidatosByCliente extends Controller
         // Validar que id_cliente_talent sea un entero
         if (! is_numeric($id_cliente_talent)) {
             return response()->json(['error' => 'Invalid id_cliente_talent'], 400);
+        }
+
+        /*
+         * Durante la migracion AWS, RODI permanece temporalmente en Cimeira.
+         * Si existe RODI_API_URL, esta API actua como puente hacia RODI.
+         */
+        $rodiApiUrl = rtrim((string) config('services.rodi_api.base_url'), '/');
+
+        if ($rodiApiUrl !== '') {
+            try {
+                $response = Http::acceptJson()
+                    ->timeout(30)
+                    ->get(
+                        $rodiApiUrl . '/candidato-sync/' .
+                        rawurlencode((string) $id_cliente_talent)
+                    );
+
+                return response($response->body(), $response->status())
+                    ->header(
+                        'Content-Type',
+                        $response->header('Content-Type', 'application/json')
+                    );
+            } catch (\Throwable $e) {
+                Log::error('Error consultando candidato-sync en RODI remoto', [
+                    'id_cliente_talent' => $id_cliente_talent,
+                    'error'             => $e->getMessage(),
+                ]);
+
+                return response()->json([
+                    'error' => 'No fue posible consultar RODI',
+                ], 502);
+            }
         }
 
         // Realizar la consulta combinada de Candidato y CandidatoSync

@@ -40,6 +40,10 @@ return [
         'phone_number_id' => env('FACEBOOK_PHONE_NUMBER_ID'),
         'base_url'        => env('BASE_URL_APIWHASTAPP'),
     ],
+    'rodi_api'   => [
+        'base_url' => env('RODI_API_URL'),
+    ],
+
     'ci3_bridge' => [
         'secret'              => env('CI3_BRIDGE_SECRET'),
         'issuer'              => env('CI3_BRIDGE_ISSUER', 'ci3-portal'),
