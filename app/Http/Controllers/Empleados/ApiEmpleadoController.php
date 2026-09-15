@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Empleados;
 use App\Http\Controllers\Controller; // Asegúrate de incluir esta línea
 use App\Models\AntidopingPaquete;
 use App\Models\Empleado;
+use App\Services\Documents\EmployeePhotoPathService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 // Asegúrate de importar Validator
@@ -83,9 +85,11 @@ class ApiEmpleadoController extends Controller
 
         return response()->json(['success' => 'Imagen de perfil actualizada.', 'ruta' => $empleado->foto]);
     }   */
-    public function updateProfilePicture(Request $request, $id)
-    {
-        // Validar la entrada
+    public function updateProfilePicture(
+        Request $request,
+        $id,
+        EmployeePhotoPathService $photoPaths
+    ) {
         $validator = Validator::make($request->all(), [
             'foto'         => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
             'carpeta'      => 'required|string',
@@ -96,76 +100,98 @@ class ApiEmpleadoController extends Controller
             return response()->json($validator->errors(), 422);
         }
 
-        // Encontrar al empleado
         $empleado = Empleado::find($id);
+
         if (! $empleado) {
-            return response()->json(['error' => 'Empleado no encontrado.'], 404);
+            return response()->json([
+                'error' => 'Empleado no encontrado.',
+            ], 404);
         }
 
-        $env = config('app.env');
+        $foto = $request->file('foto');
 
-        // Determina la ruta base según el entorno
-        $rutaBase = $env === 'production'
-            ? config('paths.prod_images')
-            : config('paths.local_images');
+        $extension = strtolower(
+            $foto->getClientOriginalExtension()
+        );
 
-        $urlBase = $env === 'production'
-            ? config('paths.prod_images')
-            : config('paths.local_images');
+        $fecha = now()->format('Ymd_His');
 
-        $foto          = $request->file('foto');
-        $carpeta       = $request->input('carpeta');
-        $extension     = $foto->getClientOriginalExtension();
-        $fecha         = now()->format('Ymd_His');
         $nombreArchivo = "{$empleado->id}_{$fecha}.{$extension}";
 
-        $destinationPath = $rutaBase . '/' . $carpeta;
+        /*
+         * Las fotos nuevas se escriben únicamente en storagetalentsafe.
+         * empleados.foto conserva sólo el nombre del archivo.
+         */
+        $destinationPath = $photoPaths->ensureActiveDirectory(
+            $empleado
+        );
 
-        // Eliminar imagen anterior
-        if ($request->input('currentImage')) {
-            $currentImagePath = $destinationPath . '/' . $request->input('currentImage');
-            if (file_exists($currentImagePath)) {
-                unlink($currentImagePath);
+        $previousFilename = $empleado->foto;
+
+        try {
+            $foto->move(
+                $destinationPath,
+                $nombreArchivo
+            );
+
+            $empleado->foto = $nombreArchivo;
+            $empleado->save();
+        } catch (\Throwable $e) {
+            $newFilePath = $photoPaths->activePath(
+                $empleado,
+                $nombreArchivo
+            );
+
+            if (is_file($newFilePath)) {
+                @unlink($newFilePath);
             }
+
+            throw $e;
         }
 
-        // Mover archivo
-        $foto->move($destinationPath, $nombreArchivo);
-
-        // Guardar ruta relativa en DB
-        $empleado->foto = $nombreArchivo;
-        $empleado->save();
+        /*
+         * Sólo después de actualizar correctamente la BD archivamos
+         * una foto anterior que ya perteneciera al almacenamiento nuevo.
+         *
+         * Las fotos legacy de _perfilEmpleado permanecen intactas
+         * durante la transición.
+         */
+        if (
+            ! empty($previousFilename)
+            && $previousFilename !== $nombreArchivo
+        ) {
+            try {
+                $photoPaths->archiveActivePhoto(
+                    $empleado,
+                    $previousFilename
+                );
+            } catch (\Throwable $e) {
+                Log::warning(
+                    'No fue posible archivar la foto de perfil reemplazada.',
+                    [
+                        'employee_id' => (int) $empleado->id,
+                        'filename'    => $previousFilename,
+                        'error'       => $e->getMessage(),
+                    ]
+                );
+            }
+        }
 
         return response()->json([
             'success' => 'Imagen de perfil actualizada.',
-            'ruta'    => $nombreArchivo, // solo el nombre
+            'ruta'    => $nombreArchivo,
         ]);
     }
-    public function getProfilePicture($filename)
-    {
-        $carpeta = '_perfilEmpleado';
-        $env     = config('app.env');
+    public function getProfilePicture(
+        $filename,
+        EmployeePhotoPathService $photoPaths
+    ) {
+        $filePath = $photoPaths->resolveReadablePathByFilename(
+            $filename
+        );
 
-        $rutaBase = $env === 'production'
-            ? config('paths.prod_images')
-            : config('paths.local_images');
-
-        $filePath = $rutaBase . '/' . $carpeta . '/' . $filename;
-
-        // 🔥 Si no hay filename o no existe archivo
-        if (! $filename || ! file_exists($filePath)) {
-
-            $defaultPath = $rutaBase . '/' . $carpeta . '/perfil.png';
-
-            if (file_exists($defaultPath)) {
-                return response()->file($defaultPath, [
-                    'Content-Type'  => mime_content_type($defaultPath),
-                    'Cache-Control' => 'public, max-age=31536000, immutable',
-                ]);
-            }
-
-                                            // Último fallback ultra seguro
-            return response()->noContent(); // 204 sin error
+        if ($filePath === null) {
+            return response()->noContent();
         }
 
         return response()->file($filePath, [
@@ -173,26 +199,34 @@ class ApiEmpleadoController extends Controller
             'Cache-Control' => 'public, max-age=31536000, immutable',
         ]);
     }
+    public function getMyProfilePicture(
+        Request $request,
+        EmployeePhotoPathService $photoPaths
+    ) {
+        $authenticatedEmployee = auth('empleado')->user();
 
-    public function getMyProfilePicture(Request $request)
-    {
-        $empleado = auth('empleado')->user();
-        $filename = $empleado->foto;
-        $carpeta  = '_perfilEmpleado';
-
-        $rutaBase = config('app.env') === 'production'
-            ? config('paths.prod_images')
-            : config('paths.local_images');
-
-        $filePath = $rutaBase . '/' . $carpeta . '/' . $filename;
-
-        // 🔹 Si no existe la foto del usuario
-        if (! $filename || ! file_exists($filePath)) {
-            $filePath = $rutaBase . '/' . $carpeta . '/perfil.png';
+        if (! $authenticatedEmployee) {
+            return response()->json([
+                'error' => 'Empleado no autenticado',
+            ], 401);
         }
 
-        // 🔹 Si tampoco existe el perfil.png (ultra fallback)
-        if (! file_exists($filePath)) {
+        $empleado = Empleado::find(
+            $authenticatedEmployee->id
+        );
+
+        if (! $empleado) {
+            return response()->json([
+                'error' => 'Empleado no encontrado',
+            ], 404);
+        }
+
+        $filePath = $photoPaths->resolveReadablePath(
+            $empleado,
+            $empleado->foto
+        );
+
+        if ($filePath === null) {
             return response()->json([
                 'error' => 'Imagen no disponible',
             ], 404);
@@ -204,7 +238,6 @@ class ApiEmpleadoController extends Controller
             'Vary'          => 'Authorization',
         ]);
     }
-
     public function getAntidopinPaquetes()
     {
                                                              // Obtiene todos los paquetes de antidoping

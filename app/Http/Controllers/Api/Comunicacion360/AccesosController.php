@@ -5,6 +5,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Auth\AdministradorAuth;
 use App\Services\Auditoria\AuditoriaService;
 use App\Services\Auth\AdminClientScopeService;
+use App\Services\Documents\EmployeePhotoPathService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,7 +18,8 @@ class AccesosController extends Controller
 {
     public function __construct(
         private AdminClientScopeService $clientScope,
-        private AuditoriaService $auditoria
+        private AuditoriaService $auditoria,
+        private EmployeePhotoPathService $photoPaths
     ) {}
 
     public function index(Request $request)
@@ -224,16 +226,17 @@ class AccesosController extends Controller
                 $checadorEstadoLabel =
                 (string) $eventoHoy->tipo_nombre;
             }
-            $basePath = app()->environment('production')
-                ? config('paths.prod_images')
-                : config('paths.local_images');
-
             $fotoBase64 = null;
 
             if (! empty($item->foto)) {
-                $fotoPath = $basePath . '/_perfilEmpleado/' . $item->foto;
+                $fotoPath = $this->photoPaths->resolveExistingPathForScope(
+                    (int) $item->id_portal,
+                    (int) $item->id_cliente,
+                    (int) $item->id,
+                    $item->foto
+                );
 
-                if (file_exists($fotoPath)) {
+                if ($fotoPath !== null) {
                     $mime       = mime_content_type($fotoPath);
                     $fotoBase64 = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($fotoPath));
                 }
