@@ -1,54 +1,23 @@
 <?php
+
 namespace App\Http\Controllers;
 
-use Illuminate\Support\Facades\File;
+use App\Services\Documents\EmployeePhotoPathService;
 
 class EmployeePhotoController extends Controller
 {
+    public function show(
+        EmployeePhotoPathService $photoPaths,
+        ?string $filename = null
+    ) {
+        $photoPath = $photoPaths->resolveReadablePathByFilename(
+            $filename
+        );
 
-    public function show(?string $filename = null)
-    {
-        // ================================
-        // 1) Resolver base path por entorno
-        // ================================
-        if (app()->environment(['production', 'produccion', 'sandbox'])) {
-            $root = config('paths.prod_images');
-        } else {
-            $root = config('paths.local_images');
-        }
-
-        if (! $root) {
-            abort(500, 'Image base path not configured');
-        }
-
-        $basePath = rtrim($root, '/\\') . '/_perfilEmpleado';
-
-        // ================================
-        // 2) Fallback por defecto
-        // ================================
-        $photoPath = $basePath . '/perfil.png';
-
-        // ================================
-        // 3) Si viene filename y existe
-        // ================================
-        if ($filename) {
-            $candidate = $basePath . '/' . basename($filename);
-
-            if (File::exists($candidate)) {
-                $photoPath = $candidate;
-            }
-        }
-
-        // ================================
-        // 4) Validación final
-        // ================================
-        if (! File::exists($photoPath)) {
+        if ($photoPath === null) {
             abort(404);
         }
 
-        // ================================
-        // 5) Respuesta optimizada
-        // ================================
         return response()->file($photoPath, [
             'Content-Type'  => mime_content_type($photoPath),
             'Cache-Control' => 'public, max-age=86400',
