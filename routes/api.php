@@ -55,6 +55,7 @@ use App\Http\Controllers\ConfiguracionColumnasController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Dashboard\OrganigramaController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\Api\Rodi\RodiCandidateDocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CatalogosController;
 use App\Http\Controllers\Empleados\ClienteInformacionInternaController;
@@ -243,7 +244,22 @@ Route::middleware(['api'])->group(function () {
     Route::get('file/{path}', [ImageController::class, 'getFile'])->where('path', '.*');
     Route::post('/upload', [DocumentController::class, 'upload']);
 
-    /// */  rutas    para  candidatos  socioeconomicos  y doping
+    Route::post(
+        '/integraciones/rodi/documentos',
+        [RodiCandidateDocumentController::class, 'store']
+    );
+
+    Route::get(
+        '/integraciones/portal/clientes/documentos/{documentId}',
+        [RodiCandidateDocumentController::class, 'showForClient']
+    );
+
+
+    Route::get(
+        '/integraciones/portal/clientes/candidatos/{candidateId}/documentos/zip',
+        [RodiCandidateDocumentController::class, 'downloadZipForClient']
+    );
+/// */  rutas    para  candidatos  socioeconomicos  y doping
     Route::post('/candidatos', [ApiCandidatoSinEseController::class, 'store']);
     Route::post('/existe-cliente', [ApiClientesController::class, 'VerificarCliente']);
     Route::get('candidato-sync/{id_cliente_talent}', [ApiGetCandidatosByCliente::class, 'getByClienteTalent']);
@@ -2182,6 +2198,16 @@ Route::middleware([
     Route::get(
         '/pre-empleo/archivos/documentos/{documentId}',
         [PreEmpleadoDocumentoController::class, 'verDocumento']
+    );
+
+    Route::get(
+        '/pre-empleo/rodi/documentos/{documentId}',
+        [RodiCandidateDocumentController::class, 'show']
+    );
+
+    Route::get(
+        '/pre-empleo/rodi/candidatos/{candidateId}/documentos/zip',
+        [RodiCandidateDocumentController::class, 'downloadZip']
     );
 });
 
