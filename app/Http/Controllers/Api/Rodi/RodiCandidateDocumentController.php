@@ -10,6 +10,7 @@ use App\Services\Documents\RodiCandidateDocumentPathService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -102,28 +103,36 @@ class RodiCandidateDocumentController extends Controller
             'X-Talent-Client-Id'
         );
 
-        if ($idPortal <= 0 || $idClient <= 0) {
+        if (
+            $documentId <= 0
+            || $idPortal <= 0
+            || $idClient <= 0
+        ) {
             abort(404);
         }
 
-        $document = CandidatoDocumento::query()
-            ->where('id', $documentId)
-            ->where('eliminado', 0)
-            ->firstOrFail();
+        $document = $this->getRodiDocumentMetadata(
+            $documentId
+        );
 
-        $candidateId = (int) $document->id_candidato;
-
-        $authorized = CandidatoSync::query()
-            ->where('id_candidato_rodi', $candidateId)
-            ->where('id_cliente_talent', $idClient)
-            ->where('id_portal', $idPortal)
-            ->exists();
-
-        if (! $authorized) {
+        if ($document === null) {
             abort(404);
         }
 
-        $fileName = basename((string) $document->archivo);
+        if (
+            (int) $document['id_documento'] !== $documentId
+            || (int) $document['id_portal'] !== $idPortal
+            || (int) $document['id_cliente_talent'] !== $idClient
+        ) {
+            abort(404);
+        }
+
+        $candidateId = (int) $document['id_candidato_rodi'];
+        $fileName = basename((string) $document['archivo']);
+
+        if ($candidateId <= 0 || $fileName === '') {
+            abort(404);
+        }
 
         $filePath = $paths->resolveExistingPath(
             $idPortal,
@@ -152,6 +161,92 @@ class RodiCandidateDocumentController extends Controller
         );
     }
 
+    private function getRodiDocumentMetadata(
+        int $documentId
+    ): ?array {
+        $baseUrl = rtrim(
+            (string) config('services.rodi_api.base_url'),
+            '/'
+        );
+
+        $integrationKey = (string) config(
+            'integrations.rodi.document_key'
+        );
+
+        if ($baseUrl === '' || $integrationKey === '') {
+            Log::error(
+                'Configuración incompleta para consultar documentos RODI.',
+                [
+                    'document_id' => $documentId,
+                ]
+            );
+
+            abort(503);
+        }
+
+        try {
+            $response = Http::acceptJson()
+                ->withHeaders([
+                    'X-RODI-Integration-Key' => $integrationKey,
+                ])
+                ->timeout(20)
+                ->get(
+                    $baseUrl .
+                    '/integraciones/talentsafe/documentos/' .
+                    $documentId
+                );
+        } catch (\Throwable $e) {
+            Log::error(
+                'Error consultando metadata documental en RODI.',
+                [
+                    'document_id' => $documentId,
+                    'error' => $e->getMessage(),
+                ]
+            );
+
+            abort(502);
+        }
+
+        if ($response->status() === 404) {
+            return null;
+        }
+
+        if (! $response->successful()) {
+            Log::warning(
+                'RODI rechazó consulta de metadata documental.',
+                [
+                    'document_id' => $documentId,
+                    'http_status' => $response->status(),
+                ]
+            );
+
+            abort(502);
+        }
+
+        $data = $response->json('data');
+
+        if (
+            ! is_array($data)
+            || ! isset(
+                $data['id_documento'],
+                $data['id_candidato_rodi'],
+                $data['archivo'],
+                $data['id_portal'],
+                $data['id_cliente_talent']
+            )
+        ) {
+            Log::error(
+                'Respuesta inválida al consultar metadata documental en RODI.',
+                [
+                    'document_id' => $documentId,
+                ]
+            );
+
+            abort(502);
+        }
+
+        return $data;
+    }
     public function downloadZipForClient(
         Request $request,
         int $candidateId,
