@@ -3,36 +3,80 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Models\ClienteRodi;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Http\Client\ConnectionException;
 
 class ApiClientesController extends Controller
 {
     public function VerificarCliente(Request $request)
     {
-        // Validar los datos recibidos
         $request->validate([
             'nombre' => 'required|string',
-            'clave' => 'required|string'
+            'clave' => 'required|string',
         ]);
 
-        $nombre = $request->input('nombre');
-        $clave = $request->input('clave');
+        $baseUrl = rtrim(
+            (string) config('services.rodi_integration.base_url'),
+            '/'
+        );
 
-        // Verificar si el cliente existe en la tabla actual
-        $client = ClienteRodi::where('nombre', $nombre)->where('clave', $clave)->first();
+        $integrationKey = (string) config(
+            'integrations.rodi.document_key'
+        );
 
-        if ($client) {
-            // Cliente encontrado, devolver el ID del cliente
-            return response()->json([
-                'success' => true,
-                'client_id' => $client->id
-            ]);
-        } else {
-            // Cliente no encontrado
+        if ($baseUrl === '' || $integrationKey === '') {
             return response()->json([
                 'success' => false,
-                'message' => 'Cliente no encontrado'
+                'message' => 'Integración con RODI no configurada',
+            ], 500);
+        }
+
+        try {
+            $response = Http::acceptJson()
+                ->withHeaders([
+                    'X-RODI-Integration-Key' => $integrationKey,
+                ])
+                ->timeout(30)
+                ->get(
+                    $baseUrl . '/clientes/verificar',
+                    [
+                        'nombre' => $request->input('nombre'),
+                        'clave' => $request->input('clave'),
+                    ]
+                );
+        } catch (ConnectionException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No fue posible conectar con RODI',
+            ], 502);
+        }
+
+        if (! $response->successful()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No fue posible verificar el cliente en RODI',
+            ], $response->status());
+        }
+
+        $data = $response->json();
+
+        if (! is_array($data)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Respuesta inválida de RODI',
+            ], 502);
+        }
+
+        if (! ($data['success'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'message' => $data['message'] ?? 'Cliente no encontrado',
             ]);
         }
+
+        return response()->json([
+            'success' => true,
+            'client_id' => (int) $data['client_id'],
+        ]);
     }
 }
