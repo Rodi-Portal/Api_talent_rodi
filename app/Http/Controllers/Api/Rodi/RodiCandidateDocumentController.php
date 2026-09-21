@@ -165,7 +165,7 @@ class RodiCandidateDocumentController extends Controller
         int $documentId
     ): ?array {
         $baseUrl = rtrim(
-            (string) config('services.rodi_api.base_url'),
+            (string) config('services.rodi_integration.base_url'),
             '/'
         );
 
@@ -192,7 +192,7 @@ class RodiCandidateDocumentController extends Controller
                 ->timeout(20)
                 ->get(
                     $baseUrl .
-                    '/integraciones/talentsafe/documentos/' .
+                    '/documentos/' .
                     $documentId
                 );
         } catch (\Throwable $e) {

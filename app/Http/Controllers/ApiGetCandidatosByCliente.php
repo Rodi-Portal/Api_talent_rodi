@@ -22,106 +22,80 @@ class ApiGetCandidatosByCliente extends Controller
      */
     public function getByClienteTalent($id_cliente_talent)
     {
-        // Validar que id_cliente_talent sea un entero
         if (! is_numeric($id_cliente_talent)) {
-            return response()->json(['error' => 'Invalid id_cliente_talent'], 400);
+            return response()->json([
+                'error' => 'Invalid id_cliente_talent',
+            ], 400);
         }
 
-        /*
-         * Durante la migracion AWS, RODI permanece temporalmente en Cimeira.
-         * Si existe RODI_API_URL, esta API actua como puente hacia RODI.
-         */
-        $rodiApiUrl = rtrim((string) config('services.rodi_api.base_url'), '/');
+        $rodiIntegrationUrl = rtrim(
+            (string) config(
+                'services.rodi_integration.base_url'
+            ),
+            '/'
+        );
 
-        if ($rodiApiUrl !== '') {
-            try {
-                $response = Http::acceptJson()
-                    ->timeout(30)
-                    ->get(
-                        $rodiApiUrl . '/candidato-sync/' .
-                        rawurlencode((string) $id_cliente_talent)
-                    );
+        $rodiIntegrationKey = (string) config(
+            'integrations.rodi.document_key'
+        );
 
-                return response($response->body(), $response->status())
-                    ->header(
-                        'Content-Type',
-                        $response->header('Content-Type', 'application/json')
-                    );
-            } catch (\Throwable $e) {
-                Log::error('Error consultando candidato-sync en RODI remoto', [
+        if (
+            $rodiIntegrationUrl === ''
+            || $rodiIntegrationKey === ''
+        ) {
+            Log::error(
+                'Configuración de integración RODI incompleta',
+                [
                     'id_cliente_talent' => $id_cliente_talent,
-                    'error'             => $e->getMessage(),
-                ]);
+                ]
+            );
 
-                return response()->json([
-                    'error' => 'No fue posible consultar RODI',
-                ], 502);
-            }
+            return response()->json([
+                'error' => 'Integración RODI no configurada',
+            ], 503);
         }
 
-        // Realizar la consulta combinada de Candidato y CandidatoSync
-        $results = Candidato::leftJoin('candidato_sync AS CSY', 'candidato.id', '=', 'CSY.id_candidato_rodi')
-            ->leftJoin('usuario AS US', 'US.id', '=', 'candidato.id_usuario')
-            ->leftJoin('candidato_seccion AS CAS', 'CAS.id_candidato', '=', 'candidato.id')
-            ->leftJoin('candidato_bgc AS BGC', 'BGC.id_candidato', '=', 'candidato.id')
-            ->leftJoin('candidato_pruebas AS CAP', 'CAP.id_candidato', '=', 'candidato.id')
-            ->leftJoin('doping AS DOP', 'DOP.id_candidato', '=', 'candidato.id')
-            ->leftJoin('medico AS MED', 'MED.id_candidato', '=', 'candidato.id')
-            ->leftJoin('psicometrico AS PSI', 'PSI.id_candidato', '=', 'candidato.id')
+        try {
+            $response = Http::acceptJson()
+                ->withHeaders([
+                    'X-RODI-Integration-Key' =>
+                        $rodiIntegrationKey,
+                ])
+                ->timeout(30)
+                ->get(
+                    $rodiIntegrationUrl .
+                    '/clientes/' .
+                    rawurlencode(
+                        (string) $id_cliente_talent
+                    ) .
+                    '/candidatos'
+                );
 
-            ->where('CSY.id_cliente_talent', $id_cliente_talent)
-            ->where('candidato.eliminado', 0) // Asegúrate de que 0 representa no eliminado
-            ->orderByRaw('COALESCE(candidato.liberado, 0) DESC')
-            ->select(
-                'candidato.*',
-                'candidato.id AS id',
-                'candidato.liberado',
-                DB::raw("CONCAT(COALESCE(candidato.nombre, ''), ' ', COALESCE(candidato.paterno, ''), ' ', COALESCE(candidato.materno, '')) as candidato"),
-                'candidato.nombre AS nombre',
-                'candidato.paterno AS paterno',
-                'candidato.materno AS materno',
-                'candidato.celular AS celular',
-                'candidato.correo AS correo',
-                'candidato.fecha_contestado AS fecha_contestado',
-                'candidato.fecha_alta AS fecha_alta',
-                'candidato.fecha_documentos AS fecha_documentos',
-                'candidato.tiempo_parcial AS tiempo_parcial',
-                'candidato.cancelado AS cancelado',
-                'CSY.creacion AS creacion',
-                'CSY.edicion AS edicion',
-                DB::raw("CONCAT(US.nombre, ' ', US.paterno, ' ', COALESCE(US.materno, '')) as usuario"),
-                'CAS.tipo_conclusion',
-                'CAS.proyecto AS nombre_proyecto',
-                'BGC.creacion AS fecha_bgc',
+            return response(
+                $response->body(),
+                $response->status()
+            )->header(
+                'Content-Type',
+                $response->header(
+                    'Content-Type',
+                    'application/json'
+                )
+            );
+        } catch (\Throwable $e) {
+            Log::error(
+                'Error consultando candidatos en RODI',
+                [
+                    'id_cliente_talent' =>
+                        $id_cliente_talent,
+                    'error' => $e->getMessage(),
+                ]
+            );
 
-                'CAP.status_doping as doping_hecho',
-                'CAP.tipo_antidoping',
-                'CAP.medico',
-                'CAP.psicometrico',
-                'CAP.socioeconomico',
-
-                'MED.id AS idMedico',
-                'MED.imagen_historia_clinica AS imagen',
-                'MED.conclusion',
-                'MED.descripcion',
-                'MED.archivo_examen_medico',
-
-                'PSI.id as idPsicometrico',
-                'PSI.archivo',
-
-                'DOP.id as idDoping',
-                'DOP.fecha_resultado',
-                'DOP.resultado as resultado_doping',
-                'DOP.status as statusDoping',
-
-            )
-            ->get();
-        // Log::info('Datos del candidato: ' . print_r($results->toArray(), true));
-
-        return response()->json($results);
-
+            return response()->json([
+                'error' => 'No fue posible consultar RODI',
+            ], 502);
+        }
     }
-
     public function sendCandidateToEmployee($id_candidato)
     {
         // Validar que id_candidato sea un número

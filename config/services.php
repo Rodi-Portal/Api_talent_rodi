@@ -44,6 +44,10 @@ return [
         'base_url' => env('RODI_API_URL'),
     ],
 
+    'rodi_integration' => [
+        'base_url' => env('RODI_INTEGRATION_URL'),
+    ],
+
     'ci3_bridge' => [
         'secret'              => env('CI3_BRIDGE_SECRET'),
         'issuer'              => env('CI3_BRIDGE_ISSUER', 'ci3-portal'),
