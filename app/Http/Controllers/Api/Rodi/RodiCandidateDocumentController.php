@@ -631,12 +631,15 @@ class RodiCandidateDocumentController extends Controller
         $idPortal        = (int) $data['id_portal'];
         $fileName        = basename((string) $data['file_name']);
 
-        $syncExists = CandidatoSync::query()
-            ->where('id_candidato_rodi', $idCandidatoRodi)
-            ->where('id_portal', $idPortal)
-            ->exists();
+        $candidate = $this->getRodiCandidateDocumentsMetadata(
+            $idCandidatoRodi
+        );
 
-        if (! $syncExists) {
+        $syncValid = $candidate !== null
+            && (int) $candidate['id_candidato_rodi'] === $idCandidatoRodi
+            && (int) $candidate['id_portal'] === $idPortal;
+
+        if (! $syncValid) {
             Log::warning('Integración RODI con candidato/portal no válido', [
                 'trace_id'          => $traceId,
                 'id_candidato_rodi' => $idCandidatoRodi,
