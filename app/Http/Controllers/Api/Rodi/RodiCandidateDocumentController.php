@@ -247,6 +247,94 @@ class RodiCandidateDocumentController extends Controller
 
         return $data;
     }
+
+    private function getRodiCandidateDocumentsMetadata(
+        int $candidateId
+    ): ?array {
+        $baseUrl = rtrim(
+            (string) config('services.rodi_integration.base_url'),
+            '/'
+        );
+
+        $integrationKey = (string) config(
+            'integrations.rodi.document_key'
+        );
+
+        if ($baseUrl === '' || $integrationKey === '') {
+            Log::error(
+                'Configuración incompleta para consultar documentos del candidato en RODI.',
+                [
+                    'candidate_id' => $candidateId,
+                ]
+            );
+
+            abort(503);
+        }
+
+        try {
+            $response = Http::acceptJson()
+                ->withHeaders([
+                    'X-RODI-Integration-Key' => $integrationKey,
+                ])
+                ->timeout(20)
+                ->get(
+                    $baseUrl .
+                    '/candidatos/' .
+                    $candidateId .
+                    '/documentos'
+                );
+        } catch (\Throwable $e) {
+            Log::error(
+                'Error consultando documentos del candidato en RODI.',
+                [
+                    'candidate_id' => $candidateId,
+                    'error' => $e->getMessage(),
+                ]
+            );
+
+            abort(502);
+        }
+
+        if ($response->status() === 404) {
+            return null;
+        }
+
+        if (! $response->successful()) {
+            Log::warning(
+                'RODI rechazó consulta de documentos del candidato.',
+                [
+                    'candidate_id' => $candidateId,
+                    'http_status' => $response->status(),
+                ]
+            );
+
+            abort(502);
+        }
+
+        $data = $response->json('data');
+
+        if (
+            ! is_array($data)
+            || ! isset(
+                $data['id_candidato_rodi'],
+                $data['id_portal'],
+                $data['id_cliente_talent'],
+                $data['documentos']
+            )
+            || ! is_array($data['documentos'])
+        ) {
+            Log::error(
+                'Respuesta inválida al consultar documentos del candidato en RODI.',
+                [
+                    'candidate_id' => $candidateId,
+                ]
+            );
+
+            abort(502);
+        }
+
+        return $data;
+    }
     public function downloadZipForClient(
         Request $request,
         int $candidateId,
@@ -284,24 +372,25 @@ class RodiCandidateDocumentController extends Controller
             abort(404);
         }
 
-        $authorized = CandidatoSync::query()
-            ->where('id_candidato_rodi', $candidateId)
-            ->where('id_cliente_talent', $idClient)
-            ->where('id_portal', $idPortal)
-            ->exists();
+        $candidate = $this->getRodiCandidateDocumentsMetadata(
+            $candidateId
+        );
 
-        if (! $authorized) {
+        if ($candidate === null) {
             abort(404);
         }
 
-        $documents = CandidatoDocumento::query()
-            ->where('id_candidato', $candidateId)
-            ->where('eliminado', 0)
-            ->orderBy('id_tipo_documento')
-            ->orderBy('id')
-            ->get();
+        if (
+            (int) $candidate['id_candidato_rodi'] !== $candidateId
+            || (int) $candidate['id_portal'] !== $idPortal
+            || (int) $candidate['id_cliente_talent'] !== $idClient
+        ) {
+            abort(404);
+        }
 
-        if ($documents->isEmpty()) {
+        $documents = $candidate['documentos'];
+
+        if (empty($documents)) {
             abort(404, 'No hay documentos disponibles.');
         }
 
@@ -338,7 +427,13 @@ class RodiCandidateDocumentController extends Controller
 
         try {
             foreach ($documents as $document) {
-                $fileName = basename((string) $document->archivo);
+                $fileName = basename(
+                    (string) ($document['archivo'] ?? '')
+                );
+
+                if ($fileName === '') {
+                    continue;
+                }
 
                 $filePath = $paths->resolveExistingPath(
                     $idPortal,
