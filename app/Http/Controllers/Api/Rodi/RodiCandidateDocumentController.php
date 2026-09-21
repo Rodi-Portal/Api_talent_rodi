@@ -35,20 +35,25 @@ class RodiCandidateDocumentController extends Controller
             abort(403, 'Portal administrativo no válido.');
         }
 
-        $document = CandidatoDocumento::query()
-            ->where('id', $documentId)
-            ->where('eliminado', 0)
-            ->firstOrFail();
+        $document = $this->getRodiDocumentMetadata(
+            $documentId
+        );
 
-        $idCandidatoRodi = (int) $document->id_candidato;
-        $fileName        = basename((string) $document->archivo);
+        if ($document === null) {
+            abort(404, 'Documento no encontrado.');
+        }
 
-        $authorized = CandidatoSync::query()
-            ->where('id_candidato_rodi', $idCandidatoRodi)
-            ->where('id_portal', $idPortal)
-            ->exists();
+        if (
+            (int) $document['id_documento'] !== $documentId
+            || (int) $document['id_portal'] !== $idPortal
+        ) {
+            abort(404, 'Documento no encontrado.');
+        }
 
-        if (! $authorized) {
+        $idCandidatoRodi = (int) $document['id_candidato_rodi'];
+        $fileName = basename((string) $document['archivo']);
+
+        if ($idCandidatoRodi <= 0 || $fileName === '') {
             abort(404, 'Documento no encontrado.');
         }
 
