@@ -249,7 +249,7 @@ class ApiGetCandidatosByCliente extends Controller
                 ],
             ];
 
-            $empleadoController = new EmpleadoController();
+            $empleadoController = app(EmpleadoController::class);
 
             $response = $empleadoController->store(
                 new Request($validatedData)
