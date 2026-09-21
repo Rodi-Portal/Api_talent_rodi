@@ -973,7 +973,7 @@ class EmpleadoController extends Controller
             ], 409);
         }
 
-        return DB::transaction(function () use ($validated, $edad) {
+        return DB::connection('portal_main')->transaction(function () use ($validated, $edad) {
 
             // 1) Domicilio
             $domicilio = DomicilioEmpleado::create([
