@@ -255,6 +255,10 @@ class ApiGetCandidatosByCliente extends Controller
                 new Request($validatedData)
             );
 
+            if ($response->getStatusCode() >= 400) {
+                return $response;
+            }
+
             if ($resultString !== '') {
                 $empleadoData = $response->getData()->data ?? null;
 
