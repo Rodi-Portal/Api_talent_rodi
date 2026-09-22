@@ -4,8 +4,6 @@ namespace App\Http\Controllers\Api\Rodi;
 
 use App\Http\Controllers\Controller;
 use App\Models\Auth\AdministradorAuth;
-use App\Models\CandidatoDocumento;
-use App\Models\CandidatoSync;
 use App\Services\Documents\RodiCandidateDocumentPathService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
@@ -499,23 +497,21 @@ class RodiCandidateDocumentController extends Controller
             abort(404, 'Candidato no encontrado.');
         }
 
-        $authorized = CandidatoSync::query()
-            ->where('id_candidato_rodi', $candidateId)
-            ->where('id_portal', $idPortal)
-            ->exists();
+        $candidate = $this->getRodiCandidateDocumentsMetadata(
+            $candidateId
+        );
 
-        if (! $authorized) {
+        if (
+            $candidate === null
+            || (int) $candidate['id_candidato_rodi'] !== $candidateId
+            || (int) $candidate['id_portal'] !== $idPortal
+        ) {
             abort(404, 'Candidato no encontrado.');
         }
 
-        $documents = CandidatoDocumento::query()
-            ->where('id_candidato', $candidateId)
-            ->where('eliminado', 0)
-            ->orderBy('id_tipo_documento')
-            ->orderBy('id')
-            ->get();
+        $documents = $candidate['documentos'];
 
-        if ($documents->isEmpty()) {
+        if (empty($documents)) {
             abort(404, 'No hay documentos disponibles.');
         }
 
@@ -548,7 +544,13 @@ class RodiCandidateDocumentController extends Controller
 
         try {
             foreach ($documents as $document) {
-                $fileName = basename((string) $document->archivo);
+                $fileName = basename(
+                    (string) ($document['archivo'] ?? '')
+                );
+
+                if ($fileName === '') {
+                    continue;
+                }
 
                 $filePath = $paths->resolveExistingPath(
                     $idPortal,
