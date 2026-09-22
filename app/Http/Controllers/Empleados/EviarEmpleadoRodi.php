@@ -75,8 +75,6 @@ class EviarEmpleadoRodi extends Controller
             'celular' => $empleado->telefono,
             'subproyecto' => $request->subproyecto,
             'pais' => $domicilio->pais ?? null,
-            'estado' => $domicilio->estado ?? null,
-            'ciudad' => $domicilio->ciudad ?? null,
             'colonia' => $domicilio->colonia ?? null,
             'calle' => $domicilio->calle ?? null,
             'cp' => $domicilio->cp ?? null,
