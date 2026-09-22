@@ -2,11 +2,11 @@
 namespace App\Http\Controllers\Empleados;
 
 use App\Http\Controllers\Controller; // Asegúrate de incluir esta línea
-use App\Models\AntidopingPaquete;
 use App\Models\Empleado;
 use App\Services\Documents\EmployeePhotoPathService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
@@ -20,11 +20,6 @@ class ApiEmpleadoController extends Controller
             'id_portal' => 'required|integer',
         ]);
 
-        // Verificar la conexión actual
-        $currentConnection = DB::getDefaultConnection();
-        $currentDatabase   = DB::connection($currentConnection)->getDatabaseName();
-
-        // Log para depuración
 
         $id_portal = $request->input('id_portal');
 
@@ -240,11 +235,59 @@ class ApiEmpleadoController extends Controller
     }
     public function getAntidopinPaquetes()
     {
-                                                             // Obtiene todos los paquetes de antidoping
-        $paquetes = AntidopingPaquete::where('eliminado', 0) // Filtra solo los no eliminados
-            ->get(['id', 'nombre', 'sustancias', 'conjunto']);   // Especifica qué campos deseas obtener
+        try {
+            $baseUrl = rtrim(
+                (string) config('services.rodi_integration.base_url'),
+                '/'
+            );
 
-        return response()->json($paquetes); // Retorna los datos como JSON
+            $integrationKey = (string) config(
+                'integrations.rodi.document_key'
+            );
+
+            if ($baseUrl === '' || $integrationKey === '') {
+                return response()->json([
+                    'message' => 'Integración con RODI no configurada',
+                ], 500);
+            }
+
+            $response = Http::acceptJson()
+                ->withHeaders([
+                    'X-RODI-Integration-Key' => $integrationKey,
+                ])
+                ->timeout(30)
+                ->get(
+                    $baseUrl .
+                    '/antidoping/paquetes'
+                );
+
+            if (! $response->successful()) {
+                return response()->json([
+                    'message' => 'Error al obtener paquetes de antidoping desde RODI',
+                ], $response->status());
+            }
+
+            $data = $response->json();
+
+            if (
+                ! is_array($data)
+                || ! ($data['success'] ?? false)
+                || ! isset($data['data'])
+                || ! is_array($data['data'])
+            ) {
+                return response()->json([
+                    'message' => 'Respuesta inválida de RODI',
+                ], 502);
+            }
+
+            return response()->json(
+                $data['data']
+            );
+        } catch (ConnectionException $e) {
+            return response()->json([
+                'message' => 'No fue posible conectar con RODI',
+            ], 502);
+        }
     }
 
     public function verDocumento($carpeta, $archivo)
