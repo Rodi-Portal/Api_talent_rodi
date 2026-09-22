@@ -4,17 +4,12 @@ namespace App\Http\Controllers\Empleados;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\DocumentController;
 use App\Models\Auth\AdministradorAuth;
-use App\Models\Candidato;
-use App\Models\CandidatoPruebas;
 use App\Models\CursoEmpleado;
 use App\Models\CursosOption;
 use App\Models\DocumentEmpleado;
 use App\Models\DocumentOption;
-use App\Models\Doping;
 use App\Models\ExamEmpleado;
 use App\Models\ExamOption;
-use App\Models\Medico;
-use App\Models\Psicometrico;
 use App\Services\Auditoria\AuditoriaService;
 use App\Services\Auth\AdminEmployeeScopeService;
 use App\Services\Auth\PermissionService;
@@ -22,6 +17,7 @@ use App\Services\Documents\EmployeeDocumentPathService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
@@ -79,88 +75,240 @@ class DocumentOptionController extends Controller
         }
 
         // Obtener el id_candidato de los exámenes
-        $idCandidatos = $exam->pluck('id_candidato')->unique();
+        $idCandidatos = $exam
+            ->pluck('id_candidato')
+            ->filter(function ($id) {
+                return is_numeric($id) && (int) $id > 0;
+            })
+            ->map(function ($id) {
+                return (int) $id;
+            })
+            ->unique()
+            ->values();
 
-        // Consultar CandidatoPruebas y Candidato para obtener los campos deseados
-        $candidatosPruebas = CandidatoPruebas::whereIn('id_candidato', $idCandidatos)->get();
-        $candidatos        = Candidato::with('medico', 'doping')->whereIn('id', $idCandidatos)->get(); // Cargar la relación del doping
-        $psicometrico      = Candidato::with('psicometrico')->whereIn('id', $idCandidatos)->get();
-        // Log::info('Psicométrico obtenido:', ['psicometrico' => $psicometrico]);
+        $rodiIntegrationUrl = rtrim(
+            (string) config(
+                'services.rodi_integration.base_url'
+            ),
+            '/'
+        );
 
-        // Mapear los documentos para incluir los nuevos campos
-        $examConOpciones = $exam->map(function ($documento) use ($candidatosPruebas, $candidatos) {
-            $candidatoPrueba = $candidatosPruebas->firstWhere('id_candidato', $documento->id_candidato);
-            $candidato       = $candidatos->firstWhere('id', $documento->id_candidato);
-            $medico          = $candidato->medico ?? null;
-            $doping          = $candidato->doping ?? null;       // Obtener el doping
-            $psicometrico    = $candidato->psicometrico ?? null; // Obtener el psicométrico
+        $rodiIntegrationKey = (string) config(
+            'integrations.rodi.document_key'
+        );
 
-            switch ($candidato->status_bgc ?? null) {
-                case 1:
-                case 4:
-                    $icono_resultado = 'icono_resultado_aprobado';
-                    break;
-                case 2:
-                    $icono_resultado = 'icono_resultado_reprobado';
-                    break;
-                case 3:
-                    $icono_resultado = 'icono_resultado_revision';
-                    break;
-                default:
-                    $icono_resultado = 'icono_resultado_espera';
-                    break;
+        if (
+            $rodiIntegrationUrl === ''
+            || $rodiIntegrationKey === ''
+        ) {
+            Log::error(
+                'Configuración de integración RODI incompleta para exámenes.',
+                [
+                    'employee_id' => $employeeId,
+                ]
+            );
+
+            return response()->json([
+                'error' => 'Integración RODI no configurada',
+            ], 503);
+        }
+
+        $candidateData = [];
+
+        foreach ($idCandidatos as $idCandidato) {
+            try {
+                $rodiResponse = Http::acceptJson()
+                    ->withHeaders([
+                        'X-RODI-Integration-Key' =>
+                            $rodiIntegrationKey,
+                    ])
+                    ->timeout(30)
+                    ->get(
+                        $rodiIntegrationUrl .
+                        '/candidatos/' .
+                        rawurlencode(
+                            (string) $idCandidato
+                        ) .
+                        '/empleado-data'
+                    );
+            } catch (\Throwable $e) {
+                Log::error(
+                    'Error consultando candidato en RODI para exámenes.',
+                    [
+                        'employee_id'  => $employeeId,
+                        'id_candidato' => $idCandidato,
+                        'error'        => $e->getMessage(),
+                    ]
+                );
+
+                return response()->json([
+                    'error' => 'No fue posible consultar RODI',
+                ], 502);
             }
 
-            return [
-                'id'                       => $documento->id,
-                'nameDocument'             => $documento->name,
-                'optionName'               => $documento->examOption ? $documento->examOption->name : null,
-                //'optionType'      => $documento->examOption ? $documento->examOption->type : null,
-                'description'              => $documento->description,
-                'upload_date'              => \Carbon\Carbon::parse($documento->upload_date)->format('Y-m-d'),
-                'expiry_date'              => $documento->expiry_date,
-                'nameAlterno'              => $documento->nameDocument,
-                'statusexm'                => $documento->status,
-                'expiry_reminder'          => $documento->expiry_reminder,
-                'share_scope'              => (int) (
-                    $documento->share_scope ?? 0
-                ),
-                'collaborator_can_replace' => (bool) (
-                    $documento->collaborator_can_replace ?? false
-                ),
-                'id_candidato'             => $documento->id_candidato,
-                'socioeconomico'           => $candidatoPrueba->socioeconomico ?? null,
-                'medico'                   => $candidatoPrueba->medico ?? null,
-                'tipo_antidoping'          => $candidatoPrueba->tipo_antidoping ?? null,
-                'antidoping'               => $candidatoPrueba->antidoping ?? null,
-                'psicometrico'             => $candidatoPrueba->psicometrico ?? null,
-                'medicoDetalle'            => [
-                    'id'                    => $medico->id ?? null,
-                    'imagen'                => $medico->imagen_historia_clinica ?? null,
-                    'conclusion'            => $medico->conclusion ?? null,
-                    'descripcion'           => $medico->descripcion ?? null,
-                    'archivo_examen_medico' => $medico->archivo_examen_medico ?? null,
-                ],
-                'psicometricoDet'          => [
-                    'id'                   => $psicometrico->id ?? null,
-                    'archivo_psicometrico' => $psicometrico->archivo ?? null,
-                ],
-                'doping'                   => [
-                    'id'               => $doping->id ?? null,
-                    'doping_hecho'     => $candidatoPrueba->status_doping ?? null,
-                    'fecha_resultado'  => $doping->fecha_resultado ?? null,
-                    'resultado_doping' => $doping->resultado ?? null,
-                    'statusDoping'     => $doping->status ?? null,
-                ],
-                'liberado'                 => $candidato->liberado ?? null,
-                'status_bgc'               => $candidato->status_bgc ?? null,
-                'cancelado'                => $candidato->cancelado ?? null,
-                'icono_resultado'          => $icono_resultado,
-            ];
-        });
+            if ($rodiResponse->status() === 404) {
+                $candidateData[$idCandidato] = [];
+                continue;
+            }
 
-        // Devolver los documentos
-        return response()->json(['documentos' => $examConOpciones], 200);
+            if (! $rodiResponse->successful()) {
+                Log::error(
+                    'RODI devolvió error al consultar candidato para exámenes.',
+                    [
+                        'employee_id'  => $employeeId,
+                        'id_candidato' => $idCandidato,
+                        'status'       => $rodiResponse->status(),
+                    ]
+                );
+
+                return response()->json([
+                    'error' => 'No fue posible consultar RODI',
+                ], 502);
+            }
+
+            $payload = $rodiResponse->json();
+
+            if (
+                ! is_array($payload)
+                || ($payload['success'] ?? false) !== true
+                || ! is_array($payload['data'] ?? null)
+            ) {
+                Log::error(
+                    'Respuesta inválida de RODI para candidato de exámenes.',
+                    [
+                        'employee_id'  => $employeeId,
+                        'id_candidato' => $idCandidato,
+                    ]
+                );
+
+                return response()->json([
+                    'error' => 'Respuesta inválida de RODI',
+                ], 502);
+            }
+
+            $candidateData[$idCandidato] = $payload['data'];
+        }
+
+        $examConOpciones = $exam->map(
+            function ($documento) use ($candidateData) {
+                $candidato = $candidateData[
+                    (int) $documento->id_candidato
+                ] ?? [];
+
+                switch ($candidato['status_bgc'] ?? null) {
+                    case 1:
+                    case 4:
+                    case '1':
+                    case '4':
+                        $icono_resultado =
+                            'icono_resultado_aprobado';
+                        break;
+
+                    case 2:
+                    case '2':
+                        $icono_resultado =
+                            'icono_resultado_reprobado';
+                        break;
+
+                    case 3:
+                    case '3':
+                        $icono_resultado =
+                            'icono_resultado_revision';
+                        break;
+
+                    default:
+                        $icono_resultado =
+                            'icono_resultado_espera';
+                        break;
+                }
+
+                return [
+                    'id' => $documento->id,
+                    'nameDocument' => $documento->name,
+                    'optionName' => $documento->examOption
+                        ? $documento->examOption->name
+                        : null,
+                    'description' => $documento->description,
+                    'upload_date' => \Carbon\Carbon::parse(
+                        $documento->upload_date
+                    )->format('Y-m-d'),
+                    'expiry_date' => $documento->expiry_date,
+                    'nameAlterno' => $documento->nameDocument,
+                    'statusexm' => $documento->status,
+                    'expiry_reminder' =>
+                        $documento->expiry_reminder,
+                    'share_scope' => (int) (
+                        $documento->share_scope ?? 0
+                    ),
+                    'collaborator_can_replace' => (bool) (
+                        $documento->collaborator_can_replace
+                        ?? false
+                    ),
+                    'id_candidato' => $documento->id_candidato,
+                    'socioeconomico' =>
+                        $candidato['socioeconomico'] ?? null,
+                    'medico' =>
+                        $candidato['medico'] ?? null,
+                    'tipo_antidoping' =>
+                        $candidato['tipo_antidoping'] ?? null,
+                    'antidoping' =>
+                        $candidato['antidoping'] ?? null,
+                    'psicometrico' =>
+                        $candidato['psicometrico'] ?? null,
+                    'medicoDetalle' => [
+                        'id' =>
+                            $candidato['idMedico'] ?? null,
+                        'imagen' =>
+                            $candidato['imagen'] ?? null,
+                        'conclusion' =>
+                            $candidato['conclusion'] ?? null,
+                        'descripcion' =>
+                            $candidato['descripcion'] ?? null,
+                        'archivo_examen_medico' =>
+                            $candidato[
+                                'archivo_examen_medico'
+                            ] ?? null,
+                    ],
+                    'psicometricoDet' => [
+                        'id' =>
+                            $candidato[
+                                'idPsicometrico'
+                            ] ?? null,
+                        'archivo_psicometrico' =>
+                            $candidato['archivo'] ?? null,
+                    ],
+                    'doping' => [
+                        'id' =>
+                            $candidato['idDoping'] ?? null,
+                        'doping_hecho' =>
+                            $candidato['doping_hecho'] ?? null,
+                        'fecha_resultado' =>
+                            $candidato[
+                                'fecha_resultado'
+                            ] ?? null,
+                        'resultado_doping' =>
+                            $candidato[
+                                'resultado_doping'
+                            ] ?? null,
+                        'statusDoping' =>
+                            $candidato[
+                                'statusDoping'
+                            ] ?? null,
+                    ],
+                    'liberado' =>
+                        $candidato['liberado'] ?? null,
+                    'status_bgc' =>
+                        $candidato['status_bgc'] ?? null,
+                    'cancelado' =>
+                        $candidato['cancelado'] ?? null,
+                    'icono_resultado' => $icono_resultado,
+                ];
+            }
+        );
+
+        return response()->json([
+            'documentos' => $examConOpciones,
+        ], 200);
     }
     public function guardarOpcion(Request $request)
     {
