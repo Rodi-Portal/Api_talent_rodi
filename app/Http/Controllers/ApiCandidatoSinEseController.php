@@ -2,19 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Candidato;
-
-use App\Models\CandidatoSync;
-
-use App\Models\CandidatoPruebas;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class ApiCandidatoSinEseController extends Controller
 {
     public function store(Request $request)
     {
-        // Validación de los datos recibidos
         $request->validate([
             'creacion' => 'required|date',
             'edicion' => 'required|date',
@@ -47,86 +42,74 @@ class ApiCandidatoSinEseController extends Controller
             'psicometrico' => 'required|integer',
         ]);
 
-        $tipo_usuario = '';
-        $tipo_usuario_talent = '';
+        $baseUrl = rtrim(
+            (string) config('services.rodi_integration.base_url'),
+            '/'
+        );
 
-        // Evaluar la condición basada en el valor de usuario
-        switch ($request->tipo_usuario) {
-            case 1:
+        $integrationKey = trim(
+            (string) config('integrations.rodi.document_key')
+        );
 
-                $tipo_usuario_talent = 'id_usuario_talent';
-                break;
-            case 2:
+        if ($baseUrl === '' || $integrationKey === '') {
+            Log::error(
+                'Integración RODI no configurada para registrar candidato sin ESE'
+            );
 
-                $tipo_usuario_talent = 'id_usuario_cliente_talent';
-                break;
-
-            default:
-                break;
+            return response()->json([
+                'codigo' => 0,
+                'msg' => 'No se pudo Registrar el Candidato intentalo de nuevo mas tarde ',
+            ], 503);
         }
 
         try {
-            DB::beginTransaction(); // Inicia la transacción
-            $candidato = new Candidato([
-                'creacion' => $request->creacion,
-                'edicion' => $request->edicion,
-                'tipo_formulario' => $request->tipo_formulario,
-                'id_usuario' => $request->id_usuario,
-                'fecha_alta' => $request->creacion,
+            $response = Http::withHeaders([
+                'X-RODI-Integration-Key' => $integrationKey,
+            ])
+                ->acceptJson()
+                ->timeout(30)
+                ->post(
+                    $baseUrl . '/candidatos/sin-ese',
+                    $request->all()
+                );
+        } catch (\Throwable $e) {
+            Log::error(
+                'Error de conexión con RODI al registrar candidato sin ESE',
+                [
+                    'message' => $e->getMessage(),
+                ]
+            );
 
-                'nombre' => $request->nombre,
-                'paterno' => $request->paterno,
-                'materno' => $request->materno,
-                'correo' => $request->correo,
-                'id_cliente' => $request->id_cliente,
-                'celular' => $request->celular,
-                'subproyecto' => $request->subproyecto,
-                'pais' => $request->pais_previo,
-                'privacidad' => $request->privacidad_usuario ?? 0,
-            ]);
-            // Crear un nuevo candidato en la tabla 'candidato'
-
-            $candidato->save();
-
-            
-
-            // Crear un registro en la tabla 'candidato_sync'
-            $candidatoSync = new CandidatoSync([
-            'id_cliente_talent' => $request->id_cliente_talent,
-             $tipo_usuario_talent => $request->id_usuario_talent,
-            'id_aspirante_talent' => $request->id_aspirante_talent ?? 0,
-            'nombre_cliente_talent' => $request->nombre_cliente_talent,
-            'id_portal' => $request->id_portal,
-            'id_candidato_rodi' => $candidato->id,
-            'id_puesto_talent' => $request->id_puesto_talent,
-            'creacion' => $request->creacion,
-            'edicion' => $request->edicion,
-            ]);
-
-            $candidatoSync->save();
-
-            // Crear un registro en la tabla 'candidato_sync'
-
-          //  Crear un registro en la tabla 'candidato_pruebas'
-            $candidatoPruebas = new CandidatoPruebas();
-            $candidatoPruebas->creacion = $request->creacion;
-            $candidatoPruebas->edicion = $request->edicion;
-            $candidatoPruebas->tipo_antidoping = $request->tipo_antidoping;
-            $candidatoPruebas->antidoping = $request->antidoping;
-            $candidatoPruebas->medico = $request->medico;
-            $candidatoPruebas->id_usuario = 1; // Ajusta este valor según sea necesario
-            $candidatoPruebas->id_candidato = $candidato->id;
-            $candidatoPruebas->id_cliente = $request->id_cliente;
-            $candidatoPruebas->socioeconomico = 0;
-            $candidatoPruebas->save(); 
-
-            DB::commit(); // Confirma la transacción si todo ha sido exitoso
-
-            return response()->json(['codigo' => 1, 'msg' => 'Datos guardados correctamente'], 201);
-        } catch (\Exception $e) {
-            DB::rollback(); // Revierte la transacción si ocurrió algún error
-            \Log::error($e->getMessage());
-            return response()->json(['codigo' => 0, 'msg' => 'No se pudo Registrar el Candidato intentalo de nuevo mas tarde '], 500);
+            return response()->json([
+                'codigo' => 0,
+                'msg' => 'No se pudo Registrar el Candidato intentalo de nuevo mas tarde ',
+            ], 502);
         }
+
+        $body = $response->json();
+
+        if (
+            ! $response->successful()
+            || ! is_array($body)
+            || ($body['success'] ?? false) !== true
+        ) {
+            Log::error(
+                'RODI rechazó registro de candidato sin ESE',
+                [
+                    'status' => $response->status(),
+                    'body' => $body,
+                ]
+            );
+
+            return response()->json([
+                'codigo' => 0,
+                'msg' => 'No se pudo Registrar el Candidato intentalo de nuevo mas tarde ',
+            ], 500);
+        }
+
+        return response()->json([
+            'codigo' => 1,
+            'msg' => 'Datos guardados correctamente',
+        ], 201);
     }
 }
