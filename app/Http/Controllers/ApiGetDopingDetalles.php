@@ -2,61 +2,126 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use App\Models\Doping; // Importa el modelo Doping
-use App\Models\DopingDetalle; // Importa el modelo Doping
-
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Http;
 
 class ApiGetDopingDetalles extends Controller
 {
-    //
     public function getDatosDoping($id_doping)
     {
-        $datosDoping = Doping::select(
-            'doping.*',
-            'c.nombre',
-            'c.paterno',
-            'c.materno',
-            'paq.nombre as paquete',
-            'paq.sustancias',
-            'cl.nombre as cliente',
-            'sub.nombre as subcliente',
-            'det.id_sustancia',
-            'pro.nombre as proyecto',
-            'ide.nombre as identificacion',
-            'c.fecha_nacimiento',
-            'paq.nombre as drogas',
-            \DB::raw("CONCAT(US.nombre,' ',US.paterno,' ',US.materno) as responsable"),
-            'A.profesion_responsable',
-            'A.firma as firmaResponsable',
-            'A.cedula'
-        )
-        ->from('doping')
-        ->join('doping_detalle as det', 'det.id_doping', '=', 'doping.id')
-        ->join('candidato as c', 'c.id', '=', 'doping.id_candidato')
-        ->join('antidoping_paquete as paq', 'paq.id', '=', 'doping.id_antidoping_paquete')
-        ->join('cliente as cl', 'cl.id', '=', 'doping.id_cliente')
-        ->leftJoin('subcliente as sub', 'sub.id', '=', 'doping.id_subcliente')
-        ->leftJoin('proyecto as pro', 'pro.id', '=', 'doping.id_proyecto')
-        ->leftJoin('tipo_identificacion as ide', 'ide.id', '=', 'doping.id_tipo_identificacion')
-        ->leftJoin('area as A', 'A.id', '=', 'doping.id_area')
-        ->leftJoin('usuario as US', 'US.id', '=', 'A.usuario_responsable')
-        ->where('doping.id', $id_doping)
-        ->where('doping.eliminado', 0)
-        ->first();
+        try {
+            $response = $this->consultarRodi(
+                $id_doping,
+                'datos'
+            );
 
-        return response()->json($datosDoping);
+            if ($response instanceof \Illuminate\Http\JsonResponse) {
+                return $response;
+            }
+
+            $data = $response->json();
+
+            if (
+                ! is_array($data)
+                || ! array_key_exists('data', $data)
+            ) {
+                return response()->json([
+                    'error' => 'Respuesta inválida de RODI',
+                ], 502);
+            }
+
+            return response()->json($data['data']);
+        } catch (ConnectionException $e) {
+            return response()->json([
+                'error' => 'No fue posible conectar con RODI',
+            ], 502);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al obtener los datos de doping: ' .
+                    $e->getMessage(),
+            ], 500);
+        }
     }
-
 
     public function getDopingDetalles($id_doping)
-{
-    $detallesDoping = DopingDetalle::where('id_doping', $id_doping)->get();
+    {
+        try {
+            $response = $this->consultarRodi(
+                $id_doping,
+                'detalles'
+            );
 
-    if ($detallesDoping->isEmpty()) {
-        return response()->json(['error' => 'No se encontraron detalles de doping para el ID especificado'], 404);
+            if ($response instanceof \Illuminate\Http\JsonResponse) {
+                if ($response->getStatusCode() === 404) {
+                    return response()->json([
+                        'error' => 'No se encontraron detalles de doping para el ID especificado',
+                    ], 404);
+                }
+
+                return $response;
+            }
+
+            $data = $response->json();
+
+            if (
+                ! is_array($data)
+                || ! isset($data['data'])
+                || ! is_array($data['data'])
+            ) {
+                return response()->json([
+                    'error' => 'Respuesta inválida de RODI',
+                ], 502);
+            }
+
+            return response()->json($data['data']);
+        } catch (ConnectionException $e) {
+            return response()->json([
+                'error' => 'No fue posible conectar con RODI',
+            ], 502);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al obtener los detalles de doping: ' .
+                    $e->getMessage(),
+            ], 500);
+        }
     }
 
-    return response()->json($detallesDoping);
-}
+    private function consultarRodi($idDoping, $tipo)
+    {
+        $baseUrl = rtrim(
+            (string) config('services.rodi_integration.base_url'),
+            '/'
+        );
+
+        $integrationKey = (string) config(
+            'integrations.rodi.document_key'
+        );
+
+        if ($baseUrl === '' || $integrationKey === '') {
+            return response()->json([
+                'error' => 'Integración con RODI no configurada',
+            ], 500);
+        }
+
+        $response = Http::acceptJson()
+            ->withHeaders([
+                'X-RODI-Integration-Key' => $integrationKey,
+            ])
+            ->timeout(30)
+            ->get(
+                $baseUrl .
+                '/doping/' .
+                (int) $idDoping .
+                '/' .
+                $tipo
+            );
+
+        if (! $response->successful()) {
+            return response()->json([
+                'error' => 'Error al consultar doping en RODI',
+            ], $response->status());
+        }
+
+        return $response;
+    }
 }
