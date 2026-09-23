@@ -4,19 +4,17 @@ namespace App\Http\Controllers\ExEmpleados;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\DocumentController;
 use App\Models\Auth\AdministradorAuth;
-use App\Models\Candidato;
-use App\Models\CandidatoPruebas;
 use App\Models\ComentarioFormerEmpleado;
 use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\Empleado;
 use App\Models\ExamEmpleado;
 use App\Models\FormerEmpleadoNoRecomendable;
-use App\Models\Medico;
 use App\Services\Auth\AdminClientScopeService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
@@ -399,58 +397,139 @@ class FormerEmpleadoController extends Controller
         $idCandidatos = $examenes->pluck('id_candidato')->unique()->filter();
 
         if ($idCandidatos->isNotEmpty()) {
-            // Consultar CandidatoPruebas y Candidato para obtener los campos deseados
-            $candidatosPruebas = CandidatoPruebas::whereIn('id_candidato', $idCandidatos)->get();
-            $candidatos        = Candidato::with('medico', 'doping')->whereIn('id', $idCandidatos)->get();
+            $baseUrl = rtrim(
+                (string) config('services.rodi_integration.base_url'),
+                '/'
+            );
 
-            // Mapear los exámenes para incluir los nuevos campos
-            $examenesConOpciones = $examenes->map(function ($examen) use ($candidatosPruebas, $candidatos) {
-                // Obtener el candidato correspondiente
-                $candidatoPrueba = $candidatosPruebas->firstWhere('id_candidato', $examen['id_candidato']);
-                $candidato       = $candidatos->firstWhere('id', $examen['id_candidato']);
-                $medico          = $candidatoPrueba->medico ?? null;
-                $doping          = $candidatoPrueba->tipo_antidoping ?? null;
+            $integrationKey = trim(
+                (string) config('integrations.rodi.document_key')
+            );
 
-                                                             // Definir icono de resultado según status_bgc
-                $icono_resultado = 'icono_resultado_espera'; // Valor por defecto
-                if (isset($candidato->status_bgc)) {
-                    switch ($candidato->status_bgc) {
-                        case 1:
-                        case 4:
-                            $icono_resultado = 'icono_resultado_aprobado';
-                            break;
-                        case 2:
-                            $icono_resultado = 'icono_resultado_reprobado';
-                            break;
-                        case 3:
-                            $icono_resultado = 'icono_resultado_revision';
-                            break;
-                    }
+            if ($baseUrl === '' || $integrationKey === '') {
+                throw new \RuntimeException(
+                    'Configuración de integración RODI incompleta'
+                );
+            }
+
+            $datosCandidatos = collect();
+
+            foreach ($idCandidatos as $idCandidato) {
+                $response = Http::withHeaders([
+                    'X-RODI-Integration-Key' => $integrationKey,
+                    'Accept' => 'application/json',
+                ])
+                    ->timeout(30)
+                    ->get(
+                        $baseUrl .
+                        '/candidatos/' .
+                        (int) $idCandidato .
+                        '/empleado-data'
+                    );
+
+                if ($response->status() === 404) {
+                    continue;
                 }
 
-                return [
-                    'id'              => $examen['id'],
-                    'name'            => $examen['name'],
-                    'description'     => $examen['description'],
-                    'creacion'        => $examen['creacion'],
-                    'id_candidato'    => $examen['id_candidato'],
-                    'archivo'         => $examen['archivo'], // Aquí se mantiene el archivo original
-                    'socioeconomico'  => $candidatoPrueba->socioeconomico ?? null,
-                    'medico'          => $medico,
-                    'doping'          => $doping,
-                    'liberado'        => $candidato->liberado ?? null,
-                    'status_bgc'      => $candidato->status_bgc ?? null,
-                    'icono_resultado' => $icono_resultado,
-                    'carpeta'         => '_examEmpleado/',
-                    'tipo'            => 'BGV or Test',
+                if (! $response->successful()) {
+                    Log::error(
+                        'FormerEmpleado · RODI empleado-data ERROR',
+                        [
+                            'id_candidato' => (int) $idCandidato,
+                            'status' => $response->status(),
+                        ]
+                    );
 
-                ];
-            });
+                    throw new \RuntimeException(
+                        'No fue posible consultar información RODI'
+                    );
+                }
 
-            // Actualizar la colección de exámenes con la nueva información
-            $examenes = $examenesConOpciones;
+                $data = $response->json('data');
+
+                if (is_array($data)) {
+                    $datosCandidatos->put(
+                        (int) $idCandidato,
+                        $data
+                    );
+                }
+            }
+
+            $examenes = $examenes->map(
+                function ($examen) use ($datosCandidatos) {
+                    $datos = $datosCandidatos->get(
+                        (int) $examen['id_candidato'],
+                        []
+                    );
+
+                    $statusBgc = $datos['status_bgc'] ?? null;
+
+                    $icono_resultado = 'icono_resultado_espera';
+
+                    switch ($statusBgc) {
+                        case 1:
+                        case 4:
+                            $icono_resultado =
+                                'icono_resultado_aprobado';
+                            break;
+
+                        case 2:
+                            $icono_resultado =
+                                'icono_resultado_reprobado';
+                            break;
+
+                        case 3:
+                            $icono_resultado =
+                                'icono_resultado_revision';
+                            break;
+                    }
+
+                    return [
+                        'id' =>
+                            $examen['id'],
+
+                        'name' =>
+                            $examen['name'],
+
+                        'description' =>
+                            $examen['description'],
+
+                        'creacion' =>
+                            $examen['creacion'],
+
+                        'id_candidato' =>
+                            $examen['id_candidato'],
+
+                        'archivo' =>
+                            $examen['archivo'],
+
+                        'socioeconomico' =>
+                            $datos['socioeconomico'] ?? null,
+
+                        'medico' =>
+                            $datos['medico'] ?? null,
+
+                        'doping' =>
+                            $datos['tipo_antidoping'] ?? null,
+
+                        'liberado' =>
+                            $datos['liberado'] ?? null,
+
+                        'status_bgc' =>
+                            $statusBgc,
+
+                        'icono_resultado' =>
+                            $icono_resultado,
+
+                        'carpeta' =>
+                            '_examEmpleado/',
+
+                        'tipo' =>
+                            'BGV or Test',
+                    ];
+                }
+            );
         }
-
         // Formatear los resultados
         $resultados = [
             'documentos' => $documentos,
