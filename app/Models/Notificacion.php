@@ -49,9 +49,4 @@ class Notificacion extends Model
         return $this->belongsTo(Portal::class, 'id_portal');
     }
 
-    // Relación con la tabla 'usuarios_portal'
-    public function usuario()
-    {
-        return $this->belongsTo(Usuario::class, 'id_usuario');
-    }
 }
