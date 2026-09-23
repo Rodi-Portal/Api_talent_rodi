@@ -1429,7 +1429,7 @@ class DocumentOptionController extends Controller
         ];
 
         $datosAnteriores = $document->only($auditFields);
-        DB::beginTransaction();
+        DB::connection('portal_main')->beginTransaction();
         try {
             $input     = $request->all();
             $publicUrl = null;
@@ -1495,7 +1495,7 @@ class DocumentOptionController extends Controller
                         '❌ Falló la carga del archivo nuevo (upload).'
                     );
 
-                    DB::rollBack();
+                    DB::connection('portal_main')->rollBack();
 
                     return $uploadResp;
                 }
@@ -1655,7 +1655,7 @@ class DocumentOptionController extends Controller
             Log::info('🧾 Cambios detectados', ['changes' => $document->getChanges()]);
             $document->save();
 
-            DB::commit();
+            DB::connection('portal_main')->commit();
 
             $trashedPreviousPath = null;
 
@@ -1776,7 +1776,7 @@ class DocumentOptionController extends Controller
             ], 200);
 
         } catch (\Throwable $e) {
-            DB::rollBack();
+            DB::connection('portal_main')->rollBack();
             Log::error('🟥 DOC_UPDATE_ERR', [
                 'id'   => $id,
                 'msg'  => $e->getMessage(),
@@ -1946,16 +1946,16 @@ class DocumentOptionController extends Controller
      */
         $storedValue = trim((string) $document->name);
 
-        DB::beginTransaction();
+        DB::connection('portal_main')->beginTransaction();
 
         try {
             $document->update([
                 'status' => 999,
             ]);
 
-            DB::commit();
+            DB::connection('portal_main')->commit();
         } catch (\Throwable $e) {
-            DB::rollBack();
+            DB::connection('portal_main')->rollBack();
 
             Log::error('❌ No se pudo aplicar el borrado lógico', [
                 'tabla'       => $data['tabla'],

@@ -112,7 +112,7 @@ class ConfiguracionColumnasController extends Controller
 
         $resultados = [];
 
-        DB::transaction(function () use (
+        DB::connection('portal_main')->transaction(function () use (
             $administrator,
             $validated,
             $idsCliente,
@@ -203,7 +203,7 @@ class ConfiguracionColumnasController extends Controller
         $ids        = $request->id_cliente;
         $resultados = [];
 
-        DB::transaction(function () use ($request, $ids, &$resultados) {
+        DB::connection('portal_main')->transaction(function () use ($request, $ids, &$resultados) {
             foreach ($ids as $idCli) {
                 // No sobreescribir 'creacion' si ya existe el registro
                 $config = ConfiguracionColumnas::firstOrNew([

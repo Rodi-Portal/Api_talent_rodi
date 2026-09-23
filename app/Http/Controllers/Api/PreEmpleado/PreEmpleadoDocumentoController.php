@@ -393,7 +393,7 @@ class PreEmpleadoDocumentoController extends Controller
         $previous    = $document->only($auditFields);
         $storedValue = trim((string) $document->name);
 
-        DB::transaction(function () use ($document) {
+        DB::connection('portal_main')->transaction(function () use ($document) {
             $document->update(['status' => 999]);
         });
 
@@ -541,7 +541,7 @@ class PreEmpleadoDocumentoController extends Controller
 
         $previous = $employee->only($candidateFields);
 
-        DB::transaction(function () use ($employee) {
+        DB::connection('portal_main')->transaction(function () use ($employee) {
             $employee->update([
                 'eliminado' => 1,
             ]);
@@ -605,7 +605,7 @@ class PreEmpleadoDocumentoController extends Controller
         $previous    = $document->only($auditFields);
         $storedValue = trim((string) $document->name);
 
-        DB::transaction(function () use ($document) {
+        DB::connection('portal_main')->transaction(function () use ($document) {
             $document->update(['status' => 999]);
         });
 

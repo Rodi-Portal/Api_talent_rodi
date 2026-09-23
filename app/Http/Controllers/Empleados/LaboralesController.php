@@ -906,7 +906,7 @@ class LaboralesController extends Controller
         $creados      = 0;
         $actualizados = 0;
 
-        DB::beginTransaction();
+        DB::connection('portal_main')->beginTransaction();
         // Solo depurar PRIMERA FILA
         $soloPrimera = true;
 
@@ -1065,7 +1065,7 @@ class LaboralesController extends Controller
 
                     // 🔎 Solo primera fila para depurar
                     if ($soloPrimera) {
-                        DB::commit();
+                        DB::connection('portal_main')->commit();
                         return response()->json([
                             'success' => true,
                             'message' => 'Prenómina (fila de depuración) guardada',
@@ -1092,7 +1092,7 @@ class LaboralesController extends Controller
                 }
             } // foreach
 
-            DB::commit();
+            DB::connection('portal_main')->commit();
 
             return response()->json([
                 'success' => true,
@@ -1107,7 +1107,7 @@ class LaboralesController extends Controller
             ], 200);
 
         } catch (\Exception $e) {
-            DB::rollBack();
+            DB::connection('portal_main')->rollBack();
             Log::error('Error en prenómina masiva:', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),

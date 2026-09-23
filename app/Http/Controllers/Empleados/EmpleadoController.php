@@ -789,7 +789,7 @@ class EmpleadoController extends Controller
         }
 
         try {
-            return DB::transaction(function () use ($request) {
+            return DB::connection('portal_main')->transaction(function () use ($request) {
 
                 // === Empleado base
                 $empleado = Empleado::findOrFail($request->id);

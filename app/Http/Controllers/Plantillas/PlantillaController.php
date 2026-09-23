@@ -424,7 +424,7 @@ class PlantillaController extends Controller
         }
 
         // 5) Transacción: crear o actualizar SOLO UNA plantilla
-        $plantilla = DB::transaction(function () use (
+        $plantilla = DB::connection('portal_main')->transaction(function () use (
             $request,
             $validated,
             $existingPlantilla,

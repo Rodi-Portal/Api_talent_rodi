@@ -20,7 +20,9 @@ class ChecadaController extends Controller
             return response()->json($resultado, 422);
         }
 
-        $id = DB::table('checadas')->insertGetId([
+        $id = DB::connection('portal_main')
+            ->table('checadas')
+            ->insertGetId([
             'id_portal'          => $data['id_portal'],
             'id_cliente'         => $data['id_cliente'],
             'id_empleado'        => $data['id_empleado'],
