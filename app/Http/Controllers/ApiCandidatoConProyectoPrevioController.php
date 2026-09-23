@@ -1,47 +1,48 @@
 <?php
+
 namespace App\Http\Controllers;
 
-use App\Models\Candidato;
-use App\Models\CandidatoDocumentoRequerido;
-use App\Models\CandidatoPruebas;
-use App\Models\CandidatoSeccion;
-use App\Models\CandidatoSync;
-use App\Models\Visita;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class ApiCandidatoConProyectoPrevioController extends Controller
 {
     public function store(Request $request)
     {
+        $date = Carbon::now()
+            ->setTimezone('America/Mexico_City')
+            ->format('Y-m-d H:i:s');
 
-        $date = Carbon::now()->setTimezone('America/Mexico_City');
-
-        $frases_permitidas = ['General Nacional', 'Laborales Nacional'];
-
-        // 🔒 Normalizar arrays (CLAVE para producción)
         $secciones = $request->input('secciones', []);
-        // 🔓 Decodificar HTML protegido (Base64)
-        $seccionesHtml = isset($secciones['secciones'])
-            ? $this->safeBase64Decode($secciones['secciones'])
-            : null;
-
-        $visitaHtml = isset($secciones['visita'])
-            ? $this->safeBase64Decode($secciones['visita'])
-            : null;
-
         $documentos = $request->input('documentos', []);
 
-        DB::beginTransaction();
+        $tipoAntidoping = (int) ($request->tipo_antidoping ?? 0);
 
-        try {
+        $antidoping = null;
+        if (
+            $request->filled('antidoping')
+            && (int) $request->antidoping > 0
+        ) {
+            $antidoping = (int) $request->antidoping;
+        }
 
-            /* ==========================
-             *  CANDIDATO
-             * ========================== */
-            $candidato = new Candidato([
+        $tipoPsicometrico = null;
+        if ($request->filled('tipo_psicometrico')) {
+            $tipoPsicometrico = (int) $request->tipo_psicometrico;
+        }
+
+        $psicometrico = 0;
+        if (
+            $request->filled('psicometrico')
+            && (int) $request->psicometrico > 0
+        ) {
+            $psicometrico = (int) $request->psicometrico;
+        }
+
+        $payload = [
+            'candidato' => [
                 'creacion'        => $date,
                 'edicion'         => $date,
                 'id_usuario'      => 1,
@@ -57,46 +58,32 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 'subproyecto'     => $request->subproyecto ?? null,
                 'pais'            => $request->pais ?? null,
                 'privacidad'      => $request->privacidad ?? 0,
-            ]);
-            $candidato->save();
+            ],
 
-            /* ==========================
-             *  CANDIDATO SYNC
-             * ========================== */
-            $candidatoSync = new CandidatoSync([
-                'id_cliente_talent'     => $request->id_cliente_talent ?? null,
-                'id_aspirante_talent'   => $request->id_aspirante_talent ?? 0,
-                'id_usuario_talent'     => $request->id_usuario ?? null,
+            'sync' => [
+                'id_cliente_talent' =>
+                    $request->id_cliente_talent ?? null,
 
-                'nombre_cliente_talent' => $request->nombre_cliente_talent ?? null,
-                'id_portal'             => $request->id_portal ?? null,
-                'id_candidato_rodi'     => $candidato->id,
-                'id_puesto_talent'      => $request->id_puesto_talent ?? null,
-                'creacion'              => $date,
-                'edicion'               => $date,
-            ]);
-            $candidatoSync->save();
+                'id_aspirante_talent' =>
+                    $request->id_aspirante_talent ?? 0,
 
-            /* ==========================
-             *  PRUEBAS
-             * ========================== */
-            $tipoAntidoping = (int) ($request->tipo_antidoping ?? 0);
+                'id_usuario_talent' =>
+                    $request->id_usuario ?? null,
 
-            $antidoping = null;
-            if ($request->filled('antidoping') && (int) $request->antidoping > 0) {
-                $antidoping = (int) $request->antidoping;
-            }
+                'nombre_cliente_talent' =>
+                    $request->nombre_cliente_talent ?? null,
 
-            $tipoPsicometrico = null;
-            if ($request->filled('tipo_psicometrico')) {
-                $tipoPsicometrico = (int) $request->tipo_psicometrico;
-            }
+                'id_portal' =>
+                    $request->id_portal ?? null,
 
-            $psicometrico = 0;
-            if ($request->filled('psicometrico') && (int) $request->psicometrico > 0) {
-                $psicometrico = (int) $request->psicometrico;
-            }
-            $candidatoPruebas = new CandidatoPruebas([
+                'id_puesto_talent' =>
+                    $request->id_puesto_talent ?? null,
+
+                'creacion' => $date,
+                'edicion'  => $date,
+            ],
+
+            'pruebas' => [
                 'creacion'          => $date,
                 'edicion'           => $date,
                 'tipo_antidoping'   => $tipoAntidoping,
@@ -105,121 +92,94 @@ class ApiCandidatoConProyectoPrevioController extends Controller
                 'tipo_psicometrico' => $tipoPsicometrico,
                 'psicometrico'      => $psicometrico,
                 'id_usuario'        => 1,
-                'id_candidato'      => $candidato->id,
                 'id_cliente'        => 273,
                 'socioeconomico'    => 1,
-            ]);
-            $candidatoPruebas->save();
+            ],
 
-            /* ==========================
-             *  SECCIONES
-             * ========================== */
-            $nombreProyecto = trim((string) ($secciones['proyecto'] ?? ''));
+            'proyecto' => trim(
+                (string) ($secciones['proyecto'] ?? '')
+            ),
 
-            if ($nombreProyecto === '') {
-                throw new \Exception('No llegó el nombre del proyecto para clonar candidato_seccion');
+            'documentos' => is_array($documentos)
+                ? $documentos
+                : [],
+        ];
+
+        try {
+            $baseUrl = rtrim(
+                (string) config('services.rodi_integration.base_url'),
+                '/'
+            );
+
+            $integrationKey = trim(
+                (string) config('integrations.rodi.document_key')
+            );
+
+            if ($baseUrl === '' || $integrationKey === '') {
+                throw new \RuntimeException(
+                    'Configuración de integración RODI incompleta'
+                );
             }
 
-            $plantillaSeccion = CandidatoSeccion::where('proyecto', $nombreProyecto)
-                ->orderByDesc('id')
-                ->first();
+            $response = Http::withHeaders([
+                'X-RODI-Integration-Key' => $integrationKey,
+                'Accept' => 'application/json',
+            ])
+                ->timeout(30)
+                ->post(
+                    $baseUrl .
+                    '/candidatos/con-proyecto-previo',
+                    $payload
+                );
 
-            if (! $plantillaSeccion) {
-                throw new \Exception('No se encontró candidato_seccion para el proyecto: ' . $nombreProyecto);
+            if (! $response->successful()) {
+                Log::error(
+                    'API candidatoconprevio · RODI ERROR',
+                    [
+                        'status' => $response->status(),
+                        'body'   => $response->body(),
+                    ]
+                );
+
+                return response()->json([
+                    'codigo' => 0,
+                    'msg' =>
+                        'No fue posible registrar el candidato',
+                ], 500);
             }
 
-            $candidatoSeccion               = $plantillaSeccion->replicate();
-            $candidatoSeccion->id_candidato = $candidato->id;
-            $candidatoSeccion->creacion     = $date;
-            $candidatoSeccion->save();
-         
-
-            /* ==========================
-             *  VISITA (si aplica)
-             * ========================== */
-            $nombre_proyecto = $secciones['proyecto'] ?? '';
-            if (in_array($nombre_proyecto, $frases_permitidas)) {
-                $visita = new Visita([
-                    'creacion'     => $date,
-                    'edicion'      => $date,
-                    'id_usuario'   => 1,
-                    'id_candidato' => $candidato->id,
-                ]);
-                $visita->save();
-            }
-
-            /* ==========================
-             *  DOCUMENTOS
-             * ========================== */
-            foreach ($documentos as $doc) {
-
-                if (! isset($doc['id_tipo_documento'])) {
-                    continue;
-                }
-
-                $documento = new CandidatoDocumentoRequerido([
-                    'id_candidato'      => $candidato->id,
-                    'id_tipo_documento' => $doc['id_tipo_documento'],
-                    'nombre_espanol'    => $doc['nombre_espanol'] ?? null,
-                    'nombre_ingles'     => $doc['nombre_ingles'] ?? null,
-                    'label_ingles'      => $doc['label_ingles'] ?? null,
-                    'div_id'            => $doc['div_id'] ?? null,
-                    'input_id'          => $doc['input_id'] ?? null,
-                    'multiple'          => $doc['multiple'] ?? 0,
-                    'width'             => $doc['width'] ?? null,
-                    'height'            => $doc['height'] ?? null,
-                    'obligatorio'       => $doc['obligatorio'] ?? 0,
-                    'solicitado'        => $doc['solicitado'] ?? 0,
-                ]);
-
-                $documento->save();
-            }
-
-            Log::info('API candidatoconprevio · PRE-COMMIT', [
-                'id_candidato'    => $candidato->id ?? null,
-                'docs_insertados' => is_array($documentos) ? count($documentos) : 0,
-            ]);
-
-            DB::commit();
+            Log::info(
+                'API candidatoconprevio · RODI OK',
+                [
+                    'id_candidato' =>
+                        $response->json('data.id_candidato'),
+                    'docs_insertados' =>
+                        is_array($documentos)
+                            ? count($documentos)
+                            : 0,
+                ]
+            );
 
             return response()->json([
                 'codigo' => 1,
-                'msg'    => 'El candidato se registró correctamente',
+                'msg' =>
+                    'El candidato se registró correctamente',
             ], 201);
         } catch (\Throwable $e) {
-
-            DB::rollBack();
-
-            Log::error('API candidatoconprevio · ERROR', [
-                'message' => $e->getMessage(),
-                'file'    => $e->getFile(),
-                'line'    => $e->getLine(),
-                'trace'   => $e->getTraceAsString(),
-                'payload' => $request->all(),
-            ]);
+            Log::error(
+                'API candidatoconprevio · ERROR',
+                [
+                    'message' => $e->getMessage(),
+                    'file'    => $e->getFile(),
+                    'line'    => $e->getLine(),
+                ]
+            );
 
             return response()->json([
                 'codigo' => 0,
-                'msg'    => $e->getMessage(),
-                'line'   => $e->getLine(),
-                'file'   => $e->getFile(),
+                'msg' =>
+                    'No fue posible registrar el candidato',
             ], 500);
         }
-
     }
-
-    private function safeBase64Decode(?string $value): ?string
-    {
-        if (! is_string($value) || trim($value) === '') {
-            return null;
-        }
-
-        // Validar que sea base64 válido
-        if (base64_encode(base64_decode($value, true)) !== $value) {
-            return null; // no es base64 válido
-        }
-
-        return base64_decode($value);
-    }
-
 }
