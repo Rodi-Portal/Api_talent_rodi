@@ -734,9 +734,6 @@ class OrganigramaController extends Controller
             $idPortal   = (int) $administrator->id_portal;
             $nodeId     = (int) $id;
 
-            /*
-         * El nodo raíz debe pertenecer al portal autenticado.
-         */
             $node = $connection
                 ->table('organigrama_nodes')
                 ->where('id', $nodeId)
@@ -753,7 +750,7 @@ class OrganigramaController extends Controller
 
             /*
          * El administrador debe poder administrar
-         * la sucursal propietaria del nodo raíz.
+         * la sucursal propietaria del nodo.
          */
             $this->clientScope->authorizeRequestedClients(
                 $administrator,
@@ -761,9 +758,8 @@ class OrganigramaController extends Controller
             );
 
             /*
-         * Cargamos todos los nodos activos del portal.
-         * No filtramos por cliente porque una rama
-         * puede mezclar varias sucursales.
+         * Cargamos todos los nodos activos del portal porque
+         * una rama puede mezclar distintas sucursales.
          */
             $nodes = $connection
                 ->table('organigrama_nodes')
@@ -771,22 +767,26 @@ class OrganigramaController extends Controller
                 ->where('activo', 1)
                 ->get();
 
-            $idsToDeactivate = [];
+            /*
+         * Conservamos la validación de alcance sobre toda
+         * la estructura descendiente antes de reorganizarla.
+         */
+            $branchIds = [];
 
             $collectChildren = function (
                 $nodes,
                 $currentId,
-                &$idsToDeactivate,
+                &$branchIds,
                 $collectChildren
             ) {
-                $idsToDeactivate[] = (int) $currentId;
+                $branchIds[] = (int) $currentId;
 
                 foreach ($nodes as $child) {
                     if ((int) $child->parent_id === (int) $currentId) {
                         $collectChildren(
                             $nodes,
                             (int) $child->id,
-                            $idsToDeactivate,
+                            $branchIds,
                             $collectChildren
                         );
                     }
@@ -796,40 +796,159 @@ class OrganigramaController extends Controller
             $collectChildren(
                 $nodes,
                 $nodeId,
-                $idsToDeactivate,
+                $branchIds,
                 $collectChildren
             );
 
-            /*
-         * Obtener los clientes involucrados en toda la rama.
-         */
             $branchClientIds = $nodes
-                ->whereIn('id', $idsToDeactivate)
+                ->whereIn('id', $branchIds)
                 ->pluck('id_cliente')
                 ->map(fn($clientId) => (int) $clientId)
                 ->unique()
                 ->values()
                 ->all();
 
-            /*
-         * La eliminación es todo-o-nada:
-         * el administrador debe tener alcance sobre TODAS
-         * las sucursales presentes en la rama.
-         */
             $this->clientScope->authorizeRequestedClients(
                 $administrator,
                 $branchClientIds
             );
 
+            $isRoot = is_null($node->parent_id);
+
+            /*
+         * Hijos DIRECTOS del nodo eliminado.
+         *
+         * No tocamos nietos ni niveles inferiores:
+         * seguirán dependiendo de sus padres actuales.
+         */
+            $directChildren = $nodes
+                ->filter(
+                    fn($candidate) =>
+                    (int) $candidate->parent_id === $nodeId
+                )
+                ->sort(function ($a, $b) {
+                    $orderComparison =
+                    (int) $a->orden <=> (int) $b->orden;
+
+                    if ($orderComparison !== 0) {
+                        return $orderComparison;
+                    }
+
+                    return (int) $a->id <=> (int) $b->id;
+                })
+                ->values();
+
+            $directChildIds = $directChildren
+                ->pluck('id')
+                ->map(fn($childId) => (int) $childId)
+                ->values()
+                ->all();
+
+            $promotedNode = null;
+            $siblingIds   = [];
+
+            /*
+         * Si eliminamos un ROOT con hijos,
+         * el primer hijo directo será promovido.
+         */
+            if ($isRoot && $directChildren->isNotEmpty()) {
+                $promotedNode = $directChildren->first();
+
+                $siblingIds = $directChildren
+                    ->slice(1)
+                    ->pluck('id')
+                    ->map(fn($childId) => (int) $childId)
+                    ->values()
+                    ->all();
+            }
+
             $connection->transaction(function () use (
                 $connection,
-                $idsToDeactivate,
-                $idPortal
+                $idPortal,
+                $node,
+                $nodeId,
+                $isRoot,
+                $promotedNode,
+                $siblingIds,
+                $directChildIds
             ) {
+                /*
+             * ROOT:
+             *
+             * A
+             * ├─ B
+             * └─ C
+             *
+             * eliminar A:
+             *
+             * B
+             * └─ C
+             */
+                if ($isRoot && $promotedNode) {
+                    /*
+                 * Primer hijo directo pasa a ser ROOT.
+                 */
+                    $connection
+                        ->table('organigrama_nodes')
+                        ->where('id_portal', $idPortal)
+                        ->where('id', (int) $promotedNode->id)
+                        ->where('activo', 1)
+                        ->update([
+                            'parent_id' => null,
+                            'edicion'   => now(),
+                        ]);
+
+                    /*
+                 * Los demás hijos directos pasan debajo
+                 * del nuevo ROOT.
+                 */
+                    if (! empty($siblingIds)) {
+                        $connection
+                            ->table('organigrama_nodes')
+                            ->where('id_portal', $idPortal)
+                            ->whereIn('id', $siblingIds)
+                            ->where('activo', 1)
+                            ->update([
+                                'parent_id' => (int) $promotedNode->id,
+                                'edicion'   => now(),
+                            ]);
+                    }
+                }
+
+                /*
+             * NODO INTERMEDIO:
+             *
+             * A
+             * └─ B
+             *    ├─ C
+             *    └─ D
+             *
+             * eliminar B:
+             *
+             * A
+             * ├─ C
+             * └─ D
+             */
+                if (! $isRoot && ! empty($directChildIds)) {
+                    $connection
+                        ->table('organigrama_nodes')
+                        ->where('id_portal', $idPortal)
+                        ->whereIn('id', $directChildIds)
+                        ->where('activo', 1)
+                        ->update([
+                            'parent_id' => (int) $node->parent_id,
+                            'edicion'   => now(),
+                        ]);
+                }
+
+                /*
+             * Siempre se desactiva ÚNICAMENTE
+             * el nodo seleccionado.
+             */
                 $connection
                     ->table('organigrama_nodes')
                     ->where('id_portal', $idPortal)
-                    ->whereIn('id', $idsToDeactivate)
+                    ->where('id', $nodeId)
                     ->where('activo', 1)
                     ->update([
                         'empleado_id' => null,
@@ -837,6 +956,20 @@ class OrganigramaController extends Controller
                         'edicion'     => now(),
                     ]);
             });
+
+            $newParentId = null;
+
+            if ($isRoot) {
+                $newParentId = $promotedNode
+                    ? (int) $promotedNode->id
+                    : null;
+            } else {
+                $newParentId = (int) $node->parent_id;
+            }
+
+            /*
+         * Auditoría.
+         */
             $this->auditoria->registrar([
                 'id_portal'        => $idPortal,
                 'id_cliente'       => (int) $node->id_cliente,
@@ -844,13 +977,15 @@ class OrganigramaController extends Controller
                 'actor_id'         => (int) $administrator->id,
                 'actor_nombre'     => $this->administratorName($administrator),
                 'modulo'           => 'dashboard',
-                'entidad_tipo'     => 'organigrama_rama',
+                'entidad_tipo'     => 'organigrama_nodo',
                 'entidad_id'       => $nodeId,
-                'accion'           => 'eliminar_rama',
+                'accion'           => 'eliminar_nodo',
                 'resultado'        => 'exitoso',
-                'descripcion'      => 'Rama de organigrama eliminada lógicamente.',
+                'descripcion'      =>
+                'Nodo de organigrama eliminado lógicamente conservando sus descendientes.',
+
                 'datos_anteriores' => [
-                    'nodo_raiz' => [
+                    'nodo' => [
                         'id'            => (int) $node->id,
                         'id_cliente'    => (int) $node->id_cliente,
                         'parent_id'     => $node->parent_id
@@ -862,20 +997,44 @@ class OrganigramaController extends Controller
                         'titulo_puesto' => $node->titulo_puesto,
                     ],
                 ],
+
                 'datos_nuevos'     => [
-                    'activo'      => 0,
-                    'empleado_id' => null,
+                    'activo'        => 0,
+                    'empleado_id'   => null,
+                    'nuevo_root_id' => $promotedNode
+                        ? (int) $promotedNode->id
+                        : null,
                 ],
+
                 'metadatos'        => [
-                    'total_nodos'        => count($idsToDeactivate),
-                    'nodos_afectados'    => $idsToDeactivate,
-                    'clientes_afectados' => $branchClientIds,
+                    'nodos_desactivados' => [$nodeId],
+
+                    'hijos_reubicados'   =>
+                    $isRoot
+                        ? $siblingIds
+                        : $directChildIds,
+
+                    'hijo_promovido'     =>
+                    $promotedNode
+                        ? (int) $promotedNode->id
+                        : null,
+
+                    'nuevo_parent_id'    =>
+                    $newParentId,
+
+                    'clientes_afectados' =>
+                    $branchClientIds,
                 ],
             ], $request);
+
             return response()->json([
-                'status' => true,
-                'code'   => 'DELETED',
-                'total'  => count($idsToDeactivate),
+                'status'        => true,
+                'code'          => 'DELETED',
+                'total'         => 1,
+                'new_root_id'   => $promotedNode
+                    ? (int) $promotedNode->id
+                    : null,
+                'new_parent_id' => $newParentId,
             ]);
 
         } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
