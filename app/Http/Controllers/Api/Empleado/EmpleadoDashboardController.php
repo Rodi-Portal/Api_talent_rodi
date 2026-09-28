@@ -51,6 +51,11 @@ class EmpleadoDashboardController extends Controller
                     ? optional($doc->documentOption)->name
                     : $doc->nameDocument;
 
+                $hasFile = ! str_contains(
+                    (string) $doc->name,
+                    '_sin_documento_'
+                );
+
                 return [
                     'id'              => $doc->id,
                     'name'            => $name,
@@ -58,9 +63,10 @@ class EmpleadoDashboardController extends Controller
                     'document'        => $doc->name,
                     'expiry_reminder' => $doc->expiry_reminder,
                     'status'          => $doc->status,
-                    'file_url'        => url(
-                        "/api/empleado/compliance/documento/{$doc->id}/ver"
-                    ),
+                    'has_file'        => $hasFile,
+                    'file_url'        => $hasFile
+                        ? url("/api/empleado/compliance/documento/{$doc->id}/ver")
+                        : null,
                     'share_scope'              => (int) $doc->share_scope,
                     'collaborator_can_replace' =>
                     (bool) $doc->collaborator_can_replace,
