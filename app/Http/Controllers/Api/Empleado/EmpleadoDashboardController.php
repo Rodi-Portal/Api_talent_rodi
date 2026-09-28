@@ -7,10 +7,16 @@ use App\Models\CursoEmpleado;
 use App\Models\DocumentEmpleado;
 use App\Models\Empleado;
 use App\Models\ExamEmpleado;
+use App\Services\Documents\EmployeeDocumentPathService;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
+use RuntimeException;
 
 class EmpleadoDashboardController extends Controller
 {
+    public function __construct(
+        private EmployeeDocumentPathService $documentPaths
+    ) {}
 
     public function dashboard(Request $request)
     {
@@ -247,25 +253,37 @@ class EmpleadoDashboardController extends Controller
             ], 404);
         }
 
-        $basePath = (string) config('paths.images_path');
+        $storedValue = trim((string) $item->name);
 
-        $fullPath = rtrim($basePath, DIRECTORY_SEPARATOR)
-        . DIRECTORY_SEPARATOR
-        . $folder
-        . DIRECTORY_SEPARATOR
-        . $item->name;
+        if ($this->documentPaths->isExternalUrl($storedValue)) {
+            return response()->json([
+                'message' => 'Archivo local no disponible',
+            ], 404);
+        }
+
+        try {
+            $fullPath = $this->documentPaths->absolutePath(
+                $folder,
+                $storedValue
+            );
+        } catch (
+            InvalidArgumentException | RuntimeException $exception
+        ) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 404);
+        }
 
         \Log::info('COMPLIANCE FILE PATH', [
             'tipo'     => $tipo,
             'id'       => $id,
-            'archivo'  => $item->name,
+            'archivo'  => $storedValue,
             'folder'   => $folder,
-            'basePath' => $basePath,
             'fullPath' => $fullPath,
-            'exists'   => file_exists($fullPath),
+            'exists'   => is_file($fullPath),
         ]);
 
-        if (! file_exists($fullPath)) {
+        if (! is_file($fullPath)) {
             return response()->json([
                 'message' => 'Archivo no encontrado',
             ], 404);
