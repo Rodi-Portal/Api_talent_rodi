@@ -553,7 +553,7 @@ class AccesosController extends Controller
                             'nombre'        => trim($empleado->nombre . ' ' . $empleado->paterno),
                             'correo'        => $empleado->correo,
                             'passwordPlano' => $passwordPlano,
-                            'loginUrl'      => 'https://miportal.talentsafecontrol.com/login',
+                            'loginUrl'      => rtrim((string) config('services.miportal.base_url'), '/') . '/login',
                             'locale'        => $locale,
                         ],
                         function ($message) use ($empleado) {
@@ -825,7 +825,7 @@ class AccesosController extends Controller
                             'nombre'        => trim($empleado->nombre . ' ' . $empleado->paterno),
                             'correo'        => $empleado->correo,
                             'passwordPlano' => $passwordPlano,
-                            'loginUrl'      => 'https://miportal.talentsafecontrol.com/login',
+                            'loginUrl'      => rtrim((string) config('services.miportal.base_url'), '/') . '/login',
                             'locale'        => $locale,
                         ],
                         function ($message) use ($empleado) {
@@ -1491,7 +1491,7 @@ class AccesosController extends Controller
                         'nombre'        => trim($empleado->nombre . ' ' . $empleado->paterno),
                         'correo'        => $empleado->correo,
                         'passwordPlano' => $passwordPlano,
-                        'loginUrl'      => 'https://miportal.talentsafecontrol.com/login',
+                        'loginUrl'      => rtrim((string) config('services.miportal.base_url'), '/') . '/login',
                         'locale'        => $locale,
 
                     ],
