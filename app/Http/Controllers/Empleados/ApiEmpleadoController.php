@@ -55,13 +55,13 @@ class ApiEmpleadoController extends Controller
         $extension = $foto->getClientOriginalExtension(); // Obtener la extensión del archivo
         $fecha = now()->format('Ymd_His'); // Formato de fecha
         $nombreArchivo = "{$empleado->id}_{$fecha}.{$extension}"; // Formar el nombre del archivo
-        $localImagePath = 'C:/laragon/www/rodi_portal';
-        $prodImagePath = '/home/rodicomm/public_html/portal.rodi.com.mx';
+        $imagePath = rtrim(
+            (string) config('paths.images_path'),
+            '/\\'
+        );
 
-        // Obtener la ruta de destino
-        $destinationPath = app()->environment(['production', 'produccion'])
-            ? $prodImagePath . '/' . $carpeta
-            : $localImagePath . '/' . $carpeta;
+        // Obtener la ruta de destino según el entorno activo
+        $destinationPath = $imagePath . DIRECTORY_SEPARATOR . $carpeta;
         // Determinar la ruta de destino según el entorno
 
         // Eliminar la imagen anterior si existe
@@ -312,10 +312,15 @@ class ApiEmpleadoController extends Controller
         $mimeType = mime_content_type($filePath);
 
         // Devuelve el archivo con el Content-Type correcto
+        $portalUrl = rtrim(
+            (string) config('paths.images_url'),
+            '/'
+        );
+
         return response()->file($filePath, [
             'Content-Type'            => $mimeType,
             'Content-Disposition'     => 'inline; filename="' . $archivo . '"',
-            'Content-Security-Policy' => "frame-ancestors 'self' https://portal.talentsafecontrol.com",
+            'Content-Security-Policy' => "frame-ancestors 'self' {$portalUrl}",
         ]);
 
     }
