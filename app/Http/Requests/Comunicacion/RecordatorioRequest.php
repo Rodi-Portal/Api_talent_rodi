@@ -2,6 +2,7 @@
 namespace App\Http\Requests\Comunicacion;
 
 use App\Models\Auth\AdministradorAuth;
+use Carbon\Carbon;
 use Illuminate\Foundation\Http\FormRequest;
 
 class RecordatorioRequest extends FormRequest
@@ -22,6 +23,39 @@ class RecordatorioRequest extends FormRequest
             'dias_anticipacion' => 'required|integer|min:0|max:60',
             'activo'            => 'required|in:0,1',
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            if (
+                $validator->errors()->has('tipo')
+                || $validator->errors()->has('fecha_base')
+            ) {
+                return;
+            }
+
+            if ($this->input('tipo') !== 'unico') {
+                return;
+            }
+
+            $tz = config('app.timezone', 'America/Mexico_City');
+
+            $fecha = Carbon::createFromFormat(
+                'Y-m-d',
+                $this->input('fecha_base'),
+                $tz
+            )->startOfDay();
+
+            $hoy = Carbon::today($tz);
+
+            if ($fecha->lessThan($hoy)) {
+                $validator->errors()->add(
+                    'fecha_base',
+                    'La fecha de un recordatorio único no puede ser anterior a hoy.'
+                );
+            }
+        });
     }
 
     public function messages()

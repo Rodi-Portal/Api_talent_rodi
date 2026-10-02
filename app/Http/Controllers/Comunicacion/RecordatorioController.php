@@ -827,12 +827,44 @@ class RecordatorioController extends Controller
     /* ===== Utilidad: próxima fecha ===== */
     private function calcProximaFecha(string $tipo, string $fechaBase, ?int $intervaloMeses): string
     {
-        // La primera ejecución corresponde a la fecha configurada.
-        // El cron es responsable de avanzar los recordatorios recurrentes
-        // después de procesar cada ocurrencia.
-        $dt = Carbon::createFromFormat('Y-m-d', $fechaBase);
+        $tz = 'America/Mexico_City';
 
-        return $dt->format('Y-m-d');
+        $base = Carbon::createFromFormat(
+            'Y-m-d',
+            $fechaBase,
+            $tz
+        )->startOfDay();
+
+        // Los recordatorios únicos conservan exactamente
+        // la fecha configurada.
+        if ($tipo !== 'mensual') {
+            return $base->format('Y-m-d');
+        }
+
+        $intervalo = max(1, (int) ($intervaloMeses ?? 1));
+        $hoy = Carbon::today($tz);
+
+        // Si la primera ocurrencia aún no ha llegado,
+        // se conserva la fecha configurada.
+        if ($base->greaterThanOrEqualTo($hoy)) {
+            return $base->format('Y-m-d');
+        }
+
+        // Si la fecha base ya pasó, buscar la primera
+        // ocurrencia que corresponda a hoy o al futuro.
+        // Cada cálculo parte de la fecha base para evitar
+        // desplazar fechas como 29, 30 o 31 al sumar meses.
+        $ocurrencia = 1;
+
+        do {
+            $proxima = $base
+                ->copy()
+                ->addMonthsNoOverflow($ocurrencia * $intervalo);
+
+            $ocurrencia++;
+        } while ($proxima->lessThan($hoy));
+
+        return $proxima->format('Y-m-d');
     }
 
     /* ===== Utilidades de archivos ===== */
