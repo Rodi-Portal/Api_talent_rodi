@@ -97,7 +97,18 @@ class AuthController extends Controller
                 'code'    => 'IP_NOT_AUTHORIZED',
             ], 403);
         }
+        // Validar suspensión del portal por falta de pago
+        $accesoPago = app(
+            \App\Services\Portal\PortalPaymentAccessService::class
+        );
 
+        if (! $accesoPago->permiteAcceso((int) $empleado->id_portal)) {
+            return response()->json([
+                'status'  => false,
+                'code'    => 'PORTAL_SUSPENDIDO',
+                'message' => 'El servicio de tu empresa se encuentra temporalmente suspendido. Comunícate con el administrador de tu empresa.',
+            ], 403);
+        }
         // ✅ Login correcto → resetear intentos
         $empleado->login_attempts = 0;
         $empleado->locked_until   = null;
@@ -175,6 +186,21 @@ class AuthController extends Controller
         }
 
         $empleado = $request->user();
+
+        // Validar suspensión del portal por falta de pago
+        $accesoPago = app(
+            \App\Services\Portal\PortalPaymentAccessService::class
+        );
+
+        if (! $accesoPago->permiteAcceso((int) $empleado->id_portal)) {
+            return response()->json([
+                'status'  => false,
+                'code'    => 'PORTAL_SUSPENDIDO',
+                'message' => 'El servicio de tu empresa se encuentra temporalmente suspendido. Comunícate con el administrador de tu empresa.',
+            ], 403);
+        }
+
+        // Verificar contraseña actual
         if (! Hash::check($request->current_password, $empleado->password)) {
             return response()->json([
                 'status'  => false,
