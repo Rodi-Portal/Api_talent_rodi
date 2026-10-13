@@ -16,7 +16,7 @@ class TurnoverWidget
 
     private function db()
     {
-        return DB::connection($this->conn);
+        return DB::connection('portal_main');
     }
 
     /**
@@ -141,7 +141,7 @@ class TurnoverWidget
                     fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
                 )
                 ->whereBetween(
-                    DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
+                    $this->db()->raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
                     [$mStart->toDateString(), $mEnd->toDateString()]
                 )
                 ->count();
@@ -240,7 +240,7 @@ class TurnoverWidget
                     fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
                 )
                 ->whereBetween(
-                    DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
+                    $this->db()->raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
                     [$mStart->toDateString(), $mEnd->toDateString()]
                 )
                 ->count();
@@ -341,7 +341,7 @@ class TurnoverWidget
                 fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
             )
             ->whereBetween(
-                DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
+                $this->db()->raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
                 [$start->toDateString(), $end->toDateString()]
             )
             ->groupBy('d')
@@ -451,7 +451,7 @@ class TurnoverWidget
                 fn($q) => $q->whereIn('e.id_cliente', $allowedClients)
             )
             ->whereBetween(
-                DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
+                $this->db()->raw('COALESCE(e.fecha_ingreso, DATE(e.creacion))'),
                 [$rangeStart->toDateString(), $rangeEnd->toDateString()]
             )
             ->groupBy('e.id_cliente')

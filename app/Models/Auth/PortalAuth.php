@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models\Auth;
 
 use Illuminate\Database\Eloquent\Model;
@@ -7,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 class PortalAuth extends Model
 {
     protected $connection = 'portal_main';
-    protected $table = 'portal';
+    protected $table      = 'portal';
     protected $primaryKey = 'id';
 
     public $timestamps = false;
@@ -17,10 +16,11 @@ class PortalAuth extends Model
     ];
 
     protected $casts = [
-        'id'          => 'integer',
-        'status'      => 'integer',
-        'bloqueado'   => 'integer',
-        'com360'      => 'integer',
-        'verificacion'=> 'integer',
+        'id'           => 'integer',
+        'status'       => 'integer',
+        'bloqueado'    => 'integer',
+        'com360'       => 'integer',
+        'verificacion' => 'integer',
+        'crol'         => 'integer',
     ];
 }
