@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Mail;
 
 use App\Models\Plantilla;
@@ -15,80 +16,59 @@ class PlantillaCorreoMailable extends Mailable
 
     public function __construct(Plantilla $plantilla, $nombreDestinatario = null)
     {
-        $this->plantilla          = $plantilla;
+        $this->plantilla = $plantilla;
         $this->nombreDestinatario = $nombreDestinatario;
     }
 
     public function build()
     {
-        // 1) Ruta base correspondiente al ambiente actual
-        $imagesPath = rtrim((string) config('paths.images_path'), '/\\');
-        $imagesUrl  = rtrim((string) config('paths.images_url'), '/');
+        $logoAsset = null;
 
-        // 2) Ruta física y URL pública del logo
-        $logoFilename = $this->plantilla->logo_path;
+        if ($this->plantilla->logo_path) {
+            $logoAsset = $this->resolvePlantillaAsset(
+                (int) $this->plantilla->id_portal,
+                '_logos',
+                (string) $this->plantilla->logo_path
+            );
+        }
 
-        $logoPathFs = $logoFilename
-            ? $imagesPath . '/_plantillas/_logos/' . $logoFilename
-            : null;
-
-        $logoUrl = $logoFilename
-            ? $imagesUrl . '/_plantillas/_logos/' . $logoFilename
-            : null;
-
-        $logoDisponible = $logoPathFs &&
-        file_exists($logoPathFs) &&
-        is_readable($logoPathFs);
-
-        // 3) Sustituir el nombre del destinatario
         $cuerpoProcesado = str_replace(
             '{{$nombre}}',
             $this->nombreDestinatario ?? '',
             $this->plantilla->cuerpo ?? ''
         );
 
-        // 4) Datos enviados a la plantilla Blade
         $viewData = [
-            'titulo'    => $this->plantilla->titulo,
-            'cuerpo'    => $cuerpoProcesado,
-            'saludo'    => $this->plantilla->saludo,
-            'nombre'    => $this->nombreDestinatario,
+            'titulo'   => $this->plantilla->titulo,
+            'cuerpo'   => $cuerpoProcesado,
+            'saludo'   => $this->plantilla->saludo,
+            'nombre'   => $this->nombreDestinatario,
 
-            // URL pública para vistas normales.
-            'logo_src'  => $logoDisponible
-                ? $logoUrl
-                : null,
+            // URL como respaldo para renderizados fuera del correo.
+            'logo_src' => $logoAsset['url'] ?? null,
 
-            // Ruta física para incrustarlo en el correo.
-            'logo_path' => $logoDisponible
-                ? $logoPathFs
-                : null,
+            // Ruta física: el correo la incrusta mediante CID/embed().
+            'logo_path' => $logoAsset['path'] ?? null,
         ];
 
-        // 5) Adjuntar archivos
         foreach ($this->plantilla->adjuntos as $adjunto) {
-            $path = $imagesPath .
-            '/_plantillas/_adjuntos/' .
-            $adjunto->archivo;
+            $asset = $this->resolvePlantillaAsset(
+                (int) $this->plantilla->id_portal,
+                '_adjuntos',
+                (string) $adjunto->archivo
+            );
 
-            if (file_exists($path) && is_readable($path)) {
-                $this->attach($path, [
-                    'as'   => $adjunto->nombre_original,
-                    'mime' => mime_content_type($path),
-                ]);
+            if ($asset === null) {
+                continue;
             }
+
+            $this->attach($asset['path'], [
+                'as'   => $adjunto->nombre_original,
+                'mime' => mime_content_type($asset['path'])
+                    ?: 'application/octet-stream',
+            ]);
         }
 
-        // 6) Renderizado de depuración local
-        if (app()->environment(['local', 'testing'])) {
-            view(
-                'emails.plantillas.' .
-                $this->plantilla->nombre_plantilla,
-                $viewData
-            )->render();
-        }
-
-        // 7) Construir el correo
         return $this
             ->from(
                 config('mail.from.address'),
@@ -102,4 +82,95 @@ class PlantillaCorreoMailable extends Mailable
             ->with($viewData);
     }
 
+    /**
+     * Lectura dual durante la migración:
+     * 1. storagetalentsafe
+     * 2. storage legacy
+     *
+     * Las nuevas escrituras se realizan únicamente en storagetalentsafe.
+     */
+    private function resolvePlantillaAsset(
+        int $portalId,
+        string $directory,
+        string $filename
+    ): ?array {
+        $filename = trim($filename);
+
+        if (
+            $portalId <= 0
+            || $filename === ''
+            || basename($filename) !== $filename
+            || ! in_array($directory, ['_logos', '_adjuntos'], true)
+        ) {
+            return null;
+        }
+
+        $documentsPath = rtrim(
+            str_replace('\\', '/', (string) config('paths.documents_path')),
+            '/'
+        );
+
+        $documentsUrl = rtrim(
+            (string) config('paths.documents_url'),
+            '/'
+        );
+
+        $imagesPath = rtrim(
+            str_replace('\\', '/', (string) config('paths.images_path')),
+            '/'
+        );
+
+        $imagesUrl = rtrim(
+            (string) config('paths.images_url'),
+            '/'
+        );
+
+        if ($documentsPath !== '') {
+            $path = $documentsPath
+                . '/portales/'
+                . $portalId
+                . '/_plantillas/'
+                . $directory
+                . '/'
+                . $filename;
+
+            if (is_file($path) && is_readable($path)) {
+                return [
+                    'path' => $path,
+                    'url'  => $documentsUrl !== ''
+                        ? $documentsUrl
+                            . '/portales/'
+                            . $portalId
+                            . '/_plantillas/'
+                            . $directory
+                            . '/'
+                            . $filename
+                        : null,
+                ];
+            }
+        }
+
+        if ($imagesPath !== '') {
+            $path = $imagesPath
+                . '/_plantillas/'
+                . $directory
+                . '/'
+                . $filename;
+
+            if (is_file($path) && is_readable($path)) {
+                return [
+                    'path' => $path,
+                    'url'  => $imagesUrl !== ''
+                        ? $imagesUrl
+                            . '/_plantillas/'
+                            . $directory
+                            . '/'
+                            . $filename
+                        : null,
+                ];
+            }
+        }
+
+        return null;
+    }
 }
