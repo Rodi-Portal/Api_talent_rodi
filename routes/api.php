@@ -26,8 +26,8 @@ use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorQrController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorUbicacionesController;
 use App\Http\Controllers\Api\Comunicacion360\Checador\ChecadorValidacionController;
 use App\Http\Controllers\Api\Comunicacion360\EmployeeProfileAnalysisController;
-//use App\Http\Controllers\Api\Comunicacion360\Checador\HikvisionEventController;
 use App\Http\Controllers\Api\Comunicacion360\Incidencias\IncidenciasCalendarioController;
+//use App\Http\Controllers\Api\Comunicacion360\Checador\HikvisionEventController;
 use App\Http\Controllers\Api\Comunicacion360\PlantillasController;
 use App\Http\Controllers\Api\Empleado\AuthController;
 use App\Http\Controllers\Api\Empleado\EmpleadoApproversController;
@@ -45,6 +45,7 @@ use App\Http\Controllers\Api\Empleado\ProfileController;
 use App\Http\Controllers\Api\PreEmpleado\PreEmpleadoDocumentoController;
 use App\Http\Controllers\Api\Reclutamiento\BolsaDocumentoController;
 use App\Http\Controllers\Api\Rodi\ReporteBecasController;
+use App\Http\Controllers\Api\Rodi\RodiCandidateDocumentController;
 use App\Http\Controllers\Auth\PermissionController;
 use App\Http\Controllers\Comunicacion\CalendarioController;
 use App\Http\Controllers\Comunicacion\ChecadasController;
@@ -55,7 +56,6 @@ use App\Http\Controllers\ConfiguracionColumnasController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Dashboard\OrganigramaController;
 use App\Http\Controllers\DocumentController;
-use App\Http\Controllers\Api\Rodi\RodiCandidateDocumentController;
 use App\Http\Controllers\Empleados\ApiEmpleadoController;
 use App\Http\Controllers\Empleados\CatalogosController;
 use App\Http\Controllers\Empleados\ClienteInformacionInternaController;
@@ -253,7 +253,6 @@ Route::middleware(['api'])->group(function () {
         '/integraciones/portal/clientes/documentos/{documentId}',
         [RodiCandidateDocumentController::class, 'showForClient']
     );
-
 
     Route::get(
         '/integraciones/portal/clientes/candidatos/{candidateId}/documentos/zip',
@@ -1458,6 +1457,14 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::middleware('auth:empleado')->post('/empleado/incidencias', [EmpleadoIncidenciasController::class, 'store']);
 Route::middleware('auth:empleado')->get('empleado/incidencias', [EmpleadoIncidenciasController::class, 'index']);
 Route::middleware('auth:empleado')->get('/empleado/incidencias/contexto', [EmpleadoIncidenciasController::class, 'contexto']);
+Route::middleware('auth:empleado')->get(
+    '/empleado/incidencias/{id}/evidencia',
+    [EmpleadoIncidenciasController::class, 'evidencia']
+);
+Route::middleware('auth:empleado')->post(
+    '/empleado/incidencias/{id}/evidencia',
+    [EmpleadoIncidenciasController::class, 'actualizarEvidencia']
+);
 Route::middleware('auth:empleado')->get('/empleado/aprobaciones/pendientes', [EmpleadoAprobacionesController::class, 'pendientes']);
 Route::middleware('auth:empleado')->post('/empleado/aprobaciones/{id}/aprobar', [EmpleadoAprobacionesController::class, 'aprobar']);
 Route::middleware('auth:empleado')->post('/empleado/aprobaciones/{id}/rechazar', [EmpleadoAprobacionesController::class, 'rechazar']);
@@ -2286,3 +2293,116 @@ Route::middleware([
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+//** CROL integraciones
+Route::prefix('integraciones/crol')
+    ->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:integraciones.crol.organizacion.crear',
+    ])
+    ->group(function () {
+        Route::get(
+            '/portal/contexto',
+            [\App\Http\Controllers\Api\Integrations\CrolPortalContextController::class, 'show']
+        );
+        Route::get(
+            '/catalogos/registro',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolRegistrationCatalogController::class,
+                'index',
+            ]
+        );
+
+        Route::post(
+            '/organizacion',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolOrganizationController::class,
+                'store',
+            ]
+        );
+        Route::post(
+            '/certificado',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolCertificateController::class,
+                'store',
+            ]
+        );
+        Route::get(
+            '/estado',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolIntegrationStateController::class,
+                'show',
+            ]
+        );
+        Route::get(
+            '/sucursales',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolSucursalesController::class,
+                'index',
+            ]
+        );
+        Route::post(
+            '/sucursales',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolSucursalStoreController::class,
+                'store',
+            ]
+        );
+        Route::put(
+            '/sucursales',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolSucursalUpdateController::class,
+                'update',
+            ]
+        );
+
+        Route::get(
+            '/grupos-nomina',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolGruposNominaController::class,
+                'index',
+            ]
+        );
+
+        Route::get(
+            '/grupos-nomina/catalogos',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolGrupoNominaCatalogController::class,
+                'index',
+            ]
+        );
+
+        Route::get(
+            '/centros-costos',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolCentroCostoController::class,
+                'index',
+            ]
+        );
+
+        Route::post(
+            '/grupos-nomina',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolGrupoNominaStoreController::class,
+                'store',
+            ]
+        );
+
+        Route::get(
+            '/grupos-nomina/{id}',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolGrupoNominaShowController::class,
+                'show',
+            ]
+        )->whereNumber('id');
+
+        Route::put(
+            '/grupos-nomina/{id}',
+            [
+                \App\Http\Controllers\Api\Integrations\CrolGrupoNominaUpdateController::class,
+                'update',
+            ]
+        )->whereNumber('id');
+
+    });

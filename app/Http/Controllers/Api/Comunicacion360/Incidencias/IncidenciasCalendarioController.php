@@ -2,12 +2,20 @@
 namespace App\Http\Controllers\Api\Comunicacion360\Incidencias;
 
 use App\Http\Controllers\Controller;
+use App\Services\Documents\EmployeeDocumentPathService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class IncidenciasCalendarioController extends Controller
 {
+
+    private const DOCUMENT_CATEGORY = '_incidencias';
+
+    public function __construct(
+        private readonly EmployeeDocumentPathService $documentPaths
+    ) {
+    }
     public function index(Request $request)
     {
         $datos = $request->validate([
@@ -261,47 +269,26 @@ class IncidenciasCalendarioController extends Controller
             ], 422);
         }
 
-        $basePath = app()->environment('production')
-            ? config('paths.prod_images', '')
-            : config('paths.local_images', '');
+        try {
+            $absolutePath = $this->documentPaths->absolutePath(
+                self::DOCUMENT_CATEGORY,
+                $rutaRelativa
+            );
+        } catch (\InvalidArgumentException  | \RuntimeException $e) {
+            return response()->json([
+                'message' => 'La ruta de la evidencia no es válida.',
+            ], 422);
+        }
 
-        $basePath = rtrim(
-            str_replace('\\', '/', $basePath),
-            '/'
-        );
-
-        $calendarRoot = $basePath . '/_archivo_calendario';
-        $absolutePath = $calendarRoot . '/' . $rutaRelativa;
-
-        $realRoot = realpath($calendarRoot);
         $realFile = realpath($absolutePath);
 
         if (
-            $realRoot === false ||
             $realFile === false ||
             ! is_file($realFile)
         ) {
             return response()->json([
                 'message' => 'Evidencia no encontrada en el servidor.',
             ], 404);
-        }
-
-        $normalizedRoot = rtrim(
-            str_replace('\\', '/', $realRoot),
-            '/'
-        );
-
-        $normalizedFile = str_replace('\\', '/', $realFile);
-
-        if (
-            strpos(
-                $normalizedFile,
-                $normalizedRoot . '/'
-            ) !== 0
-        ) {
-            return response()->json([
-                'message' => 'Acceso no permitido a la evidencia.',
-            ], 403);
         }
 
         $mime = mime_content_type($realFile)

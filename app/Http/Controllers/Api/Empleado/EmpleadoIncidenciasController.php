@@ -3,21 +3,21 @@ namespace App\Http\Controllers\Api\Empleado;
 
 use App\Http\Controllers\Controller;
 use App\Models\CalendarioEvento;
+use App\Models\Empleado;
+use App\Services\Documents\EmployeeDocumentPathService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class EmpleadoIncidenciasController extends Controller
 {
+    private const DOCUMENT_CATEGORY = '_incidencias';
 
-    private function getBasePath()
-    {
-        if (app()->environment('local')) {
-            return config('paths.local_images');
-        }
-
-        return config('paths.prod_images');
+    public function __construct(
+        private readonly EmployeeDocumentPathService $documentPaths
+    ) {
     }
 
     public function store(Request $request)
@@ -56,35 +56,66 @@ class EmpleadoIncidenciasController extends Controller
 
             if ($request->hasFile('evidencia')) {
 
-                $file = $request->file('evidencia');
+                $file             = $request->file('evidencia');
+                $documentEmployee = Empleado::query()
+                    ->find((int) $employee->id);
 
-                $portalId   = $employee->id_portal ?? 0;
-                $clienteId  = $employee->id_cliente ?? 0;
-                $empleadoId = $employee->id;
-                $basePath   = rtrim(
-                    str_replace('\\', '/', $this->getBasePath()),
-                    '/'
-                );
-
-                $calendarBasePath = $basePath . '/_archivo_calendario';
-
-                $relativePath =
-                    "portals/{$portalId}/clientes/{$clienteId}/" .
-                    "empleados/{$empleadoId}/incidencias/";
-
-                $fullPath = $calendarBasePath . '/' . $relativePath;
-
-                if (! file_exists($fullPath)) {
-                    if (! is_dir($fullPath)) {
-                        mkdir($fullPath, 0775, true);
-                    }
+                if (! $documentEmployee) {
+                    throw new RuntimeException(
+                        'No se pudo resolver el empleado para almacenar la evidencia.'
+                    );
                 }
 
-                $fileName = Str::uuid() . '.' . $file->getClientOriginalExtension();
+                $documentsPath = rtrim(
+                    (string) config('paths.documents_path'),
+                    '/\\'
+                );
+
+                if ($documentsPath === '') {
+                    throw new RuntimeException(
+                        'La infraestructura documental nueva no está configurada.'
+                    );
+                }
+
+                $relativeDirectory = $this->documentPaths->uploadFolder(
+                    self::DOCUMENT_CATEGORY,
+                    $documentEmployee
+                );
+
+                $fileName = Str::uuid()
+                . '.'
+                . strtolower($file->getClientOriginalExtension());
+
+                $archivo = $this->documentPaths->storedPath(
+                    self::DOCUMENT_CATEGORY,
+                    $documentEmployee,
+                    $fileName
+                );
+
+                $fullPath = $documentsPath
+                . DIRECTORY_SEPARATOR
+                . str_replace(
+                    '/',
+                    DIRECTORY_SEPARATOR,
+                    $relativeDirectory
+                );
+
+                if (
+                    ! is_dir($fullPath)
+                    && ! @mkdir($fullPath, 0775, true)
+                    && ! is_dir($fullPath)
+                ) {
+                    throw new RuntimeException(
+                        'No se pudo crear el directorio de incidencias.'
+                    );
+                }
 
                 $file->move($fullPath, $fileName);
 
-                $archivo = $relativePath . $fileName;
+                @chmod(
+                    $fullPath . DIRECTORY_SEPARATOR . $fileName,
+                    0664
+                );
 
             }
 
@@ -441,6 +472,223 @@ class EmpleadoIncidenciasController extends Controller
                 'eventos'     => $eventos,
                 'aprobadores' => $aprobadores,
             ],
+        ]);
+    }
+
+    public function evidencia(Request $request, int $id)
+    {
+        $employee = $request->user();
+
+        if (! $employee) {
+            return response()->json([
+                'message' => 'Unauthorized',
+            ], 401);
+        }
+
+        $evento = DB::connection('portal_main')
+            ->table('calendario_eventos')
+            ->where('id', $id)
+            ->where('id_empleado', (int) $employee->id)
+            ->where('id_portal', (int) $employee->id_portal)
+            ->where('id_cliente', (int) $employee->id_cliente)
+            ->where('eliminado', 0)
+            ->first();
+
+        if (! $evento) {
+            return response()->json([
+                'message' => 'Incidencia no encontrada.',
+            ], 404);
+        }
+
+        if (empty($evento->archivo)) {
+            return response()->json([
+                'message' => 'La incidencia no tiene evidencia.',
+            ], 404);
+        }
+
+        try {
+            $absolutePath = $this->documentPaths->absolutePath(
+                self::DOCUMENT_CATEGORY,
+                (string) $evento->archivo
+            );
+        } catch (\InvalidArgumentException  | \RuntimeException $e) {
+            return response()->json([
+                'message' => 'La ruta de la evidencia no es válida.',
+            ], 422);
+        }
+
+        $realFile = realpath($absolutePath);
+
+        if (
+            $realFile === false ||
+            ! is_file($realFile)
+        ) {
+            return response()->json([
+                'message' => 'Evidencia no encontrada en el servidor.',
+            ], 404);
+        }
+
+        $mime = mime_content_type($realFile)
+            ?: 'application/octet-stream';
+
+        $allowedMimeTypes = [
+            'application/pdf',
+            'image/jpeg',
+            'image/png',
+        ];
+
+        if (! in_array($mime, $allowedMimeTypes, true)) {
+            return response()->json([
+                'message' => 'El tipo de evidencia no está permitido.',
+            ], 415);
+        }
+
+        return response()->file(
+            $realFile,
+            [
+                'Content-Type'        => $mime,
+                'Content-Disposition' =>
+                'inline; filename="' . basename($realFile) . '"',
+            ]
+        );
+    }
+    public function actualizarEvidencia(Request $request, int $id)
+    {
+        $employee = $request->user();
+
+        if (! $employee) {
+            return response()->json([
+                'message' => 'Unauthorized',
+            ], 401);
+        }
+
+        $request->validate([
+            'evidencia' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
+        ]);
+
+        $evento = DB::connection('portal_main')
+            ->table('calendario_eventos')
+            ->where('id', $id)
+            ->where('id_empleado', (int) $employee->id)
+            ->where('id_portal', (int) $employee->id_portal)
+            ->where('id_cliente', (int) $employee->id_cliente)
+            ->where('eliminado', 0)
+            ->first();
+
+        if (! $evento) {
+            return response()->json([
+                'message' => 'Incidencia no encontrada.',
+            ], 404);
+        }
+
+        if (
+            strtolower(trim((string) $evento->estado_aprobacion))
+            !== 'pendiente'
+        ) {
+            return response()->json([
+                'message' => 'La evidencia solo puede modificarse mientras la incidencia está pendiente.',
+            ], 409);
+        }
+
+        $documentEmployee = Empleado::query()
+            ->find((int) $employee->id);
+
+        if (! $documentEmployee) {
+            return response()->json([
+                'message' => 'No se pudo resolver el empleado.',
+            ], 404);
+        }
+
+        $documentsPath = rtrim(
+            (string) config('paths.documents_path'),
+            '/\\'
+        );
+
+        if ($documentsPath === '') {
+            return response()->json([
+                'message' => 'La infraestructura documental nueva no está configurada.',
+            ], 500);
+        }
+
+        $file = $request->file('evidencia');
+
+        $relativeDirectory = $this->documentPaths->uploadFolder(
+            self::DOCUMENT_CATEGORY,
+            $documentEmployee
+        );
+
+        $extension = strtolower(
+            $file->getClientOriginalExtension()
+        );
+
+        $fileName = Str::uuid()
+            . ($extension !== '' ? '.' . $extension : '');
+
+        $storedPath = $this->documentPaths->storedPath(
+            self::DOCUMENT_CATEGORY,
+            $documentEmployee,
+            $fileName
+        );
+
+        $absoluteDirectory = $documentsPath
+        . DIRECTORY_SEPARATOR
+        . str_replace(
+            '/',
+            DIRECTORY_SEPARATOR,
+            $relativeDirectory
+        );
+
+        if (
+            ! is_dir($absoluteDirectory)
+            && ! @mkdir($absoluteDirectory, 0775, true)
+            && ! is_dir($absoluteDirectory)
+        ) {
+            return response()->json([
+                'message' => 'No se pudo crear el directorio de incidencias.',
+            ], 500);
+        }
+
+        $file->move(
+            $absoluteDirectory,
+            $fileName
+        );
+
+        $absoluteFile = $absoluteDirectory
+            . DIRECTORY_SEPARATOR
+            . $fileName;
+
+        @chmod($absoluteFile, 0664);
+
+        /*
+     * Revalidamos el estado en el UPDATE.
+     * Así, si un administrador acaba de aprobar/rechazar
+     * mientras se estaba subiendo el archivo, no permitimos
+     * sobrescribir la evidencia.
+     */
+        $updated = DB::connection('portal_main')
+            ->table('calendario_eventos')
+            ->where('id', $id)
+            ->where('id_empleado', (int) $employee->id)
+            ->where('id_portal', (int) $employee->id_portal)
+            ->where('id_cliente', (int) $employee->id_cliente)
+            ->where('estado_aprobacion', 'pendiente')
+            ->where('eliminado', 0)
+            ->update([
+                'archivo'    => $storedPath,
+                'updated_at' => now(),
+            ]);
+
+        if ($updated === 0) {
+            @unlink($absoluteFile);
+
+            return response()->json([
+                'message' => 'La incidencia ya no está pendiente.',
+            ], 409);
+        }
+
+        return response()->json([
+            'success' => true,
+            'archivo' => $storedPath,
         ]);
     }
 }
