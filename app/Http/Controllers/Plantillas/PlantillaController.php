@@ -377,22 +377,39 @@ class PlantillaController extends Controller
                 ->firstOrFail();
         }
 
-        // 3) Paths por ambiente
+        // 3) Storage definitivo.
+        // Nuevas escrituras:
+        // storagetalentsafe/portales/{portal}/_plantillas/{_logos|_adjuntos}
         $root = rtrim(
-            app()->environment('production')
-                ? (config('paths.prod_images') ?: '')
-                : (config('paths.local_images') ?: ''),
-            DIRECTORY_SEPARATOR
+            str_replace('\\', '/', (string) config('paths.documents_path')),
+            '/'
         );
-        $basePath = $root . DIRECTORY_SEPARATOR . '_plantillas';
-        $logosDir = $basePath . DIRECTORY_SEPARATOR . '_logos';
-        $adjDir   = $basePath . DIRECTORY_SEPARATOR . '_adjuntos';
 
-        if (! is_dir($logosDir)) {
-            @mkdir($logosDir, 0777, true);
+        if ($root === '') {
+            throw new \RuntimeException(
+                'No está configurada la raíz de documentos de TalentSafe.'
+            );
         }
-        if (! is_dir($adjDir)) {
-            @mkdir($adjDir, 0777, true);
+
+        $basePath = $root
+            . '/portales/'
+            . (int) $administrator->id_portal
+            . '/_plantillas';
+
+        $logosDir = $basePath . '/_logos';
+        $adjDir   = $basePath . '/_adjuntos';
+
+        foreach ([$logosDir, $adjDir] as $directory) {
+            if (
+                ! is_dir($directory)
+                && ! mkdir($directory, 0775, true)
+                && ! is_dir($directory)
+            ) {
+                throw new \RuntimeException(
+                    'No fue posible crear el directorio de plantillas: '
+                    . $directory
+                );
+            }
         }
 
         // 4) Subimos archivos una sola vez (para esta plantilla)
@@ -545,16 +562,26 @@ class PlantillaController extends Controller
 
     public function descargarAdjunto($id)
     {
-        $adjunto  = Adjunto::findOrFail($id);
-        $basePath = rtrim(env('LOCAL_IMAGE_PATH'), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . '_plantillas';
+        $adjunto = PlantillaAdjunto::findOrFail($id);
 
-        $ruta = storage_path("{$basePath}/_adjuntos/{$adjunto->archivo}");
+        $plantilla = Plantilla::findOrFail(
+            (int) $adjunto->id_plantilla
+        );
 
-        if (! file_exists($ruta)) {
+        $ruta = $this->resolvePlantillaFile(
+            (int) $plantilla->id_portal,
+            '_adjuntos',
+            (string) $adjunto->archivo
+        );
+
+        if ($ruta === null) {
             abort(404, 'Archivo no encontrado');
         }
 
-        return response()->download($ruta, $adjunto->nombre_original);
+        return response()->download(
+            $ruta,
+            $adjunto->nombre_original
+        );
     }
     private function resizeAndSaveImage($sourcePath, $targetPath, $maxWidth, $maxHeight)
     {
@@ -606,25 +633,17 @@ class PlantillaController extends Controller
 
     public function mostrarLogo(Plantilla $plantilla)
     {
-        // Si la plantilla no tiene logo guardado
         if (! $plantilla->logo_path) {
             abort(404, 'La plantilla no tiene logo.');
         }
 
-        // Mismo root que usas en store()
-        $root = rtrim(
-            app()->environment('production')
-                ? (config('paths.prod_images') ?: '')
-                : (config('paths.local_images') ?: ''),
-            DIRECTORY_SEPARATOR
+        $path = $this->resolvePlantillaFile(
+            (int) $plantilla->id_portal,
+            '_logos',
+            (string) $plantilla->logo_path
         );
 
-        $path = $root
-        . DIRECTORY_SEPARATOR . '_plantillas'
-        . DIRECTORY_SEPARATOR . '_logos'
-        . DIRECTORY_SEPARATOR . $plantilla->logo_path;
-
-        if (! is_file($path)) {
+        if ($path === null) {
             abort(404, 'Archivo de logo no encontrado.');
         }
 
@@ -633,6 +652,70 @@ class PlantillaController extends Controller
         return response()->file($path, [
             'Content-Type' => $mime,
         ]);
+    }
+
+    /**
+     * Resuelve archivos de plantillas durante la transición.
+     *
+     * Orden de lectura:
+     * 1. storagetalentsafe/portales/{portal}/_plantillas
+     * 2. legacy /_plantillas
+     *
+     * Las nuevas escrituras nunca utilizan la ruta legacy.
+     */
+    private function resolvePlantillaFile(
+        int $portalId,
+        string $directory,
+        string $filename
+    ): ?string {
+        $filename = trim($filename);
+
+        if (
+            $portalId <= 0
+            || $filename === ''
+            || basename($filename) !== $filename
+            || ! in_array($directory, ['_logos', '_adjuntos'], true)
+        ) {
+            return null;
+        }
+
+        $documentsRoot = rtrim(
+            str_replace('\\', '/', (string) config('paths.documents_path')),
+            '/'
+        );
+
+        $imagesRoot = rtrim(
+            str_replace('\\', '/', (string) config('paths.images_path')),
+            '/'
+        );
+
+        $candidates = [];
+
+        if ($documentsRoot !== '') {
+            $candidates[] = $documentsRoot
+                . '/portales/'
+                . $portalId
+                . '/_plantillas/'
+                . $directory
+                . '/'
+                . $filename;
+        }
+
+        if ($imagesRoot !== '') {
+            $candidates[] = $imagesRoot
+                . '/_plantillas/'
+                . $directory
+                . '/'
+                . $filename;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
 }
