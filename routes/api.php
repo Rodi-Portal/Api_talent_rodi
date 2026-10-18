@@ -362,6 +362,35 @@ Route::middleware(['api'])->group(function () {
         'admin.session',
         'admin.permission:exempleados.expediente.documentos_salida.ver',
     ]);
+    // Expediente histórico de exempleados.
+// Documentos, cursos y exámenes almacenados en TalentSafe.
+
+    Route::get(
+        '/exempleados/archivos/documentos/{id}',
+        [EmpleadoArchivoController::class, 'formerExpedientDocument']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.expediente.documentos.ver',
+    ]);
+
+    Route::get(
+        '/exempleados/archivos/cursos/{id}',
+        [EmpleadoArchivoController::class, 'formerCourse']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.expediente.documentos.ver',
+    ]);
+
+    Route::get(
+        '/exempleados/archivos/examenes/{id}',
+        [EmpleadoArchivoController::class, 'formerExam']
+    )->middleware([
+        'auth:sanctum',
+        'admin.session',
+        'admin.permission:exempleados.expediente.documentos.ver',
+    ]);
 
     // ----- opciones  documentos, examenes y cursos ----- //
 

@@ -65,12 +65,49 @@ class EmpleadoArchivoController extends Controller
         );
     }
 
+    public function formerExpedientDocument(Request $request, int $id)
+    {
+        return $this->serveFile(
+            $request,
+            DocumentEmpleado::class,
+            $id,
+            '_documentEmpleado',
+            'expediente',
+            true
+        );
+    }
+
+    public function formerCourse(Request $request, int $id)
+    {
+        return $this->serveFile(
+            $request,
+            CursoEmpleado::class,
+            $id,
+            '_cursos',
+            null,
+            true
+        );
+    }
+
+    public function formerExam(Request $request, int $id)
+    {
+        return $this->serveFile(
+            $request,
+            ExamEmpleado::class,
+            $id,
+            '_examEmpleado',
+            null,
+            true
+        );
+    }
+
     private function serveFile(
         Request $request,
         string $modelClass,
         int $id,
         string $folder,
-        ?string $documentContext = null
+        ?string $documentContext = null,
+        bool $formerOnly = false
     ) {
         $administrator = $this->administrator($request);
 
@@ -94,7 +131,9 @@ class EmpleadoArchivoController extends Controller
                 (int) $administrator->id_portal
             )
             ->firstOrFail();
-
+        if ($formerOnly && (int) $employee->status !== 2) {
+            abort(404, 'El expediente no corresponde a un exempleado.');
+        }
         $this->clientScope->authorizeRequestedClients(
             $administrator,
             [(int) $employee->id_cliente]
