@@ -162,6 +162,25 @@ class FormerEmpleadoController extends Controller
                     }
 
                     $empleado->save();
+                    /*
+ * Cuando el empleado pasa a exempleado,
+ * liberar los puestos que tenga asignados
+ * dentro del organigrama.
+ *
+ * No se eliminan nodos ni se modifican
+ * las relaciones entre puestos.
+ */
+                    if ((int) $data['status'] === 2) {
+                        DB::connection('portal_main')
+                            ->table('organigrama_nodes')
+                            ->where('id_portal', (int) $empleado->id_portal)
+                            ->where('empleado_id', (int) $empleado->id)
+                            ->where('activo', 1)
+                            ->update([
+                                'empleado_id' => null,
+                                'edicion'     => now(),
+                            ]);
+                    }
                 }
 
                 $comentario =
@@ -417,7 +436,7 @@ class FormerEmpleadoController extends Controller
             foreach ($idCandidatos as $idCandidato) {
                 $response = Http::withHeaders([
                     'X-RODI-Integration-Key' => $integrationKey,
-                    'Accept' => 'application/json',
+                    'Accept'                 => 'application/json',
                 ])
                     ->timeout(30)
                     ->get(
@@ -436,7 +455,7 @@ class FormerEmpleadoController extends Controller
                         'FormerEmpleado · RODI empleado-data ERROR',
                         [
                             'id_candidato' => (int) $idCandidato,
-                            'status' => $response->status(),
+                            'status'       => $response->status(),
                         ]
                     );
 
@@ -485,47 +504,47 @@ class FormerEmpleadoController extends Controller
                     }
 
                     return [
-                        'id' =>
-                            $examen['id'],
+                        'id'              =>
+                        $examen['id'],
 
-                        'name' =>
-                            $examen['name'],
+                        'name'            =>
+                        $examen['name'],
 
-                        'description' =>
-                            $examen['description'],
+                        'description'     =>
+                        $examen['description'],
 
-                        'creacion' =>
-                            $examen['creacion'],
+                        'creacion'        =>
+                        $examen['creacion'],
 
-                        'id_candidato' =>
-                            $examen['id_candidato'],
+                        'id_candidato'    =>
+                        $examen['id_candidato'],
 
-                        'archivo' =>
-                            $examen['archivo'],
+                        'archivo'         =>
+                        $examen['archivo'],
 
-                        'socioeconomico' =>
-                            $datos['socioeconomico'] ?? null,
+                        'socioeconomico'  =>
+                        $datos['socioeconomico'] ?? null,
 
-                        'medico' =>
-                            $datos['medico'] ?? null,
+                        'medico'          =>
+                        $datos['medico'] ?? null,
 
-                        'doping' =>
-                            $datos['tipo_antidoping'] ?? null,
+                        'doping'          =>
+                        $datos['tipo_antidoping'] ?? null,
 
-                        'liberado' =>
-                            $datos['liberado'] ?? null,
+                        'liberado'        =>
+                        $datos['liberado'] ?? null,
 
-                        'status_bgc' =>
-                            $statusBgc,
+                        'status_bgc'      =>
+                        $statusBgc,
 
                         'icono_resultado' =>
-                            $icono_resultado,
+                        $icono_resultado,
 
-                        'carpeta' =>
-                            '_examEmpleado/',
+                        'carpeta'         =>
+                        '_examEmpleado/',
 
-                        'tipo' =>
-                            'BGV or Test',
+                        'tipo'            =>
+                        'BGV or Test',
                     ];
                 }
             );

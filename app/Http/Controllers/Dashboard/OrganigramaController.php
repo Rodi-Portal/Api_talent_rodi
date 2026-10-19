@@ -63,7 +63,10 @@ class OrganigramaController extends Controller
         );
         $nodes = DB::connection('portal_main')
             ->table('organigrama_nodes as n')
-            ->leftJoin('empleados as e', 'e.id', '=', 'n.empleado_id')
+            ->leftJoin('empleados as e', function ($join) {
+                $join->on('e.id', '=', 'n.empleado_id')
+                    ->where('e.status', 1);
+            })
             ->where('n.id_portal', $idPortal)
             ->where('n.activo', 1)
             ->select(
@@ -74,7 +77,7 @@ class OrganigramaController extends Controller
                 'n.layout', // 🔥 AGREGAR ESTO
                 'n.line_style',
                 'n.color',
-                'n.empleado_id',
+                'e.id as empleado_id',
                 'e.nombre',
                 'e.paterno',
                 'e.materno',
@@ -168,6 +171,7 @@ class OrganigramaController extends Controller
                     ->where('id', (int) $data['empleado_id'])
                     ->where('id_portal', $idPortal)
                     ->where('id_cliente', $idCliente)
+                    ->where('status', 1)
                     ->where(function ($query) {
                         $query->where('eliminado', 0)
                             ->orWhereNull('eliminado');
@@ -335,6 +339,7 @@ class OrganigramaController extends Controller
                     ->where('id', (int) $data['empleado_id'])
                     ->where('id_portal', $idPortal)
                     ->where('id_cliente', $idCliente)
+                    ->where('status', 1)
                     ->where(function ($query) {
                         $query->where('eliminado', 0)
                             ->orWhereNull('eliminado');
@@ -603,6 +608,7 @@ class OrganigramaController extends Controller
                     ->where('id', (int) $data['empleado_id'])
                     ->where('id_portal', $idPortal)
                     ->where('id_cliente', (int) $node->id_cliente)
+                    ->where('status', 1)
                     ->where(function ($query) {
                         $query->where('eliminado', 0)
                             ->orWhereNull('eliminado');
@@ -635,7 +641,10 @@ class OrganigramaController extends Controller
 
             $newNode = $connection
                 ->table('organigrama_nodes as o')
-                ->leftJoin('empleados as e', 'e.id', '=', 'o.empleado_id')
+                ->leftJoin('empleados as e', function ($join) {
+                    $join->on('e.id', '=', 'o.empleado_id')
+                        ->where('e.status', 1);
+                })
                 ->select(
                     'o.id',
                     'o.id_cliente',
@@ -644,7 +653,7 @@ class OrganigramaController extends Controller
                     'o.layout',
                     'o.line_style',
                     'o.color',
-                    'o.empleado_id',
+                    'e.id as empleado_id',
                     'e.nombre',
                     'e.paterno',
                     'e.materno',
@@ -1323,7 +1332,10 @@ class OrganigramaController extends Controller
 
         $nodes = DB::connection('portal_main')
             ->table('organigrama_nodes as o')
-            ->leftJoin('empleados as e', 'e.id', '=', 'o.empleado_id')
+            ->leftJoin('empleados as e', function ($join) {
+                $join->on('e.id', '=', 'o.empleado_id')
+                    ->where('e.status', 1);
+            })
             ->select(
                 'o.id',
                 'o.parent_id',
@@ -1332,7 +1344,7 @@ class OrganigramaController extends Controller
                 'o.layout',
                 'o.line_style',
                 'o.color',
-                'o.empleado_id',
+                'e.id as empleado_id',
                 'e.nombre',
                 'e.paterno',
                 'e.materno',
@@ -1394,7 +1406,10 @@ class OrganigramaController extends Controller
 
         $nodes = DB::connection('portal_main')
             ->table('organigrama_nodes as o')
-            ->leftJoin('empleados as e', 'e.id', '=', 'o.empleado_id')
+            ->leftJoin('empleados as e', function ($join) {
+                $join->on('e.id', '=', 'o.empleado_id')
+                    ->where('e.status', 1);
+            })
             ->select(
                 'o.id',
                 'o.parent_id',
@@ -1403,7 +1418,7 @@ class OrganigramaController extends Controller
                 'o.layout',
                 'o.line_style',
                 'o.color',
-                'o.empleado_id',
+                'e.id as empleado_id',
                 'e.nombre',
                 'e.paterno',
                 'e.materno',
@@ -1457,7 +1472,10 @@ class OrganigramaController extends Controller
         $search = trim((string) $request->query('search', ''));
         $query  = DB::connection('portal_main')
             ->table('organigrama_nodes as o')
-            ->leftJoin('empleados as e', 'e.id', '=', 'o.empleado_id')
+            ->leftJoin('empleados as e', function ($join) {
+                $join->on('e.id', '=', 'o.empleado_id')
+                    ->where('e.status', 1);
+            })
             ->where('o.id_portal', $idPortal)
             ->where('o.id_cliente', $idCliente)
             ->where('o.activo', 1);
@@ -1476,7 +1494,7 @@ class OrganigramaController extends Controller
                 'o.id',
                 'o.parent_id',
                 'o.titulo_puesto',
-                'o.empleado_id',
+                'e.id as empleado_id',
                 'e.nombre',
                 'e.paterno',
                 'e.materno'
@@ -1599,6 +1617,7 @@ class OrganigramaController extends Controller
                 ->where('id_portal', $idPortal)
                 ->where('id_cliente', $idCliente)
                 ->whereIn('id', $employeeIds)
+                ->where('status', 1)
                 ->where(function ($query) {
                     $query->where('eliminado', 0)
                         ->orWhereNull('eliminado');
@@ -1673,7 +1692,10 @@ class OrganigramaController extends Controller
 
                 return $connection
                     ->table('organigrama_nodes as o')
-                    ->leftJoin('empleados as e', 'e.id', '=', 'o.empleado_id')
+                    ->leftJoin('empleados as e', function ($join) {
+                        $join->on('e.id', '=', 'o.empleado_id')
+                            ->where('e.status', 1);
+                    })
                     ->where('o.id_portal', $idPortal)
                     ->whereIn('o.id', $createdIds)
                     ->select(
@@ -1683,7 +1705,7 @@ class OrganigramaController extends Controller
                         'o.titulo_puesto',
                         'o.layout',
                         'o.line_style',
-                        'o.empleado_id',
+                        'e.id as empleado_id',
                         'e.nombre',
                         'e.paterno',
                         'e.materno',
