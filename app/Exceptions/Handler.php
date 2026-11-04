@@ -37,6 +37,15 @@ class Handler extends ExceptionHandler
     ];
 
     /**
+     * Force JSON responses for API exceptions.
+     */
+    protected function shouldReturnJson($request, Throwable $e): bool
+    {
+        return $request->is('api/*')
+            || parent::shouldReturnJson($request, $e);
+    }
+
+    /**
      * Register the exception handling callbacks for the application.
      *
      * @return void

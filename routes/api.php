@@ -1434,6 +1434,12 @@ Route::prefix('empleado/auth')->group(function () {
         'login',
     ]);
 
+    // Renovacion MiPortal (deshabilitada por defecto).
+    Route::post('/refresh', [
+        \App\Http\Controllers\Api\Empleado\EmpleadoRefreshController::class,
+        'refresh',
+    ]);
+
     // Logout
     Route::middleware('auth:empleado')->post('/logout', [AuthController::class,
         'logout',
@@ -1459,7 +1465,7 @@ Route::middleware('auth:empleado')->get(
     '/empleado/approvers',
     [EmpleadoApproversController::class, 'index']
 );
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware('auth:empleado')->group(function () {
     Route::get('/empleado/tareas', [EmpleadoTareasController::class, 'index']);
     Route::post('/empleado/tareas/{id}/toggle', [EmpleadoTareasController::class, 'toggle']);
     Route::post('/empleado/tareas/{id}/comentarios', [EmpleadoTareasController::class, 'storeComentario']

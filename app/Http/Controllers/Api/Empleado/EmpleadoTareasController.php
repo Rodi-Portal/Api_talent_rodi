@@ -18,7 +18,7 @@ class EmpleadoTareasController extends Controller
      */
     public function index(Request $request)
     {
-        $empleado = auth('sanctum')->user();
+        $empleado = auth('empleado')->user();
 
         if (! $empleado) {
             return response()->json([
@@ -248,7 +248,7 @@ class EmpleadoTareasController extends Controller
 
     public function toggle(Request $request, $id)
     {
-        $empleado = auth('sanctum')->user();
+        $empleado = auth('empleado')->user();
 
         if (! $empleado) {
             return response()->json([
@@ -292,7 +292,7 @@ class EmpleadoTareasController extends Controller
 
     public function storeComentario(Request $request, $id)
     {
-        $empleado = auth('sanctum')->user();
+        $empleado = auth('empleado')->user();
 
         if (! $empleado) {
             return response()->json([
@@ -415,7 +415,7 @@ class EmpleadoTareasController extends Controller
     }
     public function uploadEvidencia(Request $request, $id)
     {
-        $empleado = auth('sanctum')->user();
+        $empleado = auth('empleado')->user();
 
         if (! $empleado) {
             return response()->json([
@@ -502,7 +502,7 @@ class EmpleadoTareasController extends Controller
     }
     public function verEvidencia(Request $request, $id, $evidenciaId)
     {
-        $empleado = auth('sanctum')->user();
+        $empleado = auth('empleado')->user();
 
         if (! $empleado) {
             return response()->json([
@@ -551,7 +551,7 @@ class EmpleadoTareasController extends Controller
 
     public function deleteEvidencia(Request $request, $id, $evidenciaId)
     {
-        $empleado = auth('sanctum')->user();
+        $empleado = auth('empleado')->user();
 
         if (! $empleado) {
             return response()->json([
@@ -629,7 +629,7 @@ class EmpleadoTareasController extends Controller
             ], 422);
         }
 
-        $empleado = auth('sanctum')->user();
+        $empleado = auth('empleado')->user();
 
         if (! $empleado) {
             return response()->json([
