@@ -261,6 +261,23 @@ class ChecadaValidationService
                 ];
             }
 
+            /*
+            * Las salidas no laborales son movimientos intermedios,
+            * independientemente de su cercanía a la hora de salida.
+            *
+            * La salida final corresponde a movimientos de clase work.
+            * Las reglas de secuencia se validan por separado.
+            */
+            if (($data['clase'] ?? 'work') !== 'work') {
+                return [
+                    'ok'                 => true,
+                    'estatus_validacion' => 'valida',
+                    'code'               => 'intermediate_checkout_registered',
+                    'motivo'             => 'intermediate_checkout_registered',
+                    'minutos_diferencia' => null,
+                ];
+            }
+
             $horaSalida = Carbon::parse($checkTime->toDateString() . ' ' . $horaBase);
 
             // Margen para considerar que ya es salida final.

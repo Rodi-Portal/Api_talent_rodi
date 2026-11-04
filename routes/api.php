@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\Admin\AdminAuthBridgeController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorGestionController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorReportesController;
+use App\Http\Controllers\Api\Comunicacion360\AccesosAsistenciaSucursalController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosIpController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosTareasController;
@@ -1662,7 +1663,7 @@ Route::prefix('comunicacion360')
 
         Route::post(
             '/accesos/{id}/cerrar-sesion',
-            [AccesosChecadorController::class, 'cerrarSesion']
+            [AccesosController::class, 'cerrarSesion']
         )->middleware('admin.permission:comunicacion360.accesos.cerrar_sesion');
 
         Route::get(
@@ -1776,6 +1777,13 @@ Route::prefix('comunicacion360')
         Route::get(
             '/accesos/empleados/{id}/reportes/checadas/vista-previa',
             [AccesosChecadorReportesController::class, 'vistaPrevia']
+        )->middleware(
+            'admin.permission:comunicacion360.accesos.reportes.ver'
+        );
+
+        Route::get(
+            '/accesos/reportes/asistencia-sucursal/vista-previa',
+            [AccesosAsistenciaSucursalController::class, 'vistaPrevia']
         )->middleware(
             'admin.permission:comunicacion360.accesos.reportes.ver'
         );

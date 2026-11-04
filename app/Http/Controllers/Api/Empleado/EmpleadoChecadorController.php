@@ -864,7 +864,11 @@ class EmpleadoChecadorController extends Controller
                 $registroService,
                 $absenceBackfillService,
                 $payloadValidacion,
-                $metadata
+                $metadata,
+                $ubicacionDetectada,
+                $distanciaDetectada,
+                $estatusValidacion,
+                $observacionGeocerca,
             ) {
                 /*
          * Bloqueamos la asignación del colaborador.
@@ -976,6 +980,56 @@ class EmpleadoChecadorController extends Controller
                     $resultadoValidacionAtomica['motivo']             =
                         'valid_qr_for_employee';
                 }
+
+                /*
+                * Conservar la ubicación autorizada más cercana
+                * y la distancia GPS cuando la validación no
+                * haya proporcionado esos datos.
+                *
+                * No modificar validaciones QR ni sus resultados.
+                */
+                if (
+                    $request->metodo !== 'qr' &&
+                    $ubicacionDetectada !== null &&
+                    $distanciaDetectada !== null
+                ) {
+                    $resultadoValidacionAtomica['id_ubicacion'] ??=
+                    (int) $ubicacionDetectada->id;
+
+                    $resultadoValidacionAtomica['distancia_metros'] ??=
+                    (float) $distanciaDetectada;
+                }
+
+                /*
+                * Conservar el resultado de la geocerca en la checada.
+                *
+                * La validación atómica controla la secuencia de movimientos,
+                * mientras que la validación de geocerca determina si existe
+                * una advertencia adicional por ubicación.
+                *
+                * No modificar el resultado de las validaciones QR.
+                */
+                if ($request->metodo !== 'qr') {
+
+                    // Una advertencia de geocerca no debe perderse.
+                    if ($estatusValidacion === 'advertida') {
+                        $resultadoValidacionAtomica['estatus_validacion'] = 'advertida';
+                    }
+
+                    // Conservar el motivo original y agregar el de ubicación.
+                    if (! empty($observacionGeocerca)) {
+                        $motivoActual = trim(
+                            (string) ($resultadoValidacionAtomica['motivo'] ?? '')
+                        );
+
+                        if (! str_contains($motivoActual, $observacionGeocerca)) {
+                            $resultadoValidacionAtomica['motivo'] = $motivoActual !== ''
+                                ? $motivoActual . ' | ' . $observacionGeocerca
+                                : $observacionGeocerca;
+                        }
+                    }
+                }
+
                 $idChecada = $registroService->insertar(
                     $payloadValidacion,
                     $resultadoValidacionAtomica,

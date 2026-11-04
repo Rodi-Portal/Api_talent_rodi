@@ -4,6 +4,7 @@ namespace App\Services\Checador;
 use App\Models\Comunicacion360\Checador\Checada;
 use App\Models\Comunicacion360\Checador\ChecadorAsignacion;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 
 class AttendanceDayContextService
 {
@@ -11,24 +12,67 @@ class AttendanceDayContextService
         int $idPortal,
         int $idEmpleado,
         string $fecha,
-        ?int $idCliente = null
+        ?int $idCliente = null,
+        ?Collection $asignacionesPrecargadas = null
     ): array {
-        $asignacion = ChecadorAsignacion::query()
-            ->where('id_portal', $idPortal)
-            ->where('id_empleado', $idEmpleado)
-            ->when(
-                $idCliente !== null,
-                fn($query) => $query->where('id_cliente', $idCliente)
-            )
-            ->where('activa', 1)
-            ->whereDate('fecha_inicio', '<=', $fecha)
-            ->where(function ($query) use ($fecha) {
-                $query->whereNull('fecha_fin')
-                    ->orWhereDate('fecha_fin', '>=', $fecha);
-            })
-            ->orderByDesc('prioridad')
-            ->orderByDesc('id')
-            ->first();
+
+        if ($asignacionesPrecargadas !== null) {
+            // Reporte masivo: buscar en asignaciones precargadas.
+            // No realizar otra consulta SQL.
+            $asignacion = $asignacionesPrecargadas
+                ->filter(function ($item) use (
+                    $idPortal,
+                    $idEmpleado,
+                    $idCliente,
+                    $fecha
+                ) {
+                    if (
+                        (int) $item->id_portal !== $idPortal ||
+                        (int) $item->id_empleado !== $idEmpleado ||
+                        ! (bool) $item->activa
+                    ) {
+                        return false;
+                    }
+
+                    if (
+                        $idCliente !== null &&
+                        (int) $item->id_cliente !== $idCliente
+                    ) {
+                        return false;
+                    }
+
+                    $inicio = $item->fecha_inicio?->toDateString();
+                    $fin    = $item->fecha_fin?->toDateString();
+
+                    return $inicio !== null
+                        && $inicio <= $fecha
+                        && ($fin === null || $fin >= $fecha);
+                })
+                ->sort(function ($a, $b) {
+                    return ((int) $b->prioridad <=> (int) $a->prioridad)
+                        ?: ((int) $b->id <=> (int) $a->id);
+                })
+                ->first();
+
+        } else {
+            // Reporte individual: conservar consulta original.
+            $asignacion = ChecadorAsignacion::query()
+                ->where('id_portal', $idPortal)
+                ->where('id_empleado', $idEmpleado)
+                ->when(
+                    $idCliente !== null,
+                    fn($query) => $query->where('id_cliente', $idCliente)
+                )
+                ->where('activa', 1)
+                ->whereDate('fecha_inicio', '<=', $fecha)
+                ->where(function ($query) use ($fecha) {
+                    $query->whereNull('fecha_fin')
+                        ->orWhereDate('fecha_fin', '>=', $fecha);
+                })
+                ->orderByDesc('prioridad')
+                ->orderByDesc('id')
+                ->first();
+        }
 
         $plantillaHorario = null;
         $detalleHorario   = null;

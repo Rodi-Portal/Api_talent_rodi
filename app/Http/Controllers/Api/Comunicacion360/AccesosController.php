@@ -105,6 +105,225 @@ class AccesosController extends Controller
             ->values()
             ->all();
 
+        $tareasHoyPorEmpleado = $employeeIds === []
+            ? collect()
+            : DB::connection('portal_main')
+            ->table('comunicacion360_empleado_tareas')
+            ->select('empleado_id')
+            ->selectRaw('COUNT(*) AS total')
+            ->selectRaw(
+                'SUM(CASE WHEN estatus = ? THEN 1 ELSE 0 END) AS completadas',
+                ['completada']
+            )
+            ->selectRaw(
+                'SUM(CASE WHEN estatus = ? THEN 1 ELSE 0 END) AS pendientes',
+                ['pendiente']
+            )
+            ->selectRaw(
+                'SUM(CASE WHEN tiene_evidencia = 1 THEN 1 ELSE 0 END) AS con_evidencia'
+            )
+            ->where('id_portal', $idPortal)
+            ->whereIn('empleado_id', $employeeIds)
+            ->whereNull('deleted_at')
+            ->whereDate('created_at', now()->toDateString())
+            ->groupBy('empleado_id')
+            ->get()
+            ->keyBy('empleado_id');
+
+        $ultimasChecadasHoy = collect();
+
+        if ($employeeIds !== []) {
+
+            // Identificar la ultima checada del dia por empleado.
+
+            $checadasOrdenadas = DB::connection('portal_main')
+                ->table('checadas as c')
+                ->join('empleados as e', function ($join) {
+                    $join->on('e.id', '=', 'c.id_empleado')
+                        ->on('e.id_portal', '=', 'c.id_portal')
+                        ->on('e.id_cliente', '=', 'c.id_cliente');
+                })
+                ->select([
+
+                    'c.id',
+                    'c.id_portal',
+                    'c.id_cliente',
+                    'c.id_empleado',
+                    'c.id_ubicacion',
+                    'c.id_asignacion',
+                    'c.latitud',
+                    'c.longitud',
+                    'c.fecha',
+                    'c.check_time',
+                    'c.tipo',
+                    'c.clase',
+                    'c.metodo_validacion',
+                    'c.estatus_validacion',
+                    'c.origen',
+                    'c.distancia_metros',
+                    'c.precision_metros',
+                    'c.observacion',
+                ])
+                ->selectRaw(
+                    'ROW_NUMBER() OVER (
+                PARTITION BY c.id_empleado
+                ORDER BY c.check_time DESC, c.id DESC
+            ) AS orden_checada'
+                )
+                ->where('c.id_portal', $idPortal)
+                ->whereIn('c.id_empleado', $employeeIds)
+                ->whereDate('c.fecha', now()->toDateString());
+
+            // Obtener solo la ultima checada y su ubicacion.
+            $ultimasChecadasHoy = DB::connection('portal_main')
+                ->query()
+                ->fromSub($checadasOrdenadas, 'uc')
+                ->leftJoin('checador_ubicaciones as u', function ($join) {
+                    $join->on('u.id', '=', 'uc.id_ubicacion')
+                        ->on('u.id_portal', '=', 'uc.id_portal')
+                        ->on('u.id_cliente', '=', 'uc.id_cliente');
+                })
+                ->where('uc.orden_checada', 1)
+                ->select([
+                    'uc.*',
+                    'u.nombre as ubicacion_nombre',
+                    'u.tipo_zona as ubicacion_tipo_zona',
+                    'u.radio_metros as ubicacion_radio_metros',
+                ])
+                ->get()
+                ->keyBy('id_empleado');
+
+/*
+ * Recuperar la ubicacion autorizada mas cercana para
+ * checadas GPS que no conservaron la asociacion original.
+ *
+ * Es un calculo de lectura; no modifica la checada.
+ */
+            $checadasSinUbicacion = $ultimasChecadasHoy->filter(
+                static fn($checada) =>
+                $checada->metodo_validacion === 'gps'
+                && $checada->id_ubicacion === null
+                && $checada->distancia_metros === null
+                && $checada->id_asignacion !== null
+                && $checada->latitud !== null
+                && $checada->longitud !== null
+            );
+
+            if ($checadasSinUbicacion->isNotEmpty()) {
+
+                $idsAsignaciones = $checadasSinUbicacion
+                    ->pluck('id_asignacion')
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                // Una consulta para obtener las ubicaciones permitidas.
+                $ubicacionesPorAsignacion = DB::connection('portal_main')
+                    ->table('checador_asignaciones as a')
+                    ->join(
+                        'checador_checada_plantilla_ubicaciones as pu',
+                        'pu.id_plantilla',
+                        '=',
+                        'a.id_plantilla_checada'
+                    )
+                    ->join('checador_ubicaciones as u', function ($join) {
+                        $join->on('u.id', '=', 'pu.id_ubicacion')
+                            ->on('u.id_portal', '=', 'a.id_portal')
+                            ->on('u.id_cliente', '=', 'a.id_cliente');
+                    })
+                    ->whereIn('a.id', $idsAsignaciones)
+                    ->where('a.id_portal', $idPortal)
+                    ->where('pu.activo', 1)
+                    ->where('u.activa', 1)
+                    ->where('u.tipo_zona', 'circle')
+                    ->whereNotNull('u.latitud')
+                    ->whereNotNull('u.longitud')
+                    ->whereNotNull('u.radio_metros')
+                    ->select([
+                        'a.id as id_asignacion',
+                        'a.id_cliente',
+                        'a.id_empleado',
+                        'u.id',
+                        'u.nombre',
+                        'u.tipo_zona',
+                        'u.latitud',
+                        'u.longitud',
+                        'u.radio_metros',
+                    ])
+                    ->get()
+                    ->groupBy('id_asignacion');
+
+                foreach ($checadasSinUbicacion as $checada) {
+
+                    $ubicaciones = $ubicacionesPorAsignacion->get(
+                        $checada->id_asignacion,
+                        collect()
+                    );
+
+                    $ubicacionCercana = null;
+                    $distanciaMenor   = null;
+
+                    foreach ($ubicaciones as $ubicacion) {
+
+                        // Mantener el aislamiento por cliente y empleado.
+                        if (
+                            (int) $ubicacion->id_cliente !== (int) $checada->id_cliente
+                            || (int) $ubicacion->id_empleado !== (int) $checada->id_empleado
+                        ) {
+                            continue;
+                        }
+
+                        $lat1 = deg2rad((float) $checada->latitud);
+                        $lat2 = deg2rad((float) $ubicacion->latitud);
+
+                        $deltaLat = $lat2 - $lat1;
+                        $deltaLng = deg2rad(
+                            (float) $ubicacion->longitud -
+                            (float) $checada->longitud
+                        );
+
+                        $a = sin($deltaLat / 2) ** 2
+                         + cos($lat1) * cos($lat2)
+                         * sin($deltaLng / 2) ** 2;
+
+                        $a = max(0.0, min(1.0, $a));
+
+                        $distancia = 6371000 * 2 * atan2(
+                            sqrt($a),
+                            sqrt(1 - $a)
+                        );
+
+                        if (
+                            $distanciaMenor === null
+                            || $distancia < $distanciaMenor
+                        ) {
+                            $distanciaMenor   = $distancia;
+                            $ubicacionCercana = $ubicacion;
+                        }
+                    }
+
+                    if ($ubicacionCercana !== null) {
+
+                        // Completar solo el resultado en memoria.
+                        $checada->ubicacion_nombre =
+                        $ubicacionCercana->nombre;
+
+                        $checada->ubicacion_tipo_zona =
+                        $ubicacionCercana->tipo_zona;
+
+                        $checada->ubicacion_radio_metros =
+                        $ubicacionCercana->radio_metros;
+
+                        $checada->distancia_metros =
+                            round($distanciaMenor, 2);
+
+                        $checada->ubicacion_recalculada = true;
+                    }
+                }
+            }
+
+        }
+
         $eventosHoy = $employeeIds === []
             ? collect()
             : DB::connection('portal_main')
@@ -155,7 +374,9 @@ class AccesosController extends Controller
             );
 
         $data = $empleados->map(function ($item) use (
-            $eventosHoy
+            $eventosHoy,
+            $tareasHoyPorEmpleado,
+            $ultimasChecadasHoy
         ) {
             $nombreCompleto = trim(collect([
                 $item->nombre,
@@ -165,37 +386,30 @@ class AccesosController extends Controller
 
             $tieneAcceso = ! empty($item->password) && (int) $item->status === 1;
 
-            $tareasHoy = DB::connection('portal_main')
-                ->table('comunicacion360_empleado_tareas')
-                ->where('id_portal', (int) $item->id_portal)
-                ->where('empleado_id', (int) $item->id)
-                ->whereNull('deleted_at')
-                ->whereDate('created_at', now()->toDateString());
+            $resumenTareas = $tareasHoyPorEmpleado->get(
+                (int) $item->id
+            );
 
-            $tareasTotal = (clone $tareasHoy)->count();
+            $tareasTotal = (int) ($resumenTareas->total ?? 0);
 
-            $tareasCompletadas = (clone $tareasHoy)
-                ->where('estatus', 'completada')
-                ->count();
+            $tareasCompletadas = (int) (
+                $resumenTareas->completadas ?? 0
+            );
 
-            $tareasPendientes = (clone $tareasHoy)
-                ->where('estatus', 'pendiente')
-                ->count();
+            $tareasPendientes = (int) (
+                $resumenTareas->pendientes ?? 0
+            );
 
-            $tareasConEvidencia = (clone $tareasHoy)
-                ->where('tiene_evidencia', 1)
-                ->count();
+            $tareasConEvidencia = (int) (
+                $resumenTareas->con_evidencia ?? 0
+            );
 
             $tareasProgreso = $tareasTotal > 0
                 ? round(($tareasCompletadas / $tareasTotal) * 100)
                 : 0;
-            $ultimaChecada = DB::connection('portal_main')
-                ->table('checadas')
-                ->where('id_portal', (int) $item->id_portal)
-                ->where('id_empleado', (int) $item->id)
-                ->whereDate('fecha', now()->toDateString())
-                ->orderByDesc('check_time')
-                ->first();
+            $ultimaChecada = $ultimasChecadasHoy->get(
+                (int) $item->id
+            );
             $eventoHoy = $eventosHoy->get(
                 (int) $item->id
             );
@@ -314,56 +528,103 @@ class AccesosController extends Controller
             }
             return [
 
-                'id'                        => (int) $item->id,
-                'id_portal'                 => (int) $item->id_portal,
-                'id_empleado'               => $item->id_empleado,
-                'nombre'                    => $item->nombre,
-                'paterno'                   => $item->paterno,
-                'materno'                   => $item->materno,
-                'nombre_completo'           => $nombreCompleto,
-                'foto_base64'               => $fotoBase64,
-                'correo'                    => $item->correo,
-                'puesto'                    => $item->puesto,
-                'departamento'              => $item->departamento,
-                'id_cliente'                => (int) $item->id_cliente,
-                'nombre_sucursal'           => 'Sucursal ' . (int) $item->id_cliente,
-                'status'                    => (int) $item->status,
-                'tiene_acceso'              => $tieneAcceso,
-                'force_password_change'     => (int) ($item->force_password_change ?? 0),
-                'last_login_at'             => $item->last_login_at,
-                'ultimo_envio_credenciales' => $item->password_changed_at,
-                'tareas_total'              => $tareasTotal,
-                'tareas_completadas'        => $tareasCompletadas,
-                'tareas_pendientes'         => $tareasPendientes,
-                'tareas_con_evidencia'      => $tareasConEvidencia,
-                'tareas_progreso'           => $tareasProgreso,
-                'tiene_tareas_hoy'          => $tareasTotal > 0,
-                'checador_estado'           => $checadorEstado,
-                'checador_estado_label'     => $checadorEstadoLabel,
-                'evento_vigente'            => (bool) $eventoHoy,
-                'evento_id'                 => $eventoHoy
+                'id'                                   => (int) $item->id,
+                'id_portal'                            => (int) $item->id_portal,
+                'id_empleado'                          => $item->id_empleado,
+                'nombre'                               => $item->nombre,
+                'paterno'                              => $item->paterno,
+                'materno'                              => $item->materno,
+                'nombre_completo'                      => $nombreCompleto,
+                'foto_base64'                          => $fotoBase64,
+                'correo'                               => $item->correo,
+                'puesto'                               => $item->puesto,
+                'departamento'                         => $item->departamento,
+                'id_cliente'                           => (int) $item->id_cliente,
+                'nombre_sucursal'                      => 'Sucursal ' . (int) $item->id_cliente,
+                'status'                               => (int) $item->status,
+                'tiene_acceso'                         => $tieneAcceso,
+                'force_password_change'                => (int) ($item->force_password_change ?? 0),
+                'last_login_at'                        => $item->last_login_at,
+                'ultimo_envio_credenciales'            => $item->password_changed_at,
+                'tareas_total'                         => $tareasTotal,
+                'tareas_completadas'                   => $tareasCompletadas,
+                'tareas_pendientes'                    => $tareasPendientes,
+                'tareas_con_evidencia'                 => $tareasConEvidencia,
+                'tareas_progreso'                      => $tareasProgreso,
+                'tiene_tareas_hoy'                     => $tareasTotal > 0,
+                'checador_estado'                      => $checadorEstado,
+                'checador_estado_label'                => $checadorEstadoLabel,
+                'evento_vigente'                       => (bool) $eventoHoy,
+                'evento_id'                            => $eventoHoy
                     ? (int) $eventoHoy->id
                     : null,
-                'evento_tipo_id'            => $eventoHoy
+                'evento_tipo_id'                       => $eventoHoy
                     ? (int) $eventoHoy->id_tipo
                     : null,
-                'evento_tipo_global'        => (bool) (
+                'evento_tipo_global'                   => (bool) (
                     $eventoHoy &&
                     $eventoHoy->tipo_id_portal === null
                 ),
-                'evento_tipo'               => $eventoHoy?->tipo_nombre,
-                'evento_color'              => $eventoHoy?->tipo_color,
-                'evento_inicio'             => $eventoHoy?->inicio,
-                'evento_fin'                => $eventoHoy?->fin,
-                'ultima_checada'            => $ultimaChecada?->check_time,
-                'ultima_checada_tipo'       => $ultimaChecada?->tipo,
-                'ultima_checada_clase'      => $ultimaChecada?->clase,
-                'sesion_activa'             => $sesionActiva,
-                'ultimo_acceso_token'       => $tokenActivo?->last_used_at,
-                'horario_asignado'          => (bool) $asignacionHorario,
-                'horario_resumen'           => $horarioResumen,
-                'horario_nombre'            => $asignacionHorario?->nombre,
-                'horario_detalles'          => $horarioDetalles,
+                'evento_tipo'                          => $eventoHoy?->tipo_nombre,
+                'evento_color'                         => $eventoHoy?->tipo_color,
+                'evento_inicio'                        => $eventoHoy?->inicio,
+                'evento_fin'                           => $eventoHoy?->fin,
+                'ultima_checada'                       => $ultimaChecada?->check_time,
+                'ultima_checada_tipo'                  => $ultimaChecada?->tipo,
+                'ultima_checada_clase'                 => $ultimaChecada?->clase,
+
+                'ultima_checada_estatus_validacion'    =>
+                $ultimaChecada?->estatus_validacion,
+
+                'ultima_checada_metodo_validacion'     =>
+                $ultimaChecada?->metodo_validacion,
+
+                'ultima_checada_origen'                =>
+                $ultimaChecada?->origen,
+
+                'ultima_checada_ubicacion_nombre'      =>
+                $ultimaChecada?->ubicacion_nombre,
+
+                'ultima_checada_ubicacion_tipo_zona'   =>
+                $ultimaChecada?->ubicacion_tipo_zona,
+
+                'ultima_checada_distancia_metros'      =>
+                $ultimaChecada?->distancia_metros !== null
+                    ? (float) $ultimaChecada->distancia_metros
+                    : null,
+
+                'ultima_checada_radio_metros'          =>
+                $ultimaChecada?->ubicacion_radio_metros !== null
+                    ? (float) $ultimaChecada->ubicacion_radio_metros
+                    : null,
+
+                'ultima_checada_exceso_metros'         =>
+                $ultimaChecada?->ubicacion_tipo_zona === 'circle'
+                && $ultimaChecada?->distancia_metros !== null
+                && $ultimaChecada?->ubicacion_radio_metros !== null
+                    ? round(max(
+                    0,
+                    (float) $ultimaChecada->distancia_metros
+                     - (float) $ultimaChecada->ubicacion_radio_metros
+                ), 2)
+                    : null,
+
+                'ultima_checada_ubicacion_recalculada' =>
+                (bool) ($ultimaChecada?->ubicacion_recalculada ?? false),
+
+                'ultima_checada_precision_metros'      =>
+                $ultimaChecada?->precision_metros !== null
+                    ? (float) $ultimaChecada->precision_metros
+                    : null,
+
+                'ultima_checada_observacion'           =>
+                $ultimaChecada?->observacion,
+                'sesion_activa'                        => $sesionActiva,
+                'ultimo_acceso_token'                  => $tokenActivo?->last_used_at,
+                'horario_asignado'                     => (bool) $asignacionHorario,
+                'horario_resumen'                      => $horarioResumen,
+                'horario_nombre'                       => $asignacionHorario?->nombre,
+                'horario_detalles'                     => $horarioDetalles,
             ];
         })->values();
 
@@ -1129,7 +1390,7 @@ class AccesosController extends Controller
 
         $tokensEliminados = $empleado->tokens()->count();
 
-        $empleado->tokens()->delete();
+        app(\App\Services\Auth\EmpleadoSessionService::class)->revokeAllAccessTokens($empleado);
 
         $this->auditoria->registrar([
             'id_portal'        => $idPortal,
@@ -1211,17 +1472,8 @@ class AccesosController extends Controller
                     'edicion'               => now(),
                 ]);
 
-            $tokensEliminados = DB::connection('portal_main')
-                ->table('personal_access_tokens')
-                ->where('tokenable_type', 'App\\Models\\Auth\\EmpleadoAuth')
-                ->where('tokenable_id', (int) $empleado->id)
-                ->count();
-
-            DB::connection('portal_main')
-                ->table('personal_access_tokens')
-                ->where('tokenable_type', 'App\\Models\\Auth\\EmpleadoAuth')
-                ->where('tokenable_id', (int) $empleado->id)
-                ->delete();
+            $tokensEliminados = app(\App\Services\Auth\EmpleadoSessionService::class)
+                ->revokeAllAccessTokensById((int) $empleado->id);
 
             $dispositivos = DB::connection('portal_main')
                 ->table('checador_dispositivos')

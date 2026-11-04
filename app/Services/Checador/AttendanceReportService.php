@@ -4,6 +4,7 @@ namespace App\Services\Checador;
 use App\Services\ChecadorHorasExtraService;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
+use Illuminate\Support\Collection;
 
 class AttendanceReportService
 {
@@ -20,7 +21,8 @@ class AttendanceReportService
         int $idPortal,
         int $idEmpleado,
         string $fechaInicio,
-        string $fechaFin
+        string $fechaFin,
+        ?Collection $asignacionesPrecargadas = null
     ): array {
         $dias    = [];
         $resumen = [
@@ -57,7 +59,9 @@ class AttendanceReportService
             $contexto = $this->dayContextService->resolver(
                 $idPortal,
                 $idEmpleado,
-                $fechaString
+                $fechaString,
+                null,
+                $asignacionesPrecargadas
             );
             $asignacion          = $contexto['asignacion'];
             $plantillaHorario    = $contexto['plantillaHorario'];
@@ -161,9 +165,7 @@ class AttendanceReportService
             $minutosBrutosReporte = $minutosEventoPagables > 0
                 ? $minutosEventoPagables
                 : (
-                $calculoJornada['normal']['minutos_pagables']
-    ?? $calculoJornada['normal']['minutos_detectados']
-    ?? 0
+                $calculoJornada['normal']['minutos_pagables'] ?? $calculoJornada['normal']['minutos_detectados'] ?? 0
             );
 
             $descansoReporte = $this->calcularDescansoReporte(
