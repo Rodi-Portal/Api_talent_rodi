@@ -85,6 +85,27 @@ class ChecadaValidationService
         ) {
             $validacionUbicacion = $this->validarUbicacion($asignacion, $data);
 
+            // Respetar la regla real de la plantilla para checadas
+            // geolocalizadas. QR mantiene su validacion independiente.
+            if (
+                ($validacionUbicacion['code'] ?? null) === 'outside_allowed_location'
+                && ($data['metodo'] ?? '') !== 'qr'
+            ) {
+                $reglaUbicacionGeocerca = DB::connection('portal_main')
+                    ->table('checador_checada_plantillas')
+                    ->where('id', (int) $asignacion->id_plantilla_checada)
+                    ->where('id_portal', (int) $data['id_portal'])
+                    ->where('id_cliente', (int) $data['id_cliente'])
+                    ->where('activo', 1)
+                    ->value('regla_fuera_ubicacion');
+
+                if (in_array($reglaUbicacionGeocerca, ['advertir', 'permitir'], true)) {
+                    $validacionUbicacion['ok'] = true;
+                    $validacionUbicacion['estatus_validacion'] =
+                        $reglaUbicacionGeocerca === 'advertir' ? 'advertida' : 'valida';
+                }
+            }
+
             if (! $validacionUbicacion['ok']) {
                 return array_merge($validacionUbicacion, [
                     'id_asignacion' => $asignacion->id,
