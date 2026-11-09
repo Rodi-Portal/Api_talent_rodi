@@ -157,7 +157,7 @@ class EmpleadoIncidenciasController extends Controller
                 $eventoId = DB::connection($conn)->table('calendario_eventos')->insertGetId([
 
                     'id_empleado'         => $employee->id,
-                    'id_usuario'          => $employee->id,
+                    'id_usuario'          => null,
                     'id_portal'           => (int) $employee->id_portal,
                     'id_cliente'          => (int) $employee->id_cliente,
                     'inicio'              => $bloque['inicio'],

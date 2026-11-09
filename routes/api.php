@@ -7,10 +7,10 @@ use App\Http\Controllers\ApiGetCandidatosByCliente;
 use App\Http\Controllers\ApiGetDopingDetalles;
 use App\Http\Controllers\ApiGetMedicoDetalles;
 use App\Http\Controllers\Api\Admin\AdminAuthBridgeController;
+use App\Http\Controllers\Api\Comunicacion360\AccesosAsistenciaSucursalController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorGestionController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosChecadorReportesController;
-use App\Http\Controllers\Api\Comunicacion360\AccesosAsistenciaSucursalController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosIpController;
 use App\Http\Controllers\Api\Comunicacion360\AccesosTareasController;
@@ -1795,6 +1795,21 @@ Route::prefix('comunicacion360')
                 )->middleware(
                     'admin.permission:comunicacion360.incidencias.ver'
                 );
+
+                Route::get(
+                    '/{id}/constancia/vista-previa',
+                    [\App\Http\Controllers\Api\Comunicacion360\Incidencias\IncidenciaConstanciaController::class, 'vistaPrevia']
+                )->middleware(
+                    'admin.permission:comunicacion360.incidencias.ver'
+                );
+
+
+
+
+
+
+
+
 
                 Route::get(
                     '/{id}/evidencia',
