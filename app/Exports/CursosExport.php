@@ -52,7 +52,8 @@ class CursosExport implements FromCollection, WithHeadings, WithStyles
     public function styles(Worksheet $sheet): ?array
     {
         // Ajustar el ancho de las columnas
-        foreach (range('A', $sheet->getHighestColumn()) as $column) {
+        for ($columnIndex = 1, $maxColumnIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestColumn()); $columnIndex <= $maxColumnIndex; $columnIndex++) {
+            $column = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($columnIndex);
             $sheet->getColumnDimension($column)->setAutoSize(true);
         }
         $sheet->mergeCells('A1:' . $sheet->getHighestColumn() . '1');
@@ -84,7 +85,8 @@ class CursosExport implements FromCollection, WithHeadings, WithStyles
         $highestColumn = $sheet->getHighestColumn(); // Obtener la última columna con contenido
         $row = 2; // Número de fila a procesar
         
-        foreach (range('A', $highestColumn) as $column) {
+        for ($columnIndex = 1, $maxColumnIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($highestColumn); $columnIndex <= $maxColumnIndex; $columnIndex++) {
+            $column = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($columnIndex);
             $cellValue = $sheet->getCell($column . $row)->getValue(); // Obtener el valor de la celda
             if (!empty($cellValue)) { // Verificar si la celda no está vacía
                 $sheet->getStyle($column . $row)->applyFromArray([
