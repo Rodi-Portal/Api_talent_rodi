@@ -98,7 +98,10 @@ class CsvController extends Controller
 
         try {
             // Leer las cabeceras del archivo
-            $rawHeadings = Excel::toArray([], $file)[0][0] ?? [];
+            $rawHeadings = Excel::toArray(
+                new class implements \Maatwebsite\Excel\Concerns\Import {},
+                $file
+            )[0][0] ?? [];
 
             // Filtrar solo cabeceras que sean strings y no estén vacías
             $filteredRawHeadings = array_filter($rawHeadings, function ($item) {
