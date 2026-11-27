@@ -481,7 +481,7 @@ class DashboardController extends Controller
                     $allowedClients,
                     $clientId,
                     $today,
-                    [2, 3, 4]// incapacidad / permiso / falta
+                    [1, 2, 3, 4]// vacaciones / incapacidad / permiso / falta
                 );
 
                 // =========================
@@ -850,9 +850,11 @@ class DashboardController extends Controller
         if ($kpiKey === 'employees_active_period') {
             $items = $this->db()
                 ->table('empleados as e')
+                ->leftJoin('cliente as c', 'c.id', '=', 'e.id_cliente')
                 ->select([
                     'e.id',
                     'e.id_cliente',
+                    'c.nombre as cliente_nombre',
                     'e.nombre',
                     'e.paterno',
                     'e.materno',
@@ -860,6 +862,7 @@ class DashboardController extends Controller
                     'e.puesto',
                     'e.departamento',
                     'e.fecha_ingreso',
+                    DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) as fecha_alta_calculo'),
                     'e.fecha_salida',
                     'e.status',
                 ])
@@ -894,9 +897,11 @@ class DashboardController extends Controller
         if ($kpiKey === 'hires_period') {
             $items = $this->db()
                 ->table('empleados as e')
+                ->leftJoin('cliente as c', 'c.id', '=', 'e.id_cliente')
                 ->select([
                     'e.id',
                     'e.id_cliente',
+                    'c.nombre as cliente_nombre',
                     'e.nombre',
                     'e.paterno',
                     'e.materno',
@@ -904,6 +909,7 @@ class DashboardController extends Controller
                     'e.puesto',
                     'e.departamento',
                     'e.fecha_ingreso',
+                    DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) as fecha_alta_calculo'),
                     'e.fecha_salida',
                     'e.status',
                 ])
@@ -932,9 +938,11 @@ class DashboardController extends Controller
         if ($kpiKey === 'terminations_period') {
             $items = $this->db()
                 ->table('empleados as e')
+                ->leftJoin('cliente as c', 'c.id', '=', 'e.id_cliente')
                 ->select([
                     'e.id',
                     'e.id_cliente',
+                    'c.nombre as cliente_nombre',
                     'e.nombre',
                     'e.paterno',
                     'e.materno',
@@ -1041,9 +1049,11 @@ class DashboardController extends Controller
 
             // LISTA (altas)
             $hireItems = $this->db()->table('empleados as e')
+                ->leftJoin('cliente as c', 'c.id', '=', 'e.id_cliente')
                 ->select([
                     'e.id',
                     'e.id_cliente',
+                    'c.nombre as cliente_nombre',
                     'e.nombre',
                     'e.paterno',
                     'e.materno',
@@ -1051,6 +1061,7 @@ class DashboardController extends Controller
                     'e.puesto',
                     'e.departamento',
                     'e.fecha_ingreso',
+                    DB::raw('COALESCE(e.fecha_ingreso, DATE(e.creacion)) as fecha_alta_calculo'),
                     'e.fecha_salida',
                     'e.status',
                     DB::raw("'alta' as movement_type"),
@@ -1071,9 +1082,11 @@ class DashboardController extends Controller
 
             // LISTA (bajas)
             $terminationItems = $this->db()->table('empleados as e')
+                ->leftJoin('cliente as c', 'c.id', '=', 'e.id_cliente')
                 ->select([
                     'e.id',
                     'e.id_cliente',
+                    'c.nombre as cliente_nombre',
                     'e.nombre',
                     'e.paterno',
                     'e.materno',
