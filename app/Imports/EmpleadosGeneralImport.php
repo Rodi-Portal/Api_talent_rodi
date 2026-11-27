@@ -34,6 +34,11 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
      * Columnas fijas esperadas en la hoja (normalizadas por WithHeadingRow)
      * Recuerda: "Departamento (Selección)" => departamento_seleccion, idem "Otro".
      */
+    protected array $columnasAuxiliares = [
+        'deps',
+        'puestos',
+    ];
+
     protected array $columnasFijas = [
         'id_portal', 'id_cliente', // vienen en el Excel (útiles para validar), pero usamos las del empleado como fuente de verdad
         'id', 'id_empleado', 'nombre', 'paterno', 'materno',
@@ -216,12 +221,19 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                         $original[$campo]                         = $valor;
                         $filaNorm[$this->normalizarCampo($campo)] = $valor;
                     }
-                    // Ignorar filas completamente vacías
-                    $valoresConContenido = collect($filaNorm)->filter(function ($valor) {
-                        return $valor !== null && trim((string) $valor) !== '';
-                    });
+                    // Ignorar filas auxiliares sin datos de empleado.
+                    // Mantener el criterio de la validación previa.
+                    $id      = trim((string) ($filaNorm['id'] ?? ''));
+                    $codigo  = trim((string) ($filaNorm['id_empleado'] ?? ''));
+                    $nombre  = trim((string) ($filaNorm['nombre'] ?? ''));
+                    $paterno = trim((string) ($filaNorm['paterno'] ?? ''));
 
-                    if ($valoresConContenido->isEmpty()) {
+                    if (
+                        $id === '' &&
+                        $codigo === '' &&
+                        $nombre === '' &&
+                        $paterno === ''
+                    ) {
                         return;
                     }
 
@@ -356,7 +368,11 @@ class EmpleadosGeneralImport implements ToCollection, WithHeadingRow
                     $columnasFijasSet = array_flip($columnasFijasNorm);
                     foreach ($original as $nombreOriginal => $valorOriginal) {
                         $norm = $this->normalizarCampo($nombreOriginal);
-                        if (isset($columnasFijasSet[$norm])) {
+                        // Ignorar columnas fijas y auxiliares de catálogos.
+                        if (
+                            isset($columnasFijasSet[$norm]) ||
+                            in_array(trim($norm, '_'), $this->columnasAuxiliares, true)
+                        ) {
                             continue;
                         }
 
