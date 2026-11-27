@@ -39,6 +39,9 @@ class Empleado extends Model
         'fecha_salida',
     ];
     protected $casts = [
+        'rfc'  => \App\Casts\EmpleadoEncryptedString::class,
+        'curp' => \App\Casts\EmpleadoEncryptedString::class,
+        'nss'  => \App\Casts\EmpleadoEncryptedString::class,
         'fecha_nacimiento' => 'date:Y-m-d',
         'fecha_ingreso'    => 'date:Y-m-d',
         'fecha_salida'    => 'date:Y-m-d',

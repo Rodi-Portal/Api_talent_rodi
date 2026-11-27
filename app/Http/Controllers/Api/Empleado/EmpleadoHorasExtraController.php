@@ -139,7 +139,9 @@ class EmpleadoHorasExtraController extends Controller
                     ->orWhereDate('a.fecha_fin', '>=', $data['fecha']);
             })
             ->select([
-                'e.*',
+                'e.id',
+                'e.id_portal',
+                'e.id_cliente',
             ])
             ->first();
 
