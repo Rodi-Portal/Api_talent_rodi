@@ -223,6 +223,12 @@ Route::middleware(['api'])->group(function () {
     Route::middleware(['auth:sanctum', 'admin.session'])
         ->group(function () {
             Route::get(
+                '/admin/clientes-permitidos',
+                [\App\Http\Controllers\Api\Admin\AdminClientCatalogController::class, 'index']
+            );
+
+
+            Route::get(
                 '/dashboard/summary',
                 [DashboardController::class, 'summary']
             );
